@@ -128,6 +128,10 @@ data properties, including names such as `__proto__`. Array mode preserves ordin
 a type argument, values are `unknown`. Streaming uses the same decoding rules. Description does not
 infer nullability, resolve domains through catalog queries, or discover application TypeScript types.
 
+Protocol UTF-8 decoding preserves leading U+FEFF in values and names. It rejects invalid UTF-8;
+it does not strip byte-order marks or normalize Unicode data. Array syntax recognizes only the six
+ASCII whitespace characters PostgreSQL specifies; Unicode whitespace in elements is preserved.
+
 ## Codecs and parameters
 
 Plain values are null, strings, finite numbers, bigint, boolean, or Uint8Array. Plain strings/numbers

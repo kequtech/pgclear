@@ -568,3 +568,51 @@ test(
     });
   },
 );
+
+test(
+  'Unicode values and column names retain leading U+FEFF through both packed drivers',
+  within,
+  async () => {
+    await fixture(async (db) => {
+      const value = await db.query(sql`SELECT chr(65279)||'hello' AS value`, { returns: 'one' });
+      assert.deepEqual(value, { value: '\ufeffhello' });
+      const names = await db.query(sql`SELECT 1 AS value,2 AS "\ufeffvalue"`, { returns: 'one' });
+      assert.deepEqual(names, { value: 1, '\ufeffvalue': 2 });
+      const description = await describeQuery({
+        connection: url,
+        query: 'SELECT 1 AS value,2 AS "\ufeffvalue"',
+      });
+      assert.deepEqual(
+        description.columns.map((column) => column.name),
+        ['value', '\ufeffvalue'],
+      );
+    });
+  },
+);
+
+test(
+  'Unicode text-array elements preserve PostgreSQL data through both packed drivers',
+  within,
+  async () => {
+    await fixture(async (db) => {
+      const codes = [
+        0x85, 0xa0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008,
+        0x2009, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff,
+      ];
+      const expressions = codes.flatMap((code) => [
+        `chr(${code})||'hello'`,
+        `'hello'||chr(${code})`,
+        `chr(${code})`,
+      ]);
+      const expected = codes.flatMap((code) => {
+        const char = String.fromCodePoint(code);
+        return [char + 'hello', 'hello' + char, char];
+      });
+      const row = await db.query(
+        unsafeSql(`SELECT ARRAY[${expressions.join(',')}]::text[] AS value`, []),
+        { returns: 'one' },
+      );
+      assert.deepEqual(row.value, expected);
+    });
+  },
+);

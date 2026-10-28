@@ -182,6 +182,29 @@ also removed the proposed need for an isParameter guard. No upstream API is adde
 Adapt shared ORM policy to bigint counts; retain SQL composition, catalog interpretation and guarded
 write checks in Tenon. Native pg listener/mock tests are not forced through a compatibility shim.
 
+## D21 — Preserve protocol text; use PostgreSQL's array whitespace grammar
+
+The Tenon agent's post-M4 review reproduced two data-corruption bugs despite the original passing
+suites: TextDecoder removed a leading U+FEFF from values/names, and JavaScript `\s` stripped valid
+Unicode characters from unquoted array elements. These were defects, not representation choices.
+Both UTF-8 decoders now use `fatal: true, ignoreBOM: true`; protocol strings are data, not documents
+whose first character may be discarded. Invalid UTF-8 still rejects.
+
+Array parsing recognizes only space, tab, newline, carriage return, vertical tab and form feed as
+syntax whitespace. Unicode spaces remain element data; quoted/escaped ASCII whitespace remains
+data too. This follows PostgreSQL 16's
+[array_isspace](https://github.com/postgres/postgres/blob/REL_16_STABLE/src/backend/utils/adt/arrayfuncs.c)
+and PostgreSQL 18's
+[scanner_isspace](https://github.com/postgres/postgres/blob/REL_18_STABLE/src/backend/parser/scansup.c).
+Node documents the counterintuitive flag in
+[TextDecoder options](https://github.com/nodejs/node/blob/v24.4.1/doc/api/util.md#new-textdecoderencoding-options).
+
+Regressions cover repeated/leading U+FEFF, protocol metadata/diagnostics, Unicode array edges and
+whitespace-only elements, nesting/bounds, invalid UTF-8 and escaped ASCII controls. Real-server tests
+compare arrays with independent JSON output and compare parser input with PostgreSQL's own parser.
+The packed Tenon fixture runs the same Unicode cases against pg and pgclear. M5 remains on hold
+while correctness and applicable M4 adoption gates are addressed.
+
 ## Deferred decisions
 
 These do not block the sequential core: pipelining configuration shape; binary result selection;

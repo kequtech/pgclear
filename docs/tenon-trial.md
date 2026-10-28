@@ -88,10 +88,19 @@ discovery, input normalization, pg-shaped native facade or new upstream API.
 
 ## Evidence and remaining adoption work
 
-On 2026-10-28 the complete runner passed on PostgreSQL 16.15: the pg baseline passed **180 tests**. The external fixture
-has **15 cases**: 13 shared cases plus two candidate-only cases. All **15 candidate cases** passed; **13 baseline cases** passed with the two candidate-only cases
-skipped. Candidate source declarations and formatting are checked independently of the old pg-specific test types. The pgclear regression suite also passed **93 tests**. The machine-readable report
-is the authority for a particular run's observed outcome.
+On 2026-10-28 the post-review runner passed on PostgreSQL 16.15: the pg baseline passed **180 tests**.
+The external fixture now has **17 cases**: 15 shared cases plus two candidate-only cases. All
+**17 candidate cases** passed; **15 baseline cases** passed with two skipped. Candidate source
+formatting/declarations and generated types under TypeScript 6/7 also passed. The pgclear regression
+suite passed **100 tests** (53 database-independent, 47 integration). The machine-readable report is
+the authority for a particular run's observed outcome.
+
+The independent Tenon review found two Unicode corruption bugs after the original 15-case trial
+and 93 driver tests had passed. The UTF-8 decoders and array whitespace grammar are corrected in D21.
+New shared cases preserve leading U+FEFF in values/column names and 20 non-ASCII characters at array
+edges. Core tests also compare array decoding with server JSON and parser behavior with PostgreSQL's
+own input parser. The earlier green trial did not cover these values and did not establish full
+consumer correctness.
 
 This is not a claim that Tenon's original 180 tests pass unchanged on pgclear. Its pg-native mocks,
 configuration, result assertions and notification/lifecycle hooks must be replaced with tests of the
@@ -104,4 +113,5 @@ public type examples, update its user documentation, run the adapted consumer su
 deployments, performance or a production release. It changes neither Tenon 0.3.1 nor pgclear's release
 visibility, and does not advance to M5 automatically.
 
-M5 is on hold pending feedback from the Tenon agent, at the maintainer's request on 2026-10-28.
+Tenon feedback has been received. M5 remains on hold for this correctness follow-up and the
+outstanding applicable M4 adoption/16/18 gates, following the maintainer's request on 2026-10-28.

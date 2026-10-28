@@ -1,5 +1,17 @@
 import type { PgArray } from '../types.js';
 
+/** PostgreSQL array_isspace/scanner_isspace: locale-independent ASCII syntax whitespace. */
+function isArrayWhitespace(char: string | undefined): boolean {
+  return (
+    char === ' ' ||
+    char === '\t' ||
+    char === '\n' ||
+    char === '\r' ||
+    char === '\v' ||
+    char === '\f'
+  );
+}
+
 /** PostgreSQL text-array grammar. Bounds are validated, then intentionally omitted from JS values. */
 export function parseArray(
   text: string,
@@ -12,7 +24,7 @@ export function parseArray(
     throw new Error('Invalid PostgreSQL array.');
   }
   const space = () => {
-    while (/\s/.test(text[position] ?? '') && position < text.length) position++;
+    while (isArrayWhitespace(text[position])) position++;
   };
   space();
   while (text[position] === '[') {
@@ -63,7 +75,7 @@ export function parseArray(
         escaped = true;
       } else {
         value += char;
-        if (!/\s/.test(char)) significant = value.length;
+        if (!isArrayWhitespace(char)) significant = value.length;
       }
     }
     value = value.slice(0, significant);

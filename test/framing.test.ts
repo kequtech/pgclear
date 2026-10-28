@@ -191,3 +191,49 @@ test('sparse and ambiguous values reject before a request is encoded', () => {
     code: 'PGCLEAR_ENCODE',
   });
 });
+
+test('protocol strings preserve U+FEFF in names, notices and notification payloads', () => {
+  const value = '\ufeffé😀';
+  const reader = new Reader(Buffer.concat([z(value), z('\ufeff' + value), Buffer.from(value)]));
+  assert.equal(reader.cstring(), value);
+  assert.equal(reader.cstring(), '\ufeff' + value);
+  assert.equal(reader.text(Buffer.byteLength(value)), value);
+  reader.end();
+  const decode = (type: string, payload: Buffer) =>
+    decodeMessage({ type: type.charCodeAt(0), payload });
+  const description = decode(
+    'T',
+    Buffer.concat([
+      Buffer.from([0, 1]),
+      z(value),
+      i32(0),
+      Buffer.from([0, 0]),
+      i32(25),
+      Buffer.from([0xff, 0xff]),
+      i32(-1),
+      Buffer.from([0, 0]),
+    ]),
+  );
+  assert.equal(description.type, 'fields');
+  if (description.type === 'fields') assert.equal(description.fields[0]!.name, value);
+  const notice = decode(
+    'N',
+    Buffer.concat([
+      Buffer.from('S'),
+      z('NOTICE'),
+      Buffer.from('C'),
+      z('00000'),
+      Buffer.from('M'),
+      z(value),
+      Buffer.from([0]),
+    ]),
+  );
+  assert.equal(notice.type, 'notice');
+  if (notice.type === 'notice') assert.equal(notice.error.message, value);
+  assert.deepEqual(decode('A', Buffer.concat([i32(1), z(value), z(value)])), {
+    type: 'notification',
+    pid: 1,
+    channel: value,
+    payload: value,
+  });
+});

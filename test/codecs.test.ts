@@ -227,3 +227,92 @@ test('typed array codecs encode rectangular nested arrays and reject invalid sha
     assert.throws(() => codec.encode(value as never));
   }
 });
+
+test('UTF8 field decoding preserves every leading U+FEFF before built-in and custom codecs', () => {
+  for (const text of ['\uFEFF', '\uFEFFhello', '\uFEFF\uFEFFhello', 'hello\uFEFF', '\uFEFFé😀']) {
+    assert.equal(decode(25, text), text);
+    assert.equal(decode(987654, text), text);
+    assert.equal(
+      decode(
+        25,
+        text,
+        defaultCodecs.with({
+          oid: 25,
+          text: { encode: (value: string) => value, decode: (value) => 'custom:' + value },
+        }),
+      ),
+      'custom:' + text,
+    );
+  }
+  assert.throws(
+    () => registry(defaultCodecs).decode(Buffer.from([0xef, 0xbb, 0xbf, 0xff]), field(25)),
+    TypeError,
+  );
+});
+
+test('array syntax consumes only PostgreSQL ASCII whitespace and preserves Unicode data', () => {
+  const unicode = [
+    '\u0085',
+    '\u00a0',
+    '\u1680',
+    '\u2000',
+    '\u2001',
+    '\u2002',
+    '\u2003',
+    '\u2004',
+    '\u2005',
+    '\u2006',
+    '\u2007',
+    '\u2008',
+    '\u2009',
+    '\u200a',
+    '\u2028',
+    '\u2029',
+    '\u202f',
+    '\u205f',
+    '\u3000',
+    '\ufeff',
+  ];
+  for (const char of unicode) {
+    const values = [char + 'hello', 'hello' + char, char, char + 'NULL' + char];
+    assert.deepEqual(
+      parseArray('{' + values.join(',') + '}', (value) => value),
+      values,
+      JSON.stringify(char),
+    );
+    assert.deepEqual(
+      parseArray('[0:3]={' + values.join(',') + '}', (value) => value),
+      values,
+    );
+    assert.deepEqual(
+      parseArray('{"' + char + 'hello","hello' + char + '"}', (value) => value),
+      [char + 'hello', 'hello' + char],
+    );
+    assert.deepEqual(
+      parseArray('{ ' + char + 'hello' + char + ' \t}', (value) => value),
+      [char + 'hello' + char],
+    );
+    for (const input of [char + '{hello}', '{hello}' + char, '{"hello"' + char + '}'])
+      assert.throws(() => parseArray(input, (value) => value));
+  }
+});
+
+test('array grammar trims only unescaped ASCII syntax whitespace', () => {
+  for (const char of [' ', '\t', '\n', '\r', '\v', '\f']) {
+    assert.deepEqual(
+      parseArray(
+        char + '{' + char + 'hello' + char + ',' + char + 'NULL' + char + '}' + char,
+        (value) => value,
+      ),
+      ['hello', null],
+    );
+    assert.deepEqual(
+      parseArray('{\\' + char + 'hello,hello\\' + char + '}', (value) => value),
+      [char + 'hello', 'hello' + char],
+    );
+    assert.deepEqual(
+      parseArray('{"' + char + 'hello' + char + '"}', (value) => value),
+      [char + 'hello' + char],
+    );
+  }
+});

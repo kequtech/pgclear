@@ -154,6 +154,11 @@ the candidate's adapted public-contract tests. A pgclear run of all 180 legacy t
 pg-specific mocks/configuration and listener cases must be ported or assigned to their relevant
 feature milestones. The PostgreSQL 16/18 adoption gate below remains open.
 
+The Tenon agent's review subsequently found leading-U+FEFF and Unicode-array-whitespace corruption.
+D21 records the fixes and independent Unicode regressions; the original green trial did not cover
+these values. Review feedback has been received, but M5 stays on hold for the correctness follow-up
+and the outstanding applicable M4/16/18 gates.
+
 Follow [Tenon integration](tenon-integration.md). Implement an adapter fixture first, using a packed
 pgclear build; re-read Tenon's current migration before changing that repository. Exercise explicit
 JSON/array inputs, generated value mappings, result/count metadata, description, advisory locks,
@@ -170,8 +175,9 @@ before extending breadth.
 
 ## M5 — Explicit preparation, portals and COPY
 
-On hold at the maintainer's request (2026-10-28). Await feedback from the Tenon agent on the M4
-trial before starting this milestone.
+On hold at the maintainer's request (2026-10-28). Tenon feedback identified correctness blockers;
+the Unicode fixes are locally verified. Complete the outstanding applicable M4 gates before starting
+this milestone.
 
 1. Implement session-owned prepared statement handles, close ordering and lease cleanup, without
    automatic named caches/retries. Distinguish submitted from confirmed creation; do not close a

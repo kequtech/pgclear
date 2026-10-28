@@ -2,7 +2,8 @@ import { DatabaseError, DriverError, protocolError } from '../errors.js';
 import type { Field, TransactionStatus } from '../types.js';
 import type { Frame } from './framing.js';
 
-const utf8 = new TextDecoder('utf-8', { fatal: true });
+// Each protocol string must retain a leading U+FEFF as part of its value/name.
+const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 export class Reader {
   #offset = 0;
   constructor(private readonly data: Buffer) {}

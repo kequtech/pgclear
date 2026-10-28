@@ -61,7 +61,8 @@ const scalars: ReadonlyMap<number, Decoder> = new Map([
     oidCodec,
   ].map((codec) => [codec.oid, codec.text!.decode] as const),
 ]);
-const utf8 = new TextDecoder('utf8', { fatal: true });
+// PostgreSQL field bytes are data, not a BOM-prefixed document.
+const utf8 = new TextDecoder('utf8', { fatal: true, ignoreBOM: true });
 
 class Registry implements CodecRegistry {
   readonly #overrides: ReadonlyMap<number, Decoder>;

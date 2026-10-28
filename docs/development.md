@@ -33,6 +33,15 @@ and `json`.
 
 ## Current verification and limits
 
+The post-M4 Unicode correctness pass on 2026-10-28 passed `npm run check`: **100 tests**
+(53 database-independent, 47 integration) on PostgreSQL 16.15. The Tenon review's leading-U+FEFF and
+Unicode-array-space reproductions failed before the fixes and pass afterward. Coverage includes
+field names, Describe/script metadata, diagnostics, custom codecs, 20 non-ASCII characters at array
+edges, ASCII grammar/escapes, nested/bounded arrays and comparison with server JSON output. These
+regressions run automatically in the existing PostgreSQL 16/18 CI matrix on the next push; that CI
+result has not yet been observed. Docker Desktop is not integrated with this WSL distribution, so no
+isolated local PostgreSQL 18 run was performed and the local PostgreSQL 16 environment was unchanged.
+
 On 2026-10-28, M3 passed `npm run check`: 93 tests (49 database-independent, 44 integration) against
 local PostgreSQL 16.15. Added coverage includes lazy/capacity-accounted pooling, FIFO and canceled
 acquisitions, cold concurrent startup, expired leases/callbacks, release during activity, idle/lifetime
