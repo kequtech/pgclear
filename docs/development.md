@@ -67,7 +67,7 @@ per-repetition metrics and provenance are checked in under `benchmarks/results/`
 arrays remain in ignored `.benchmark-dist/run-o9qK8H/` in the producing checkout.
 
 The profiled follow-up passes **219 tests** (121 database-independent, 98 integration). It removes
-per-row temporary arrays/numeric Buffer views and unnecessary promise suspension for ordinary
+the redundant decoded-value array, numeric Buffer views and unnecessary promise suspension for ordinary
 packets. Pool cleanup allocates expiry signals/errors only when observed, unconstrained lifetimes
 avoid abort composition, and empty drains need no cleanup timer. New/expanded checks retain inherited
 deadline/cancellation behavior and safe writable/enumerable own properties for special column names.

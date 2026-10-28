@@ -111,7 +111,7 @@ Raw profiles and worker metrics remain in ignored `.benchmark-dist/profiles-befo
 Before changes, row mapping accounts for about 33% of sampled active time inclusively, and expiry
 error construction alone accounts for about 14% in the pool profile. Numeric readers also allocate
 short-lived Buffer views; ordinary packet handling creates a promise/microtask for each row.
-The follow-up uses one-pass own-property row construction, bounded direct numeric reads,
+The follow-up combines decoding and entry construction in one map for `Object.fromEntries`, bounded direct numeric reads,
 synchronous ordinary packets, lazy scope expiry signals/errors, unconstrained lifetimes without
 abort composition, and an immediate return from empty cleanup drains. Authentication, recovery,
 stream/COPY backpressure, strict UTF8 and copied payload ownership retain their existing rules.
