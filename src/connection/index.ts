@@ -2,6 +2,7 @@ import { Authenticator } from '../auth/index.js';
 import {
   normalizeConfiguration,
   validateOperation,
+  validateClose,
   integer,
   type Configuration,
 } from '../config/index.js';
@@ -25,8 +26,6 @@ import type {
   InputValue,
   QueryInput,
   TransactionStatus,
-  StreamOptions,
-  ArrayStreamOptions,
   StreamCompletion,
   CopySource,
 } from '../types.js';
@@ -47,7 +46,7 @@ import {
 import { PortalStream, OutputStream } from './stream.js';
 import { rows, result, output, bytes, decodeRow, type Operation, type Work } from './operation.js';
 import { CopyInput } from './copy.js';
-import { CLEANUP_TIMEOUT_MS, deadline, watchOperation } from './timing.js';
+import { CLEANUP_TIMEOUT_MS, deadline, Lifetime, type ExecutionOptions } from './timing.js';
 
 let sessionId = 0;
 const noOp = () => {};
@@ -63,7 +62,6 @@ export class PhysicalConnection {
   #closing = false;
   #requestedClose = false;
   #terminationSent = false;
-  #ready = false;
   #dispatches = 0;
   #statementId = 0;
   #backendPid = 0;
@@ -75,7 +73,7 @@ export class PhysicalConnection {
   #disposed = Promise.withResolvers<void>();
   #lost = new Set<() => void>();
   #info: SessionInfo | undefined;
-  #parameters = new Map<string, string>();
+  #serverVersion = '';
   #status: TransactionStatus = 'idle';
   #messages: ({ message: Message; byteLength: number } | undefined)[] = [];
   #processing = false;
@@ -99,11 +97,11 @@ export class PhysicalConnection {
   }
 
   async open(options: OperationOptions): Promise<PhysicalConnection> {
-    this.#stopStartup = watchOperation(
+    this.#stopStartup = new Lifetime(
       options,
-      (error) => this.#fail(error),
-      this.#config.connectTimeoutMs,
-    );
+      undefined,
+      performance.now() + this.#config.connectTimeoutMs,
+    ).watch((error) => this.#fail(error));
     this.#transport.open();
     try {
       await this.#started.promise;
@@ -121,7 +119,7 @@ export class PhysicalConnection {
       this.#lost.delete(listener);
     };
   }
-  commit(options: OperationOptions): Promise<QueryResult<object>> {
+  commit(options: ExecutionOptions): Promise<QueryResult<object>> {
     return this.#execute(
       { kind: 'query', phase: 'parse', result: rows(), commit: true },
       () => encodeQuery('COMMIT'),
@@ -229,32 +227,22 @@ export class PhysicalConnection {
         if (this.#info) this.#emit({ type: 'notice', session: this.#info, notice: message.error });
         return;
       case 'authentication': {
-        if (this.#ready || !this.#auth) throw protocolError('Unexpected authentication response.');
+        if (this.#info || !this.#auth) throw protocolError('Unexpected authentication response.');
         const reply = await this.#auth.receive(message.authentication);
         if (reply && !this.#dead) this.#write(reply);
         return;
       }
     }
-    if (!this.#auth?.complete && !this.#ready)
+    if (!this.#auth?.complete && !this.#info)
       throw protocolError('Server message arrived before authentication completed.');
     switch (message.type) {
       case 'parameter':
         if (message.name === 'client_encoding' && message.value !== 'UTF8')
           throw protocolError('Only UTF8 client encoding is supported.');
-        if (
-          [
-            'server_version',
-            'client_encoding',
-            'TimeZone',
-            'DateStyle',
-            'IntervalStyle',
-            'standard_conforming_strings',
-          ].includes(message.name)
-        )
-          this.#parameters.set(message.name, message.value);
+        if (message.name === 'server_version') this.#serverVersion = message.value;
         return;
       case 'key':
-        if (this.#ready) throw protocolError('Unexpected backend key.');
+        if (this.#info) throw protocolError('Unexpected backend key.');
         this.#backendPid = message.pid;
         this.#backendSecret = message.secret;
         return;
@@ -459,7 +447,7 @@ export class PhysicalConnection {
 
   #databaseError(error: DatabaseError): void {
     const op = this.#active;
-    if (!this.#ready || !op) {
+    if (!this.#info || !op) {
       this.#fail(error);
       return;
     }
@@ -485,12 +473,11 @@ export class PhysicalConnection {
 
   async #receiveReady(status: TransactionStatus): Promise<void> {
     this.#status = status;
-    if (!this.#ready) {
-      this.#ready = true;
+    if (!this.#info) {
       this.#info = Object.freeze({
         id: this.#id,
         backendPid: this.#backendPid,
-        serverVersion: this.#parameters.get('server_version') ?? '',
+        serverVersion: this.#serverVersion,
       });
       this.#stopStartup();
       this.#auth = undefined;
@@ -621,7 +608,7 @@ export class PhysicalConnection {
 
   query(
     statement: QueryInput<object>,
-    options: QueryOptions | ArrayQueryOptions = {},
+    options: ExecutionOptions = { lifetime: new Lifetime() },
   ): Promise<QueryResult<object>> {
     return this.#execute(
       { kind: 'query', phase: 'parse', result: rows(options.rowMode === 'array') },
@@ -645,18 +632,18 @@ export class PhysicalConnection {
     values: readonly InputValue[],
     options: QueryOptions | ArrayQueryOptions = {},
   ): Promise<QueryResult<object>> {
-    return this.query([text, values], options);
+    return this.query([text, values], { ...options, lifetime: new Lifetime(options) });
   }
   describe(
     statement: string | DescribeStatement,
-    options: OperationOptions = {},
+    options: ExecutionOptions = { lifetime: new Lifetime() },
   ): Promise<Description> {
     return this.#describe('describe', statement, '', options);
   }
   prepare(
     name: string,
     statement: string | DescribeStatement,
-    options: OperationOptions,
+    options: ExecutionOptions,
   ): Promise<Description> {
     return this.#describe('prepare', statement, name, options);
   }
@@ -664,7 +651,7 @@ export class PhysicalConnection {
     kind: 'describe' | 'prepare',
     statement: string | DescribeStatement,
     name: string,
-    options: OperationOptions,
+    options: ExecutionOptions,
   ): Promise<Description> {
     const work: Work = {
       kind,
@@ -686,7 +673,7 @@ export class PhysicalConnection {
     name: string,
     values: readonly InputValue[],
     description: Description,
-    options: QueryOptions | ArrayQueryOptions,
+    options: ExecutionOptions,
   ): Promise<QueryResult<object>> {
     return this.#execute(
       { kind: 'query', phase: 'bind', result: rows(options.rowMode === 'array') },
@@ -695,7 +682,10 @@ export class PhysicalConnection {
       result,
     );
   }
-  closeStatement(name: string, options: OperationOptions = {}): Promise<void> {
+  closeStatement(
+    name: string,
+    options: ExecutionOptions = { lifetime: new Lifetime() },
+  ): Promise<void> {
     return this.#execute(
       { kind: 'statement-close', phase: 'close' },
       () => encodeStatementClose(name),
@@ -703,7 +693,10 @@ export class PhysicalConnection {
       () => {},
     );
   }
-  script(text: string, options: OperationOptions = {}): Promise<readonly QueryResult[]> {
+  script(
+    text: string,
+    options: ExecutionOptions = { lifetime: new Lifetime() },
+  ): Promise<readonly QueryResult[]> {
     const work: Work = { kind: 'script', phase: 'script', result: rows(), results: [] };
     return this.#execute(
       work,
@@ -712,11 +705,7 @@ export class PhysicalConnection {
       () => Object.freeze(work.results) as readonly QueryResult[],
     );
   }
-  stream(
-    statement: QueryInput<object>,
-    options: StreamOptions | ArrayStreamOptions,
-    stream: PortalStream,
-  ): void {
+  stream(statement: QueryInput<object>, options: ExecutionOptions, stream: PortalStream): void {
     const batchSize = options.batchSize === undefined ? 100 : options.batchSize;
     const work: Work = {
       kind: 'stream',
@@ -736,14 +725,14 @@ export class PhysicalConnection {
       options,
     );
   }
-  copyTo(text: string, options: OperationOptions, stream: OutputStream<Uint8Array>): void {
+  copyTo(text: string, options: ExecutionOptions, stream: OutputStream<Uint8Array>): void {
     this.#output(
       { kind: 'copy-to', phase: 'parse', output: stream, bytes: 0, columns: 0 },
       () => this.#encodeCopy(text),
       options,
     );
   }
-  copyFrom(text: string, source: CopySource, options: OperationOptions): Promise<CommandResult> {
+  copyFrom(text: string, source: CopySource, options: ExecutionOptions): Promise<CommandResult> {
     const input = new CopyInput(source);
     return this.#execute(
       { kind: 'copy-from', phase: 'parse', input, bytes: 0, columns: 0 },
@@ -763,7 +752,7 @@ export class PhysicalConnection {
   #output(
     work: Extract<Work, { kind: 'stream' | 'copy-to' }>,
     encode: () => Buffer,
-    options: StreamOptions | ArrayStreamOptions,
+    options: ExecutionOptions,
   ): void {
     const promise = this.#execute<StreamCompletion>(work, encode, options, (op) =>
       work.output.closing ? { status: 'closed' } : { status: 'complete', result: op.command! },
@@ -777,7 +766,7 @@ export class PhysicalConnection {
   #execute<T>(
     work: Work,
     encode: () => Buffer,
-    options: OperationOptions,
+    options: ExecutionOptions,
     read: (operation: Operation) => T,
   ): Promise<T> {
     const started = performance.now();
@@ -785,16 +774,14 @@ export class PhysicalConnection {
       let op: Operation | undefined;
       try {
         if (!this.usable) throw new DriverError('PGCLEAR_CLOSED', 'The connection is closed.');
-        if (options.signal?.aborted) throw new DriverError('PGCLEAR_ABORTED', 'Operation aborted.');
-        if (options.timeoutMs === 0)
-          throw new DriverError('PGCLEAR_TIMEOUT', 'Operation deadline expired.');
+        options.lifetime.check();
         if (this.#queue.length >= this.#config.maxQueuedOperations)
           throw new DriverError('PGCLEAR_QUEUE_FULL', 'The connection queue is full.');
         const accepted: Operation = (op = {
           work,
           state: 'encoding',
           started,
-          expiresAt: options.timeoutMs === undefined ? undefined : started + options.timeoutMs,
+          lifetime: options.lifetime,
           resolve: (operation) => {
             try {
               resolve(read(operation));
@@ -809,7 +796,7 @@ export class PhysicalConnection {
         // Reservation precedes any user encoder or source getter, including reentrant calls.
         this.#queue.push(accepted);
         output(work)?.onClose((end) => this.#closeOutput(accepted, end));
-        accepted.stop = watchOperation(options, (error) => this.#interrupt(accepted, error));
+        accepted.stop = accepted.lifetime.watch((error) => this.#interrupt(accepted, error));
         try {
           accepted.wire = encode();
         } catch (cause) {
@@ -834,6 +821,7 @@ export class PhysicalConnection {
               : new DriverError('PGCLEAR_ENCODE', 'Operation encoding failed.'),
           );
         else {
+          options.lifetime.stop();
           if (work.kind === 'copy-from') void work.input.stop();
           reject(error);
         }
@@ -841,9 +829,13 @@ export class PhysicalConnection {
     });
   }
   #expired(op: Operation): boolean {
-    if (op.expiresAt === undefined || performance.now() < op.expiresAt) return false;
-    this.#interrupt(op, new DriverError('PGCLEAR_TIMEOUT', 'Operation deadline expired.'));
-    return true;
+    try {
+      op.lifetime.check();
+      return false;
+    } catch (error) {
+      this.#interrupt(op, error as DriverError);
+      return true;
+    }
   }
   #interrupt(op: Operation, error: Error): void {
     if (op.state === 'settled') return;
@@ -884,19 +876,26 @@ export class PhysicalConnection {
     }
   }
   #pump(): void {
-    if (this.#dead || this.#active || this.#queue[0]?.state === 'encoding') return;
-    const op = this.#queue.shift();
-    if (!op) {
-      if (this.#closing && !this.#terminationSent) {
-        this.#terminationSent = true;
-        this.#transport.end(terminate);
+    while (!this.#dead && !this.#active && this.#queue[0]?.state !== 'encoding') {
+      const op = this.#queue.shift();
+      if (!op) {
+        if (this.#closing && !this.#terminationSent) {
+          this.#terminationSent = true;
+          this.#transport.end(terminate);
+        }
+        return;
       }
-      return;
+      try {
+        op.lifetime.check();
+      } catch (error) {
+        this.#settle(op, error as DriverError, 'not-sent');
+        continue;
+      }
+      this.#active = op;
+      op.state = 'active';
+      this.#dispatches++;
+      this.#write(op.wire!);
     }
-    this.#active = op;
-    op.state = 'active';
-    this.#dispatches++;
-    this.#write(op.wire!);
   }
   #settle(op: Operation, error: Error | undefined, outcome: Outcome): void {
     if (op.state === 'settled') return;
@@ -954,7 +953,6 @@ export class PhysicalConnection {
       );
     this.#messages = [];
     this.#auth = undefined;
-    this.#parameters.clear();
     this.#backendSecret = undefined;
     this.#transport.destroy();
     for (const listener of this.#lost) listener();
@@ -965,10 +963,8 @@ export class PhysicalConnection {
   close(options: CloseOptions = {}): Promise<void> {
     if (this.#closePromise) return this.#closePromise;
     try {
-      validateOperation(options);
-      if ('signal' in options)
-        throw new DriverError('PGCLEAR_CONFIGURATION', 'Close accepts only timeoutMs.');
-      const timeout = integer(options.timeoutMs ?? CLEANUP_TIMEOUT_MS, 'timeoutMs', 0);
+      validateClose(options);
+      const timeout = options.timeoutMs ?? CLEANUP_TIMEOUT_MS;
       this.#requestedClose = this.#closing = true;
       this.#closePromise = this.#disposed.promise.then(() => {
         if (this.#cancelError)

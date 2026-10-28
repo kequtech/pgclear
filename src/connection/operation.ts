@@ -1,3 +1,4 @@
+import type { Lifetime } from './timing.js';
 import type { Configuration } from '../config/index.js';
 import type { CommandResult, Description, Field, QueryResult } from '../types.js';
 import type { CopyInput } from './copy.js';
@@ -62,7 +63,7 @@ export interface Operation {
   state: 'encoding' | 'queued' | 'active' | 'settled';
   wire?: Buffer;
   readonly started: number;
-  readonly expiresAt: number | undefined;
+  readonly lifetime: Lifetime;
   readonly resolve: (operation: Operation) => void;
   readonly reject: (error: unknown) => void;
   stop: () => void;

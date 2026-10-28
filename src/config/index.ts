@@ -1,7 +1,7 @@
 import { userInfo } from 'node:os';
 import { configurationError } from '../errors.js';
 import { defaultCodecs, registry } from '../codecs/index.js';
-import type { ConnectionOptions, OperationOptions, TlsOptions } from '../types.js';
+import type { CloseOptions, ConnectionOptions, OperationOptions, TlsOptions } from '../types.js';
 
 export interface Configuration {
   readonly host: string;
@@ -261,4 +261,10 @@ export function validateOperation(options: OperationOptions, extra: readonly str
     options.rowMode !== 'array'
   )
     configurationError('Invalid row mode.');
+}
+
+/** Close validates before any permanent handle or pool fence is set. */
+export function validateClose(options: CloseOptions): void {
+  validateOperation(options);
+  if ('signal' in options) configurationError('Close accepts only timeoutMs.');
 }

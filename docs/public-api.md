@@ -77,9 +77,8 @@ validates server proof, nonces, algorithm selection, and a fixed SCRAM iteration
 
 `startupParameters` is for PostgreSQL GUC strings, not protocol options. The driver fixes UTF8 client
 encoding, ISO DateStyle and ISO-8601 IntervalStyle, and initially UTC TimeZone for predictable defaults.
-Driver-owned startup keys cannot be repeated or overridden; later ParameterStatus changes update
-session context. Temporal
-strings follow the server's current session settings. Protocol/user/database/replication overrides
+Driver-owned startup keys cannot be repeated or overridden. Later client-encoding changes are
+validated, and temporal strings follow the server's current session settings. Protocol/user/database/replication overrides
 through this map reject. Never infer TLS mode from credentials or hostname.
 
 | Option                | Default | Meaning                                                             |

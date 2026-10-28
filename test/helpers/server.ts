@@ -177,3 +177,30 @@ export async function closePortal(peer: Peer): Promise<void> {
   assert.deepEqual(message.payload, Buffer.concat([Buffer.from('P'), z('')]));
   assert.equal((await peer.message()).type, 'S');
 }
+
+/** A normal startup plus a separate backend-key cancellation connection for lifecycle fixtures. */
+export async function sessionServer(
+  work: (peer: Peer) => Promise<void>,
+  cancel: (primary: Peer) => void = (primary) => {
+    primary.socket.end();
+  },
+) {
+  let primary: Peer | undefined;
+  return fakeServer(async (peer) => {
+    const length = (await peer.bytes(4)).readUInt32BE();
+    const body = await peer.bytes(length - 4);
+    if (body.readUInt32BE() === 80877102) {
+      assert.equal(length, 16);
+      assert.equal(body.readUInt32BE(4), 123);
+      assert.equal(body.readUInt32BE(8), 456);
+      peer.socket.end();
+      assert.ok(primary);
+      cancel(primary);
+      return;
+    }
+    assert.equal(body.readUInt32BE(), 196608);
+    primary = peer;
+    peer.socket.write(startupReady);
+    await work(peer);
+  });
+}

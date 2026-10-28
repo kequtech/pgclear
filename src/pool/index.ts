@@ -3,12 +3,20 @@ import {
   integer,
   record,
   validateOperation,
+  validateClose,
   type Configuration,
 } from '../config/index.js';
 import { openConnection, type PhysicalConnection } from '../connection/index.js';
-import { CLEANUP_TIMEOUT_MS, abortError, deadline, Lifetime } from '../connection/timing.js';
+import { CLEANUP_TIMEOUT_MS, deadline, Lifetime } from '../connection/timing.js';
 import { DriverError } from '../errors.js';
-import { callback, drain, Scope, SessionHandle, validateTransaction } from '../session/index.js';
+import {
+  callback,
+  drain,
+  finishScope,
+  Scope,
+  SessionHandle,
+  validateTransaction,
+} from '../session/index.js';
 import type {
   ArrayQueryOptions,
   CloseOptions,
@@ -64,6 +72,7 @@ function settings(input: string | PoolOptions): Settings {
   };
 }
 interface Waiter {
+  readonly lifetime: Lifetime;
   readonly resolve: (lease: Lease) => void;
   readonly reject: (error: unknown) => void;
   active: boolean;
@@ -124,6 +133,9 @@ class ConnectionPool implements Pool {
     });
   }
   acquire(options: OperationOptions = {}): Promise<Lease> {
+    return this.#checkout(options);
+  }
+  #checkout(options: OperationOptions, parent?: Lifetime): Promise<Lease> {
     return new Promise((resolve, reject) => {
       let waiter: Waiter | undefined;
       try {
@@ -131,24 +143,20 @@ class ConnectionPool implements Pool {
         if (this.#closing) throw new DriverError('PGCLEAR_CLOSED', 'The pool is closed.');
         if (this.#waiters.length >= this.#settings.maxWaiting)
           throw new DriverError('PGCLEAR_QUEUE_FULL', 'The pool acquisition queue is full.');
-        const life = new Lifetime({
-          ...options,
-          timeoutMs: Math.min(options.timeoutMs ?? Infinity, this.#settings.acquireTimeoutMs),
-        });
+        const life = new Lifetime(
+          options,
+          parent,
+          performance.now() + this.#settings.acquireTimeoutMs,
+        );
         try {
           life.check();
         } catch (error) {
           life.stop();
           throw error;
         }
-        waiter = { resolve, reject, active: true, stop: () => {} };
+        waiter = { lifetime: life, resolve, reject, active: true, stop: () => {} };
         const accepted = waiter;
-        const abort = () => this.#reject(accepted, abortError(life.signal));
-        life.signal.addEventListener('abort', abort, { once: true });
-        accepted.stop = () => {
-          life.signal.removeEventListener('abort', abort);
-          life.stop();
-        };
+        accepted.stop = life.watch((error) => this.#reject(accepted, error));
         this.#waiters.push(accepted);
         this.#pump();
       } catch (error) {
@@ -157,7 +165,7 @@ class ConnectionPool implements Pool {
       }
     });
   }
-  #reject(waiter: Waiter, error: unknown): void {
+  #reject(waiter: Waiter, error: unknown, pump = true): void {
     if (!waiter.active) return;
     waiter.active = false;
     waiter.stop();
@@ -165,9 +173,17 @@ class ConnectionPool implements Pool {
     if (index !== -1) this.#waiters.splice(index, 1);
     waiter.entry?.controller.abort(error);
     waiter.reject(error);
-    this.#pump();
+    if (pump) this.#pump();
   }
   #publish(entry: Entry, waiter: Waiter): void {
+    try {
+      waiter.lifetime.check();
+    } catch (error) {
+      this.#reject(waiter, error, false);
+      if (entry.state === 'connecting') void this.#retire(entry).catch(() => {});
+      return;
+    }
+
     if (this.#closing || !waiter.active || !entry.connection?.usable) {
       if (waiter.active)
         this.#reject(waiter, new DriverError('PGCLEAR_CLOSED', 'Pool closed before checkout.'));
@@ -320,12 +336,8 @@ class ConnectionPool implements Pool {
     statement: QueryInput<object>,
     options: QueryOptions | ArrayQueryOptions = {},
   ): Promise<QueryResult<object>> {
-    return this.#operation(options, ['rowMode'], async (lease, life) => {
-      const actual = {
-        ...options,
-        signal: life.signal,
-        ...(life.remaining() === undefined ? {} : { timeoutMs: life.remaining()! }),
-      };
+    return this.#withLease(options, ['rowMode'], async (lease) => {
+      const actual = options.rowMode === 'array' ? { rowMode: 'array' as const } : {};
       const result =
         actual.rowMode === 'array'
           ? await lease.query(statement, actual)
@@ -363,18 +375,13 @@ class ConnectionPool implements Pool {
     statement: string | DescribeStatement,
     options: OperationOptions = {},
   ): Promise<Description> {
-    return this.#operation(options, [], (lease, life) =>
-      lease.describe(statement, {
-        ...options,
-        signal: life.signal,
-        ...(life.remaining() === undefined ? {} : { timeoutMs: life.remaining()! }),
-      }),
-    );
+    return this.#withLease(options, [], (session) => session.describe(statement));
   }
-  async #operation<T>(
+  async #withLease<T>(
     options: OperationOptions,
     extra: readonly string[],
-    work: (lease: LeaseHandle, life: Lifetime) => Promise<T>,
+    work: (session: SessionHandle) => Promise<T>,
+    discardOnFailure = false,
   ): Promise<T> {
     validateOperation(options, extra);
     const life = new Lifetime(options);
@@ -383,10 +390,16 @@ class ConnectionPool implements Pool {
       error: unknown;
     try {
       life.check();
-      lease = (await this.acquire({ signal: life.signal })) as LeaseHandle;
-      // The whole-call deadline includes acquisition. Its signal continues through wire work.
+      lease = (await this.#checkout({}, life)) as LeaseHandle;
       life.check();
-      return await work(lease, life);
+      const scope = new Scope(lease.scope.connection, life);
+      lease.scope.child = scope;
+      try {
+        return await lease.scope.track(finishScope(scope, () => work(new SessionHandle(scope))));
+      } finally {
+        lease.scope.cleanupDeadline = scope.cleanupDeadline;
+        lease.scope.child = undefined;
+      }
     } catch (cause) {
       failed = true;
       error = cause;
@@ -395,7 +408,7 @@ class ConnectionPool implements Pool {
       life.stop();
       if (lease) {
         try {
-          await lease.release();
+          await lease.release({ discard: discardOnFailure && failed });
         } catch (cleanup) {
           if (failed)
             throw new AggregateError([error, cleanup], 'Operation and lease cleanup failed.');
@@ -411,60 +424,12 @@ class ConnectionPool implements Pool {
     validateOperation(options);
     if (typeof work !== 'function')
       throw new DriverError('PGCLEAR_CONFIGURATION', 'Expected a session callback.');
-    const life = new Lifetime(options);
-    let lease: LeaseHandle | undefined,
-      failed = false,
-      error: unknown;
-    try {
-      life.check();
-      lease = (await this.acquire({ signal: life.signal })) as LeaseHandle;
-      const scope = new Scope(lease.scope.connection, life),
-        handle = new SessionHandle(scope);
-      lease.scope.child = scope;
-      const task = (async () => {
-        const errors: unknown[] = [];
-        let value: T | undefined;
-        try {
-          value = await callback(scope, () => work(handle));
-        } catch (error) {
-          errors.push(error);
-        }
-        scope.expire();
-        lease!.scope.cleanupDeadline = scope.cleanupDeadline;
-        try {
-          await drain(scope);
-          if (scope.abandonedStream && errors.length === 0)
-            errors.push(new DriverError('PGCLEAR_BUSY', 'A callback left an unfinished stream.'));
-        } catch (error) {
-          errors.push(error);
-        }
-        if (errors.length)
-          throw errors.length === 1
-            ? errors[0]
-            : new AggregateError(errors, 'Session callback and drain failed.');
-        return value as T;
-      })();
-      try {
-        return await lease.scope.track(task);
-      } finally {
-        lease.scope.child = undefined;
-      }
-    } catch (cause) {
-      failed = true;
-      error = cause;
-      throw cause;
-    } finally {
-      life.stop();
-      if (lease) {
-        try {
-          await lease.release({ discard: failed });
-        } catch (cleanup) {
-          if (failed)
-            throw new AggregateError([error, cleanup], 'Session callback and release failed.');
-          throw cleanup;
-        }
-      }
-    }
+    return this.#withLease(
+      options,
+      [],
+      (session) => callback(session.scope, () => work(session)),
+      true,
+    );
   }
   transaction<T>(
     work: (transaction: Transaction) => Promise<T>,
@@ -476,25 +441,19 @@ class ConnectionPool implements Pool {
     } catch (error) {
       return Promise.reject(error);
     }
-    const operation: OperationOptions = {
-      ...(options.signal ? { signal: options.signal } : {}),
-      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-    };
-    return this.#operation(operation, [], (lease, life) =>
-      lease.transaction(work, {
-        ...options,
-        signal: life.signal,
-        ...(life.remaining() === undefined ? {} : { timeoutMs: life.remaining()! }),
+    return this.#withLease(options, ['isolation', 'readOnly', 'deferrable'], (session) =>
+      session.transaction(work, {
+        ...(options.isolation === undefined ? {} : { isolation: options.isolation }),
+        ...(options.readOnly === undefined ? {} : { readOnly: options.readOnly }),
+        ...(options.deferrable === undefined ? {} : { deferrable: options.deferrable }),
       }),
     );
   }
   close(options: CloseOptions = {}): Promise<void> {
     if (this.#close) return this.#close;
     try {
-      validateOperation(options);
-      if ('signal' in options)
-        throw new DriverError('PGCLEAR_CONFIGURATION', 'Close accepts only timeoutMs.');
-      const timeout = integer(options.timeoutMs ?? CLEANUP_TIMEOUT_MS, 'timeoutMs', 0);
+      validateClose(options);
+      const timeout = options.timeoutMs ?? CLEANUP_TIMEOUT_MS;
       this.#closing = true;
       for (const waiter of [...this.#waiters])
         this.#reject(waiter, new DriverError('PGCLEAR_CLOSED', 'Pool closed before acquisition.'));

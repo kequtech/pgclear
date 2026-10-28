@@ -462,3 +462,31 @@ Scope expiry establishes the absolute cleanup deadline carried through statement
 and lease release. Bind encoding and fake-server protocol helpers are shared. These changes remove
 redundant lifecycle state while retaining ownership, backpressure, cancellation, native completion
 evidence and no automatic execution retries.
+
+## D31 — Share lifecycle ownership and enforce deadlines at admission boundaries
+
+The M1–M5 cleanup keeps all public entrypoints, including `queryClassic`. Internal execution carries
+an explicit `Lifetime` with an absolute monotonic deadline. Child operations inherit that deadline
+and arm their own timer only for a shorter local limit; they no longer reconstruct relative timeouts
+through pool, scope and wire layers. Timers interrupt idle waits, while explicit checks enforce the
+boundary before dispatch and checkout. A synchronous decoder or observation callback can delay timer
+callbacks, so an armed timer alone cannot establish that overdue work remains unsent. Regressions
+block timers and verify both rejected dispatch with subsequent reuse and rejected late checkout.
+
+Acquisition and startup retain their separate caps. Recovery uses the scope's fixed cleanup deadline
+and a cleanup owner that forces disposal before child wire operations observe cleanup expiry. The
+physical connection owns the cancellation budget for both the original operation and auxiliary
+transport; the cancellation helper observes its owner's abort signal rather than arming another timer.
+
+Pooled queries, descriptions, transactions and session callbacks share acquisition, scope finalization,
+release and error aggregation. Callback failures still discard the session; ordinary SQL failures
+can reuse an idle recovered session. Transactions and savepoints share child reservation/detachment,
+admission waiting and bounded recovery. COMMIT acknowledgement, rollback validation and savepoint
+poisoning remain explicit policies in their respective functions.
+
+Readiness derives from initialized session information. Only the server version is retained from
+ParameterStatus; UTF8 changes are still validated. Codec snapshots retain their immutable behavior
+using the existing `Codec` type, and close-option validation is shared before permanent fences.
+Subprocess scenarios move from embedded strings to a typechecked fixture that executes the built
+package. Shared startup/cancellation helpers retain packet assertions, long-timer/listener checks
+and natural process-exit checks. The proposed API contract re-exports the implemented public surface.

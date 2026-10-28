@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { runLifecycle } from './helpers/subprocess.js';
 import { setTimeout as pause } from 'node:timers/promises';
 import { connect, createPool, type CloseOptions } from '../src/index.js';
 import { PhysicalConnection } from '../src/connection/index.js';
-import { fakeServer, packet, ready, startupReady, z, auth, type Peer } from './helpers/server.js';
+import {
+  sessionServer,
+  fakeServer,
+  packet,
+  startupReady,
+  z,
+  auth,
+  type Peer,
+} from './helpers/server.js';
 
 async function extended(peer: Peer): Promise<void> {
   for (const type of ['P', 'B', 'D', 'E', 'S']) assert.equal((await peer.message()).type, type);
@@ -278,12 +283,9 @@ test(
   'completed pool callbacks and transactions dispose long deadlines and abort listeners',
   { timeout: 15000 },
   async () => {
-    const run = promisify(execFile);
     for (const kind of ['withSession', 'transaction'] as const)
       for (const fail of [false, true]) {
-        const server = await fakeServer(async (peer) => {
-          await peer.startup();
-          peer.socket.write(startupReady);
+        const server = await sessionServer(async (peer) => {
           if (kind === 'transaction')
             for (const tag of ['BEGIN', fail ? 'ROLLBACK' : 'COMMIT']) {
               await extended(peer);
@@ -293,19 +295,7 @@ test(
           peer.socket.end();
         });
         try {
-          const source = `
-        import assert from 'node:assert/strict';
-        import {getEventListeners} from 'node:events';
-        import {createPool} from ${JSON.stringify(pathToFileURL(resolve('dist/index.js')).href)};
-        const pool=createPool({host:'127.0.0.1',port:${server.port},maxConnections:1});
-        const controller=new AbortController();
-        try{
-          const operation=pool.${kind}(async()=>{if(${fail})throw Error('fixture');return 42;},{timeoutMs:3600000,signal:controller.signal});
-          if(${fail})await assert.rejects(operation,/fixture/);else assert.equal(await operation,42);
-          assert.equal(getEventListeners(controller.signal,'abort').length,0);
-        }finally{await pool.close();}
-      `;
-          await run(process.execPath, ['--input-type=module', '-e', source], { timeout: 3000 });
+          await runLifecycle('pool', `${kind}:${fail}`, server.port);
           await server.firstClosed;
           assert.equal(server.connections, 0);
         } finally {

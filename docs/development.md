@@ -33,7 +33,20 @@ distribution locally and does not publish it. The runtime exports are `connect`,
 
 ## Current verification and limits
 
-M5 and its subsequent simplification on 2026-10-28 passed `npm run check`: **201 tests**
+The M1–M5 lifecycle cleanup on 2026-10-28 passed `npm run check`: **203 tests**
+(109 database-independent, 94 integration) against the existing `pgclear_test` database. The new
+regressions verify that synchronous user code blocking timer callbacks cannot cause overdue queued
+work to dispatch or an overdue acquisition to publish a lease. All 201 prior tests remain.
+
+Internal lifetimes now share absolute deadlines across acquisition, scopes and wire work. Lease
+wrappers, scope finalization, child admission and recovery are shared while preserving discard,
+rollback and COMMIT policies. Startup state, codec types, close validation and API re-exports are
+simpler. Lifecycle subprocesses use a typechecked fixture against the built package and shared
+fake-session setup; long-timer, abort-listener and natural-exit assertions are retained. The source
+also passes an explicit unused-local/parameter TypeScript check. [D31](decisions.md#d31--share-lifecycle-ownership-and-enforce-deadlines-at-admission-boundaries)
+records the resulting ownership rules.
+
+The earlier M5 simplification on 2026-10-28 passed `npm run check`: **201 tests**
 (107 database-independent, 94 integration) against the existing `pgclear_test` database. Explicit
 preparation, portal row streaming and COPY FROM/TO are implemented on their owning held-session,
 transaction and savepoint scopes. Native values, strict binds, immutable codecs, FIFO reservation,

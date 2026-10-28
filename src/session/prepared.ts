@@ -1,11 +1,10 @@
-import { CLEANUP_TIMEOUT_MS } from '../connection/timing.js';
+import { CLEANUP_TIMEOUT_MS, Lifetime, type ExecutionOptions } from '../connection/timing.js';
 import { DriverError } from '../errors.js';
 import type {
   ArrayQueryOptions,
   DescribeStatement,
   Description,
   InputValue,
-  OperationOptions,
   PreparedStatement,
   QueryOptions,
   QueryResult,
@@ -27,7 +26,7 @@ export class PreparedHandle implements PreparedStatement {
   }
   async create(
     statement: string | DescribeStatement,
-    options: OperationOptions,
+    options: ExecutionOptions,
   ): Promise<PreparedStatement> {
     try {
       this.#description = await this.scope.connection.prepare(this.#name, statement, options);
@@ -83,7 +82,7 @@ export class PreparedHandle implements PreparedStatement {
     this.#close = completion.promise;
     const work = this.scope.connection.usable
       ? this.scope.connection.closeStatement(this.#name, {
-          timeoutMs: Math.max(0, Math.ceil(end - performance.now())),
+          lifetime: new Lifetime({}, undefined, end),
         })
       : Promise.resolve();
     void work.then(

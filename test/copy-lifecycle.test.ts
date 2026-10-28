@@ -1,14 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { runLifecycle } from './helpers/subprocess.js';
 import { getEventListeners } from 'node:events';
 import { readFile } from 'node:fs/promises';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { createPool, connect, type CopySource, type CopyStream } from '../src/index.js';
 import {
   fakeServer,
+  sessionServer,
   extendedRequest,
   syncReady,
   fixturePath,
@@ -16,8 +14,6 @@ import {
   ready,
   startupReady,
   z,
-  i32,
-  type Peer,
 } from './helpers/server.js';
 const within = { timeout: 10000 };
 const begin = Buffer.concat([packet('1'), packet('2'), packet('n')]);
@@ -548,7 +544,6 @@ test(
   'COPY subprocesses release long deadlines, abort listeners, producers and sockets',
   { timeout: 20000 },
   async () => {
-    const run = promisify(execFile);
     for (const scenario of [
       'input',
       'output',
@@ -557,79 +552,44 @@ test(
       'output-close',
       'output-abort',
     ] as const) {
-      let primary: Peer | undefined;
       const input = ['input', 'source-error', 'source-timeout'].includes(scenario);
-      const server = await fakeServer(async (peer) => {
-        const length = (await peer.bytes(4)).readUInt32BE(),
-          body = await peer.bytes(length - 4);
-        if (body.readUInt32BE() === 80877102) {
-          assert.equal(length, 16);
-          assert.equal(body.readUInt32BE(4), 123);
-          assert.equal(body.readUInt32BE(8), 456);
-          peer.socket.end();
-          if (!input) primary!.socket.write(error('57014'));
-          return;
-        }
-        assert.equal(body.readUInt32BE(), 196608);
-        primary = peer;
-        peer.socket.write(startupReady);
-        await extendedRequest(peer);
-        peer.socket.write(Buffer.concat([begin, response(input ? 'in' : 'out')]));
-        if (scenario === 'input') {
-          assert.equal((await peer.message()).type, 'd');
-          assert.equal((await peer.message()).type, 'c');
-          assert.equal((await peer.message()).type, 'H');
-          peer.socket.write(packet('C', z('COPY 1')));
-          await syncReady(peer);
-        } else if (scenario === 'output') {
-          peer.socket.write(
-            Buffer.concat([
-              packet('d', Buffer.from('bytes')),
-              packet('c'),
-              packet('C', z('COPY 1')),
-            ]),
-          );
-          await syncReady(peer);
-        } else if (input) {
-          assert.equal((await peer.message()).type, 'f');
-          assert.equal((await peer.message()).type, 'S');
-          peer.socket.write(Buffer.concat([error('57014'), ready]));
-        } else {
-          peer.socket.write(packet('d', Buffer.from('bytes')));
-          assert.equal((await peer.message()).type, 'S');
-          peer.socket.write(ready);
-        }
-        assert.equal((await peer.message()).type, 'X');
-        peer.socket.end();
-      });
-      try {
-        const source = `
-        import assert from 'node:assert/strict';
-        import {getEventListeners} from 'node:events';
-        import {Readable} from 'node:stream';
-        import {connect} from ${JSON.stringify(pathToFileURL(resolve('dist/index.js')).href)};
-        const client=await connect({host:'127.0.0.1',port:${server.port}});
-        const controller=new AbortController();
-        const scenario=${JSON.stringify(scenario)};
-        try{
-          const options={signal:controller.signal,timeoutMs:scenario==='source-timeout'?25:3600000};
-          if(scenario==='input'){const source=Readable.from([Buffer.from('bytes')]);assert.equal((await client.copyFrom('COPY fixture FROM STDIN',source,options)).rowCount,1n);assert.equal(source.destroyed,true);}
-          else if(scenario==='source-error'){
-            let stopped=false;const source={ [Symbol.asyncIterator](){return{async next(){throw Error('fixture');},async return(){stopped=true;return{done:true};}};}};
-            await assert.rejects(client.copyFrom('COPY fixture FROM STDIN',source,options),{code:'PGCLEAR_COPY_SOURCE'});assert.equal(stopped,true);
-          }else if(scenario==='source-timeout'){
-            let stopped=false;const source={ [Symbol.asyncIterator](){return{next(){return new Promise(()=>{});},async return(){stopped=true;return{done:true};}};}};
-            await assert.rejects(client.copyFrom('COPY fixture FROM STDIN',source,options),{code:'PGCLEAR_TIMEOUT'});assert.equal(stopped,true);
-          }else{
-            const stream=client.copyTo('COPY fixture TO STDOUT',options);
-            if(scenario==='output'){for await(const chunk of stream)assert.equal(Buffer.from(chunk).toString(),'bytes');assert.equal((await stream.completion).status,'complete');}
-            else if(scenario==='output-close'){for await(const chunk of stream)break;assert.deepEqual(await stream.completion,{status:'closed'});}
-            else{await stream[Symbol.asyncIterator]().next();controller.abort();await assert.rejects(stream.completion,{code:'PGCLEAR_ABORTED'});}
+      const server = await sessionServer(
+        async (peer) => {
+          await extendedRequest(peer);
+          peer.socket.write(Buffer.concat([begin, response(input ? 'in' : 'out')]));
+          if (scenario === 'input') {
+            assert.equal((await peer.message()).type, 'd');
+            assert.equal((await peer.message()).type, 'c');
+            assert.equal((await peer.message()).type, 'H');
+            peer.socket.write(packet('C', z('COPY 1')));
+            await syncReady(peer);
+          } else if (scenario === 'output') {
+            peer.socket.write(
+              Buffer.concat([
+                packet('d', Buffer.from('bytes')),
+                packet('c'),
+                packet('C', z('COPY 1')),
+              ]),
+            );
+            await syncReady(peer);
+          } else if (input) {
+            assert.equal((await peer.message()).type, 'f');
+            assert.equal((await peer.message()).type, 'S');
+            peer.socket.write(Buffer.concat([error('57014'), ready]));
+          } else {
+            peer.socket.write(packet('d', Buffer.from('bytes')));
+            assert.equal((await peer.message()).type, 'S');
+            peer.socket.write(ready);
           }
-          assert.equal(getEventListeners(controller.signal,'abort').length,0);
-        }finally{await client.close();}
-      `;
-        await run(process.execPath, ['--input-type=module', '-e', source], { timeout: 3000 });
+          assert.equal((await peer.message()).type, 'X');
+          peer.socket.end();
+        },
+        (primary) => {
+          if (!input) primary.socket.write(error('57014'));
+        },
+      );
+      try {
+        await runLifecycle('copy', scenario, server.port);
         await server.firstClosed;
         assert.equal(server.connections, 0);
       } finally {

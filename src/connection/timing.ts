@@ -27,29 +27,6 @@ export function deadline(delay: number, expire: () => void, unref = false): () =
   };
 }
 
-export function watchOperation(
-  options: OperationOptions,
-  fail: (error: DriverError) => void,
-  startupTimeout?: number,
-): () => void {
-  const abort = () => fail(abortError(options.signal!));
-  const timeout =
-    options.timeoutMs === undefined
-      ? startupTimeout
-      : Math.min(options.timeoutMs, startupTimeout ?? Infinity);
-  const stop =
-    timeout === undefined
-      ? () => {}
-      : deadline(timeout, () =>
-          fail(new DriverError('PGCLEAR_TIMEOUT', 'Operation deadline expired.')),
-        );
-  options.signal?.addEventListener('abort', abort, { once: true });
-  return () => {
-    stop();
-    options.signal?.removeEventListener('abort', abort);
-  };
-}
-
 export function abortError(signal: AbortSignal): DriverError {
   return signal.reason instanceof DriverError &&
     ['PGCLEAR_TIMEOUT', 'PGCLEAR_ABORTED'].includes(signal.reason.code)
@@ -57,39 +34,54 @@ export function abortError(signal: AbortSignal): DriverError {
     : new DriverError('PGCLEAR_ABORTED', 'Operation aborted.');
 }
 
-/** A whole-operation deadline survives acquisition, callback execution and final protocol cleanup. */
+/** Internal execution context. Public options are validated before constructing it. */
+export interface ExecutionOptions {
+  readonly lifetime: Lifetime;
+  readonly rowMode?: 'object' | 'array';
+  readonly batchSize?: number;
+}
+
+/** One absolute deadline. Children inherit it and arm a timer only for a shorter local limit. */
 export class Lifetime {
   readonly #controller = new AbortController();
-  readonly signal = this.#controller.signal;
+  readonly signal: AbortSignal;
+  readonly end: number;
   readonly #stop: () => void;
-  readonly #end: number | undefined;
-  constructor(options: OperationOptions, parent?: Lifetime) {
-    const end = Math.min(
+  constructor(options: OperationOptions = {}, parent?: Lifetime, limit = Infinity) {
+    const ownEnd = Math.min(
       options.timeoutMs === undefined ? Infinity : performance.now() + options.timeoutMs,
-      parent ? (parent.#end ?? Infinity) : Infinity,
+      limit,
     );
-    this.#end = end === Infinity ? undefined : end;
-    const signal =
-      parent && options.signal
-        ? AbortSignal.any([parent.signal, options.signal])
-        : (parent?.signal ?? options.signal);
-    const watched = { ...options, ...(signal ? { signal } : {}) };
-    this.#stop = watchOperation(watched, (error) => this.#controller.abort(error));
-    if (signal?.aborted) this.#controller.abort(abortError(signal));
-    else if (options.timeoutMs === 0)
-      this.#controller.abort(new DriverError('PGCLEAR_TIMEOUT', 'Operation deadline expired.'));
+    this.end = Math.min(ownEnd, parent?.end ?? Infinity);
+    this.signal = AbortSignal.any([
+      this.#controller.signal,
+      ...(parent ? [parent.signal] : []),
+      ...(options.signal ? [options.signal] : []),
+    ]);
+    const stopTimer =
+      ownEnd < (parent?.end ?? Infinity)
+        ? deadline(Math.max(0, ownEnd - performance.now()), () =>
+            this.#controller.abort(
+              new DriverError('PGCLEAR_TIMEOUT', 'Operation deadline expired.'),
+            ),
+          )
+        : () => {};
+    this.#stop = stopTimer;
   }
   stop(): void {
     this.#stop();
   }
-  remaining(): number | undefined {
-    return this.#end === undefined
-      ? undefined
-      : Math.max(0, Math.ceil(this.#end - performance.now()));
-  }
   check(): void {
-    if (this.remaining() === 0 && !this.signal.aborted)
-      this.#controller.abort(new DriverError('PGCLEAR_TIMEOUT', 'Operation deadline expired.'));
     if (this.signal.aborted) throw abortError(this.signal);
+    if (performance.now() >= this.end)
+      throw new DriverError('PGCLEAR_TIMEOUT', 'Operation deadline expired.');
+  }
+  watch(fail: (error: DriverError) => void): () => void {
+    const abort = () => fail(abortError(this.signal));
+    this.signal.addEventListener('abort', abort, { once: true });
+    return () => {
+      this.signal.removeEventListener('abort', abort);
+      this.stop();
+    };
   }
 }

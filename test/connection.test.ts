@@ -10,7 +10,6 @@ import {
   auth,
   fakeServer,
   fixturePath,
-  i32,
   packet,
   Peer,
   ready,

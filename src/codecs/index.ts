@@ -3,15 +3,7 @@ import type { Codec, CodecRegistry, Field } from '../types.js';
 import { arrayElements, parseArray } from './arrays.js';
 import { builtin, oidCodec } from './builtin.js';
 
-interface Snapshot<T> {
-  readonly oid: number;
-  readonly text?: { readonly encode: (value: T) => string; readonly decode: (value: string) => T };
-  readonly binary?: {
-    readonly encode: (value: T) => Uint8Array;
-    readonly decode: (value: Uint8Array) => T;
-  };
-}
-export function snapshotCodec<T>(codec: Codec<T>): Snapshot<T> {
+export function snapshotCodec<T>(codec: Codec<T>): Codec<T> {
   const invalid = (): never => {
     throw new DriverError('PGCLEAR_CONFIGURATION', 'Invalid codec definition.');
   };

@@ -1,10 +1,9 @@
 import type { Configuration } from '../config/index.js';
 import { DriverError } from '../errors.js';
 import { int32, uint32 } from '../protocol/framing.js';
-import { deadline } from '../connection/timing.js';
 import { Transport } from './index.js';
 
-/** Protocol 3.0 cancellation uses its own verified transport, without an authentication exchange. */
+/** The physical owner bounds cancellation and aborts this verified transport on disposal. */
 export function cancel(
   config: Configuration,
   pid: number,
@@ -33,7 +32,6 @@ export function cancel(
       },
       error: finish,
       closed() {
-        stop();
         signal.removeEventListener('abort', abort);
         if (abandoned) resolve();
         else if (failure) reject(failure);
@@ -47,9 +45,6 @@ export function cancel(
         else resolve();
       },
     });
-    const stop = deadline(5000, () =>
-      finish(new DriverError('PGCLEAR_TIMEOUT', 'Cancellation cleanup deadline expired.')),
-    );
     signal.addEventListener('abort', abort, { once: true });
     if (signal.aborted) abort();
     else transport.open();

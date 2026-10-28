@@ -209,6 +209,13 @@ already establishes commit even if ReadyForQuery is subsequently lost; discard t
 while preserving that successful transaction result. If work and cleanup
 both fail, preserve both in ordered AggregateError; do not hide the original failure.
 
+Internal execution options carry a `Lifetime` rather than a recomputed timeout. A child inherits the
+absolute deadline and parent interruption, creating a timer only for a shorter local limit. Check the
+clock before dispatch and before publishing a checkout: synchronous user code can postpone timer
+callbacks while protocol microtasks continue. Pool operations share one lease wrapper and scope
+finalizer; transaction/savepoint SQL and recovery policies stay explicit around shared child-scope
+admission and cleanup. See [D31](decisions.md#d31--share-lifecycle-ownership-and-enforce-deadlines-at-admission-boundaries).
+
 ## Cancellation and close
 
 Cancellation before send removes only the queued operation. Once sent, the request's recorded

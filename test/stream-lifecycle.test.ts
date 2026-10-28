@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { runLifecycle } from './helpers/subprocess.js';
 import { connect, createPool, param, type RowStream } from '../src/index.js';
 import {
   extendedRequest,
@@ -11,12 +8,12 @@ import {
   closePortal,
   syncReady,
   fakeServer,
+  sessionServer,
   i32,
   packet,
   ready,
   startupReady,
   z,
-  type Peer,
 } from './helpers/server.js';
 
 const within = { timeout: 5000 };
@@ -307,59 +304,33 @@ test(
   'stream child processes exit and remove lifetime listeners after completion, close, errors, timeout and abort',
   { timeout: 15000 },
   async () => {
-    const run = promisify(execFile);
     for (const scenario of ['complete', 'close', 'error', 'timeout', 'abort'] as const) {
-      let primary: Peer | undefined;
-      const server = await fakeServer(async (peer) => {
-        const length = (await peer.bytes(4)).readUInt32BE(),
-          body = await peer.bytes(length - 4);
-        if (body.readUInt32BE() === 80877102) {
-          assert.equal(length, 16);
-          assert.equal(body.readUInt32BE(4), 123);
-          assert.equal(body.readUInt32BE(8), 456);
+      const server = await sessionServer(
+        async (peer) => {
+          await extendedRequest(peer, 2);
+          if (scenario === 'complete')
+            peer.socket.write(Buffer.concat([initial, row(1), packet('C', z('SELECT 1'))]));
+          if (scenario === 'close')
+            peer.socket.write(Buffer.concat([initial, row(1), row(2), packet('s')]));
+          if (scenario === 'error') peer.socket.write(dbError);
+          if (scenario === 'error' || scenario === 'abort' || scenario === 'timeout') {
+            assert.equal((await peer.message()).type, 'S');
+            peer.socket.write(ready);
+          }
+          if (scenario === 'complete') await syncReady(peer);
+          if (scenario === 'close') {
+            await closePortal(peer);
+            peer.socket.write(closeReady);
+          }
+          assert.equal((await peer.message()).type, 'X');
           peer.socket.end();
-          primary!.socket.write(dbError);
-          return;
-        }
-        assert.equal(body.readUInt32BE(), 196608);
-        primary = peer;
-        peer.socket.write(startupReady);
-        await extendedRequest(peer, 2);
-        if (scenario === 'complete')
-          peer.socket.write(Buffer.concat([initial, row(1), packet('C', z('SELECT 1'))]));
-        if (scenario === 'close')
-          peer.socket.write(Buffer.concat([initial, row(1), row(2), packet('s')]));
-        if (scenario === 'error') peer.socket.write(dbError);
-        if (scenario === 'error' || scenario === 'abort' || scenario === 'timeout') {
-          assert.equal((await peer.message()).type, 'S');
-          peer.socket.write(ready);
-        }
-        if (scenario === 'complete') await syncReady(peer);
-        if (scenario === 'close') {
-          await closePortal(peer);
-          peer.socket.write(closeReady);
-        }
-        assert.equal((await peer.message()).type, 'X');
-        peer.socket.end();
-      });
+        },
+        (primary) => {
+          primary.socket.write(dbError);
+        },
+      );
       try {
-        const source = `
-        import assert from 'node:assert/strict';
-        import {getEventListeners} from 'node:events';
-        import {connect} from ${JSON.stringify(pathToFileURL(resolve('dist/index.js')).href)};
-        const client=await connect({host:'127.0.0.1',port:${server.port}});
-        const controller=new AbortController();let timer;
-        try{
-          const scenario=${JSON.stringify(scenario)};
-          const stream=client.stream('SELECT n',{batchSize:2,signal:controller.signal,timeoutMs:${scenario === 'timeout' ? 25 : 3600000}});
-          if(scenario==='abort')timer=setTimeout(()=>controller.abort(),25);
-          if(scenario==='complete'){for await(const row of stream)assert.equal(row.n,1);assert.equal((await stream.completion).status,'complete');}
-          else if(scenario==='close'){await stream.fields;await stream.close();assert.deepEqual(await stream.completion,{status:'closed'});}
-          else{const code=scenario==='error'?'XX000':scenario==='timeout'?'PGCLEAR_TIMEOUT':'PGCLEAR_ABORTED';await assert.rejects(stream.completion,{code});}
-          assert.equal(getEventListeners(controller.signal,'abort').length,0);
-        }finally{clearTimeout(timer);await client.close();}
-      `;
-        await run(process.execPath, ['--input-type=module', '-e', source], { timeout: 3000 });
+        await runLifecycle('stream', scenario, server.port);
         await server.firstClosed;
         assert.equal(server.connections, 0);
       } finally {

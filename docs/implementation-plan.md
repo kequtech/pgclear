@@ -3,7 +3,7 @@
 Work in the order below. Each milestone produces a usable, verifiable slice and has an observable
 completion gate. Keep this document current by recording completed gates and evidence, not by
 maintaining a second backlog that can disagree with it. The M1–M3 core, M4 consumer trial and all M5
-slices are implemented; complete Tenon adoption remains open. The complete M5 check passes **201
+slices are implemented; complete Tenon adoption remains open. The complete M1–M5 check passes **203
 local tests**. See [development](development.md) for current and historical verification evidence.
 The Unicode-fix commit `e742fbf` passed PostgreSQL 16/18 CI; this does not verify M5, whose own
 PostgreSQL 18/CI results remain unverified. The [handoff](m5-handoff.md) is the historical M5 starting
@@ -189,7 +189,7 @@ decision separately from full Tenon adoption.
 Development resumed on 2026-10-28 under D26 after the correctness follow-up. Both PostgreSQL 16/18
 jobs passed for the Unicode fixes; the later query API passed 106 local tests and the 17-case
 candidate trial. Its own PostgreSQL 18 result remains unverified. Full Tenon adoption remains an
-independent gate. All three M5 slices and their combined review pass the full 201-test local check. See [the handoff](m5-handoff.md)
+independent gate. All three M5 slices and their combined review pass the full 203-test local check. See [the handoff](m5-handoff.md)
 for the historical starting point.
 
 1. **M5a implemented:** Exact-scope prepared statement handles on held sessions, transactions and
@@ -209,6 +209,10 @@ uses one reservation and carries an absolute cleanup budget through release; `qu
 public. Tests retain mixed lifetimes, protocol failures, packed consumers, backpressure and process
 exit checks, with added manual transaction recovery and reentrant source coverage. PostgreSQL 18/CI
 verification and full Tenon adoption remain separate gates.
+
+The cross-milestone lifecycle cleanup (D31) shares absolute deadlines, lease management and child-scope
+recovery, trims derived state and moves subprocess scenarios into typed fixtures. The dispatch and
+checkout boundaries explicitly reject elapsed deadlines even when timer callbacks are blocked.
 
 Gate: prepared handles expire after release; stale plans surface without re-executing writes;
 prepared close orders correctly with accepted executions; early stream exit permits a subsequent

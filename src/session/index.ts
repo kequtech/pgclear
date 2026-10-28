@@ -1,6 +1,12 @@
 import type { PhysicalConnection } from '../connection/index.js';
-import { CLEANUP_TIMEOUT_MS, abortError, deadline, Lifetime } from '../connection/timing.js';
-import { validateOperation } from '../config/index.js';
+import {
+  CLEANUP_TIMEOUT_MS,
+  abortError,
+  deadline,
+  Lifetime,
+  type ExecutionOptions,
+} from '../connection/timing.js';
+import { validateOperation, validateClose } from '../config/index.js';
 import { DriverError } from '../errors.js';
 import { OutputStream, PortalStream } from '../connection/stream.js';
 import { PreparedHandle } from './prepared.js';
@@ -126,18 +132,10 @@ export class Scope {
   drain(): Promise<unknown> {
     return Promise.allSettled([...this.pending]);
   }
-  options<T extends OperationOptions>(options: T, extra: readonly string[] = []): T {
+  options<T extends OperationOptions>(options: T, extra: readonly string[] = []): ExecutionOptions {
     validateOperation(options, extra);
     this.lifetime?.check();
-    if (!this.signal) return options;
-    const remaining = this.lifetime!.remaining();
-    return {
-      ...options,
-      ...(remaining === undefined
-        ? {}
-        : { timeoutMs: Math.min(options.timeoutMs ?? Infinity, remaining) }),
-      signal: options.signal ? AbortSignal.any([this.signal, options.signal]) : this.signal,
-    };
+    return { ...options, lifetime: new Lifetime(options, this.lifetime) };
   }
   call<T>(work: () => Promise<T>): Promise<T> {
     try {
@@ -380,10 +378,9 @@ export class SessionHandle extends ExecutorHandle implements Session {
         life.stop();
         throw error;
       }
-      const before = this.scope.drain(),
-        child = new Scope(this.scope.connection, life);
-      this.scope.child = child;
-      return this.scope.track(transaction(this.scope, child, before, work, options, life));
+      return withChild(this.scope, life, (child, before) =>
+        transaction(child, before, work, options, life),
+      );
     } catch (error) {
       return Promise.reject(error);
     }
@@ -395,31 +392,96 @@ class TransactionHandle extends ExecutorHandle implements Transaction {
       this.scope.check();
       if (typeof work !== 'function')
         throw new DriverError('PGCLEAR_CONFIGURATION', 'Expected a savepoint callback.');
-      const before = this.scope.drain(),
-        child = new Scope(this.scope.connection, this.scope.lifetime);
-      this.scope.child = child;
-      return this.scope.track(savepoint(this.scope, child, before, work));
+      return withChild(this.scope, this.scope.lifetime, (child, before) =>
+        savepoint(this.scope, child, before, work),
+      );
     } catch (error) {
       return Promise.reject(error);
     }
   }
 }
 
+/** Reserve synchronously; detach only after the complete child operation settles. */
+function withChild<T>(
+  parent: Scope,
+  life: Lifetime | undefined,
+  work: (scope: Scope, before: Promise<unknown>) => Promise<T>,
+): Promise<T> {
+  const before = parent.drain(),
+    child = new Scope(parent.connection, life);
+  parent.child = child;
+  return parent.track(
+    (async () => {
+      try {
+        return await work(child, before);
+      } finally {
+        child.expire();
+        if (parent.child === child) parent.child = undefined;
+      }
+    })(),
+  );
+}
+async function enterScope(scope: Scope, before: Promise<unknown>): Promise<void> {
+  // Waiting for earlier work must not cancel that work if this child expires.
+  await callback(
+    scope,
+    async () => {
+      await before;
+    },
+    false,
+  );
+  if (!scope.active) throw expired();
+  scope.lifetime?.check();
+}
+async function recoverScope(
+  scope: Scope,
+  work: (cleanup: Lifetime) => Promise<void>,
+): Promise<void> {
+  scope.expire();
+  const cleanup = new Lifetime({}, undefined, scope.cleanupDeadline!);
+  // Force disposal before notifying child wire operations of cleanup expiry.
+  const stop = cleanup.watch(() => scope.connection.dispose());
+  try {
+    await drain(scope);
+    await work(cleanup);
+  } finally {
+    stop();
+  }
+}
+
+/** Expire a capability, drain accepted work, and preserve work plus cleanup failures. */
+export async function finishScope<T>(scope: Scope, work: () => Promise<T>): Promise<T> {
+  const errors: unknown[] = [];
+  let value: T | undefined;
+  try {
+    value = await work();
+  } catch (error) {
+    errors.push(error);
+  }
+  scope.expire();
+  try {
+    await drain(scope);
+    if (scope.abandonedStream && errors.length === 0)
+      errors.push(new DriverError('PGCLEAR_BUSY', 'A callback left an unfinished stream.'));
+  } catch (error) {
+    errors.push(error);
+  }
+  if (errors.length) throw combined(errors);
+  return value as T;
+}
 async function finishBody<T>(
   scope: Scope,
   work: (transaction: Transaction) => Promise<T>,
 ): Promise<T> {
-  const value = await callback(scope, () => work(new TransactionHandle(scope)));
-  if (scope.child) throw busy();
-  scope.expire();
-  await drain(scope);
-  if (scope.abandonedStream)
-    throw new DriverError('PGCLEAR_BUSY', 'A callback left an unfinished stream.');
+  const value = await finishScope(scope, async () => {
+    const value = await callback(scope, () => work(new TransactionHandle(scope)));
+    if (scope.child) throw busy();
+    return value;
+  });
   if (scope.poisoned || scope.connection.transactionStatus !== 'transaction') throw state();
   return value;
 }
 async function transaction<T>(
-  parent: Scope,
   scope: Scope,
   before: Promise<unknown>,
   work: (transaction: Transaction) => Promise<T>,
@@ -430,15 +492,7 @@ async function transaction<T>(
     errors: unknown[] = [];
   let began = false;
   try {
-    await callback(
-      scope,
-      async () => {
-        await before;
-      },
-      false,
-    );
-    if (!scope.active) throw expired();
-    life.check();
+    await enterScope(scope, before);
     if (connection.transactionStatus !== 'idle')
       throw new DriverError(
         'PGCLEAR_SESSION_STATE',
@@ -453,39 +507,34 @@ async function transaction<T>(
         : options.deferrable
           ? ' DEFERRABLE'
           : ' NOT DEFERRABLE');
-    await connection.query(begin, scope.options({ signal: life.signal }));
+    await connection.query(begin, scope.options({}));
     began = true;
     const value = await finishBody(scope, work);
     life.check();
-    const result = await connection.commit(scope.options({ signal: life.signal }));
+    const result = await connection.commit(scope.options({}));
     if (result.commandTag !== 'COMMIT') throw state();
     return value;
   } catch (error) {
     errors.push(error);
-    scope.expire();
-    const end = scope.cleanupDeadline!,
-      remaining = () => Math.max(0, Math.ceil(end - performance.now()));
-    const stopCleanup = deadline(remaining(), () => connection.dispose());
     try {
-      await drain(scope, remaining());
-      if (began && connection.usable && connection.transactionStatus !== 'idle') {
-        const result = await connection.query('ROLLBACK', { timeoutMs: remaining() });
-        if (result.commandTag !== 'ROLLBACK' || !['idle'].includes(connection.transactionStatus))
-          throw state();
-      }
-      if (!connection.usable) await connection.closed;
+      await recoverScope(scope, async (cleanup) => {
+        if (began && connection.usable && connection.transactionStatus !== 'idle') {
+          const result = await connection.query('ROLLBACK', {
+            lifetime: new Lifetime({}, cleanup),
+          });
+          if (result.commandTag !== 'ROLLBACK' || !['idle'].includes(connection.transactionStatus))
+            throw state();
+        }
+        if (!connection.usable) await connection.closed;
+      });
     } catch (cleanup) {
       errors.push(cleanup);
       connection.dispose();
       await connection.closed;
-    } finally {
-      stopCleanup();
     }
     throw combined(errors);
   } finally {
-    scope.expire();
     life.stop();
-    if (parent.child === scope) parent.child = undefined;
   }
 }
 let savepointId = 0;
@@ -500,14 +549,7 @@ async function savepoint<T>(
   const errors: unknown[] = [];
   let created = false;
   try {
-    await callback(
-      scope,
-      async () => {
-        await before;
-      },
-      false,
-    );
-    if (!scope.active) throw expired();
+    await enterScope(scope, before);
     if (parent.poisoned || connection.transactionStatus !== 'transaction') throw state();
     await connection.query('SAVEPOINT ' + name, scope.options({}));
     created = true;
@@ -516,29 +558,25 @@ async function savepoint<T>(
     return value;
   } catch (error) {
     errors.push(error);
-    scope.expire();
-    const end = scope.cleanupDeadline!,
-      remaining = () => Math.max(0, Math.ceil(end - performance.now()));
-    const stopCleanup = deadline(remaining(), () => connection.dispose());
     try {
-      await drain(scope, remaining());
-      if (!created || !connection.usable) {
-        parent.poisoned = true;
-      } else {
-        await connection.query('ROLLBACK TO SAVEPOINT ' + name, { timeoutMs: remaining() });
-        await connection.query('RELEASE SAVEPOINT ' + name, { timeoutMs: remaining() });
-        if (connection.transactionStatus !== 'transaction') throw state();
-      }
+      await recoverScope(scope, async (cleanup) => {
+        if (!created || !connection.usable) {
+          parent.poisoned = true;
+        } else {
+          await connection.query('ROLLBACK TO SAVEPOINT ' + name, {
+            lifetime: new Lifetime({}, cleanup),
+          });
+          await connection.query('RELEASE SAVEPOINT ' + name, {
+            lifetime: new Lifetime({}, cleanup),
+          });
+          if (connection.transactionStatus !== 'transaction') throw state();
+        }
+      });
     } catch (cleanup) {
       parent.poisoned = true;
       errors.push(cleanup);
-    } finally {
-      stopCleanup();
     }
     throw combined(errors);
-  } finally {
-    scope.expire();
-    if (parent.child === scope) parent.child = undefined;
   }
 }
 
@@ -549,9 +587,7 @@ export class ConnectionHandle extends SessionHandle implements Connection {
   close(options: CloseOptions = {}): Promise<void> {
     // Validate before permanently fencing an otherwise usable handle.
     try {
-      validateOperation(options);
-      if ('signal' in options)
-        throw new DriverError('PGCLEAR_CONFIGURATION', 'Close accepts only timeoutMs.');
+      validateClose(options);
     } catch (error) {
       return Promise.reject(error);
     }
