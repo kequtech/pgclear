@@ -4,7 +4,7 @@ A standalone TypeScript PostgreSQL driver built around explicit session ownershi
 predictable failure handling, and first-class protocol operations. Tenon is the first intended
 consumer; pgclear has no runtime dependency on Tenon.
 
-**Status: M6 implemented locally; not ready for production or publication.** Native TypeScript
+**Status: M1–M6 pass PostgreSQL 16/18 CI; adoption and release gates remain open.** Native TypeScript
 declarations cover connections, pools, leases, transaction/savepoint scopes, immutable codecs,
 explicit typed/JSON parameters, description, scripts, scope-owned prepared statements, portal row
 streams, byte COPY and dedicated notification listeners. An isolated Tenon 0.3.1 adapter trial uses the native driver contracts;
@@ -73,3 +73,7 @@ require `PGCLEAR_TEST_DATABASE_URL` naming an explicit `_test` database; the tes
 `npm run test:compat` separately exercises native PostgreSQL TLS/Unix sockets and checksum-pinned
 PgBouncer 1.26.1. See [development](docs/development.md#deployment-compatibility) for its disposable
 fixture, prerequisites and exact tested profiles.
+
+M7a provides opt-in [driver benchmarks](benchmarks/README.md) with pinned pg/Postgres.js comparators,
+raw latency samples, CPU/RSS and added network delay. Pipelining remains a conditional later slice;
+pgclear currently executes one operation at a time per connection.

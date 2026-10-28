@@ -24,6 +24,7 @@ JavaScript/TypeScript consumers, and real PostgreSQL integration tests. Set the 
 | `npm run test:unit`        | Packet/auth/config/fake-server and packed-consumer tests; no database |
 | `npm run test:integration` | Supplied `_test` database, including PostgreSQL/libpq auth comparison |
 | `npm test`                 | Both test groups                                                      |
+| `npm run benchmark`        | Isolated comparator workers against the configured `_test` database   |
 
 Fake-server tests require loopback/Unix sockets. Integration tests require `psql`; packed-consumer
 tests use `tar` and reuse only runtime dependencies declared in the packed manifest. TLS fixtures
@@ -43,8 +44,27 @@ generations, credential refresh, failed re-registration, malformed notifications
 close during backoff/authentication, late password results and callback-triggered shutdown. Three
 subprocess scenarios retain natural-exit and long-timer/listener checks and prove synchronous/async
 callback failures remain isolated. Packed JS/TS consumers exercise the real listener export/types.
-Dedicated PostgreSQL 16/18 compatibility jobs are configured; no M6 CI or local PostgreSQL 18 result,
-publication, production performance or full Tenon adoption is claimed.
+The M6 checkpoint `0d31732` was pushed and all four jobs in
+[run 40728530629](https://github.com/kequtech/pgclear/actions/runs/40728530629) passed: the full driver
+check and native TLS/Unix/PgBouncer compatibility, each on PostgreSQL 16 and 18. PostgreSQL 18 ran
+in CI; the local installation remains PostgreSQL 16.15. Publication, production performance and
+full Tenon adoption remain separate gates.
+
+The refreshed packed Tenon trial passed the original pg baseline's 180 tests, all 20 candidate
+contract cases and the 15 shared baseline cases (five candidate-only skips). Candidate declarations
+and generated types passed TypeScript 6/7. Its report is
+`.trial-dist/tenon-m4-6qtkCb/report.json`. New cases exercise native preparation, streaming, COPY,
+savepoint recovery and dedicated listener reconnection alongside ORM operations. This is a local
+PostgreSQL 16.15 consumer trial, distinct from driver CI and complete Tenon adoption.
+
+M7a adds isolated, pinned pg/Postgres.js comparisons without changing runtime dependencies or
+enabling pipelines in pgclear. See [benchmark reproduction and results](../benchmarks/README.md).
+The current local `npm run check` passes **218 tests** (120 database-independent, 98 integration),
+including the harness's two percentile/relay tests. This newer tooling/fixture change has local
+validation; the CI result above applies to the M6 checkpoint.
+The full benchmark matrix passed 126 measurements with three repetitions at 0/10 ms added RTT;
+per-repetition metrics and provenance are checked in under `benchmarks/results/`. Individual latency
+arrays remain in ignored `.benchmark-dist/run-o9qK8H/` in the producing checkout.
 
 The M1–M5 lifecycle cleanup on 2026-10-28 passed `npm run check`: **203 tests**
 (109 database-independent, 94 integration) against the existing `pgclear_test` database. The new

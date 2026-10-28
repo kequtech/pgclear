@@ -1,8 +1,9 @@
 # Canonical design documents
 
-Status: M1–M6 are implemented locally, including dedicated notification listeners and the isolated
-TLS/Unix/PgBouncer compatibility suite. Full Tenon adoption and PostgreSQL 18 verification of this
-checkpoint remain open. See [development](development.md) for current evidence.
+Status: M1–M6 are implemented and verified in PostgreSQL 16/18 CI, including dedicated notification
+listeners and native TLS/Unix/PgBouncer compatibility. The refreshed Tenon trial passes 20 candidate
+cases locally; full adoption and the consumer's PostgreSQL 18 run remain open. M7a adds reproducible
+benchmarks; opt-in pipelining remains conditional. See [development](development.md) for evidence.
 
 | Document                                                              | Responsibility                                               |
 | --------------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -17,6 +18,7 @@ checkpoint remain open. See [development](development.md) for current evidence.
 | [Tenon integration](tenon-integration.md)                             | First-consumer requirements and migration gate               |
 | [Development](development.md)                                         | Actual setup, verification, and contributor commands         |
 | [Tenon trial](tenon-trial.md)                                         | Pinned consumer trial, evidence and adoption limits          |
+| [Benchmarks](../benchmarks/README.md)                                 | Reproduction, comparison settings, measurements and limits   |
 | [Tenon migration report](references/tenon-driver-migration-report.md) | Preserved first-consumer evidence and recommendations        |
 | [Tenon typed-query review](references/tenon-typed-query-review.md)    | Independent M4 review and proposed query-generation workflow |
 | [Tooling exploration](references/query-tooling-exploration.md)        | Historical discussion, superseded by D25                     |
@@ -64,4 +66,4 @@ the [typing assessment](tenon-integration.md#typed-query-tooling); D25 supersede
 
 Upstream links on `master` describe inspected implementations and can change. The protocol
 specification is authoritative; neither another driver's behavior nor an upstream issue alone is
-proof of correctness. No performance advantage has been measured.
+proof of correctness. Benchmark observations apply only to the recorded workload and environment.

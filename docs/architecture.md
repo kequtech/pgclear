@@ -7,30 +7,31 @@ integration. The only direct runtime dependency is `@mongodb-js/saslprep` for th
 normalization/prohibition/bidirectional tables used by PostgreSQL SCRAM. Write the small protocol core in TypeScript;
 do not embed pg, fork Postgres.js, or publish separate internal packages.
 
-| Module                   | Owns                                                               | Must not own                                            |
-| ------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------- |
-| `config/`                | URI parsing, precedence, validation, safe credential access        | sockets or global mutable options                       |
-| `protocol/`              | framing, encoders, discriminated backend messages                  | SQL building, retries, JS type policy                   |
-| `auth/`                  | SCRAM/MD5/password exchanges, proof and channel-binding validation | pooling or reconnect supervision                        |
-| `transport/`             | socket/TLS lifecycle, backpressure, cancellation transport         | request-to-result ownership                             |
-| `codecs/`                | text/binary conversions, immutable registry, typed parameters      | catalog fetching or network I/O                         |
-| `query.ts`               | value-only SQL tag and immutable text/values tuples                | SQL composition, generation or checking                 |
-| `connection/`            | physical session, operation queue, protocol state, metadata        | automatic session resurrection                          |
-| `session/`               | expiring capabilities, preparation, transaction/savepoint scopes   | replacing physical connections                          |
-| `pool/`                  | FIFO acquisition, capacity, leases, retirement and close           | SQL rewriting or write retries                          |
-| `streams/`               | portal batches, COPY lifecycle and producer/consumer backpressure  | bypassing the connection scheduler                      |
-| `listener/`              | dedicated LISTEN connection, registrations, optional supervision   | sharing a query pool connection                         |
-| `errors.ts`, `events.ts` | public diagnostics and safe observation                            | automatic logging of SQL/values                         |
-| `index.ts`               | intentional public exports                                         | accidental exports of internal socket/message machinery |
+| Module                                       | Owns                                                               | Must not own                                            |
+| -------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------- |
+| `config/`                                    | URI parsing, precedence, validation, safe credential access        | sockets or global mutable options                       |
+| `protocol/`                                  | framing, encoders, discriminated backend messages                  | SQL building, retries, JS type policy                   |
+| `auth/`                                      | SCRAM/MD5/password exchanges, proof and channel-binding validation | pooling or reconnect supervision                        |
+| `transport/`                                 | socket/TLS lifecycle, backpressure, cancellation transport         | request-to-result ownership                             |
+| `codecs/`                                    | text/binary conversions, immutable registry, typed parameters      | catalog fetching or network I/O                         |
+| `query.ts`                                   | value-only SQL tag and immutable text/values tuples                | SQL composition, generation or checking                 |
+| `connection/`                                | physical session, operation queue, protocol state, metadata        | automatic session resurrection                          |
+| `session/`                                   | expiring capabilities, preparation, transaction/savepoint scopes   | replacing physical connections                          |
+| `pool/`                                      | FIFO acquisition, capacity, leases, retirement and close           | SQL rewriting or write retries                          |
+| `connection/stream.ts`, `connection/copy.ts` | bounded row/byte handoff, COPY source/write lifecycle              | bypassing the connection scheduler                      |
+| `listener/`                                  | dedicated LISTEN connection, registrations, optional supervision   | sharing a query pool connection                         |
+| `errors.ts`, `events.ts`                     | public diagnostics and safe observation                            | automatic logging of SQL/values                         |
+| `index.ts`                                   | intentional public exports                                         | accidental exports of internal socket/message machinery |
 
 Layer communication is ordinary functions, discriminated unions and small responsibility-specific
 interfaces. Avoid a plugin framework, generic event bus, dependency injection container, or public
 raw-protocol escape hatch. Add an internal adapter only where a real boundary benefits testing.
 
-M3 implements config, protocol, auth, transport, codecs, connection, session and pool modules. Transport owns socket/TLS
-lifetime; the connection owns authentication and protocol/request state. Cancellation reuses that transport boundary for a separate
-verified connection without startup/authentication. The codec module owns value conversion; `connection/query.ts` builds frontend operations.
-Remaining module rows describe planned responsibility boundaries, not empty scaffolds.
+M1–M6 implement these boundaries. Transport owns socket/TLS lifetime; the connection owns
+authentication and protocol/request state. Cancellation reuses that transport boundary for a separate
+verified connection without startup/authentication. Codecs own value conversion;
+`connection/query.ts` builds frontend operations. Stream/COPY helpers remain inside the connection
+module, where their protocol lifecycle is owned; listeners add one dedicated supervision task.
 
 ## Physical connection state
 

@@ -1,7 +1,8 @@
 # Tenon adapter trial
 
-Status: local consumer trial; the full Tenon adoption gate remains open. Nothing was published and
-Tenon's active checkout was not modified. M3 was pushed as `a91a83b`; CI was not polled or awaited.
+Status: refreshed local PostgreSQL 16.15 consumer trial passes 20 candidate contract cases; the full
+Tenon adoption gate remains open. Nothing was published and Tenon's active checkout was not modified.
+M6's driver and deployment checks separately pass PostgreSQL 16/18 CI.
 
 This trial is a consumer regression check, not pgclear's API specification or a pg compatibility
 target. Preserve independently useful PostgreSQL/driver invariants, and adapt Tenon's tests and
@@ -54,7 +55,9 @@ numeric arrays, temporal/byte values, guarded writes and cardinality rollback, c
 serialization, aborted transactions, valid/invalid/valid JSON serialization, borrowed ownership,
 Describe without execution, generated types, migration scripts/history/rollback, real advisory-lock
 contention, backend loss and close. Candidate-only cases cover explicit JSON/array parameters,
-strict bind rejection, duplicate columns, raw JSON tokens and unknown array OIDs.
+strict bind rejection, duplicate columns, raw JSON tokens and unknown array OIDs. Three further
+candidate-only cases exercise native prepared handles, bounded streaming, COPY FROM/TO and failed
+COPY savepoint recovery, plus listener termination/reconnection alongside ORM queries and rollback.
 
 An npm registry release is unnecessary for this boundary check. npm supports installing local
 package tarballs; the trial uses the real packed exports/declarations instead of source aliases or
@@ -100,12 +103,14 @@ discovery, input normalization, pg-shaped native facade or new upstream API.
 
 ## Evidence and remaining adoption work
 
-On 2026-10-28 the post-review runner passed on PostgreSQL 16.15: the pg baseline passed **180 tests**.
-The external fixture now has **17 cases**: 15 shared cases plus two candidate-only cases. All
-**17 candidate cases** passed; **15 baseline cases** passed with two skipped. Candidate source
-formatting/declarations and generated types under TypeScript 6/7 also passed. The pgclear regression
-suite passed **100 tests** (53 database-independent, 47 integration). The machine-readable report is
-the authority for a particular run's observed outcome.
+On 2026-10-28 the refreshed runner packed the M6 driver checkpoint `0d31732` with the expanded
+consumer fixture. The pg baseline passed **180 tests**. The fixture has **20 cases**: 15 shared and
+five candidate-only. All **20 candidate cases** passed; **15 baseline cases** passed with five
+skipped. Candidate source formatting/declarations and generated types under TypeScript 6/7 also
+passed. Evidence: `.trial-dist/tenon-m4-6qtkCb/report.json`, driver artifact SHA256
+`1251f06a2dadc9209a7c012f292aebfd0193668b9ca4de892b25ce6a90c57303`. The report records the dirty
+working tree containing the fixture additions. No driver compatibility changes were required.
+The machine-readable report is the authority for a particular run's observed outcome.
 
 The independent Tenon review found two Unicode corruption bugs after the original 15-case trial
 and 93 driver tests had passed. The UTF-8 decoders and array whitespace grammar are corrected in D21.
@@ -116,14 +121,16 @@ consumer correctness.
 
 This is not a claim that Tenon's original 180 tests pass unchanged on pgclear. Its pg-native mocks,
 configuration, result assertions and notification/lifecycle hooks must be replaced with tests of the
-selected public contracts. LISTEN/native notification cases belong to M6; preparation, streaming and
-COPY remain later driver work. No legacy API is recreated to make those tests pass.
+selected public contracts. The expanded fixture now covers preparation, streaming, COPY and dedicated
+listeners through pgclear's actual public APIs. It does not port every historical consumer case or
+recreate a pg-shaped native facade.
 
 Before adopting the candidate in Tenon's mainline, port all applicable behavioral regressions and
 public type examples, update its user documentation, run the adapted consumer suite on PostgreSQL
-16/18, and review the deliberate contract changes. This trial has not verified PostgreSQL 18, proxy
-deployments, performance or a production release. It changes neither Tenon 0.3.1 nor pgclear's release
-visibility, and does not advance to M5 automatically.
+16/18, and review the deliberate contract changes. This consumer trial has not verified PostgreSQL
+18 or proxy deployments. Separate driver CI covers PostgreSQL 16/18 TLS/Unix/PgBouncer; separate M7a
+benchmarks measure driver workloads, not Tenon performance. Neither establishes consumer adoption
+or a production release. The trial changes neither Tenon 0.3.1 nor pgclear's release visibility.
 
 Tenon feedback has been received and the known Unicode blockers are fixed. D26 resumes focused M5
 driver development separately from full Tenon adoption. The outstanding applicable consumer

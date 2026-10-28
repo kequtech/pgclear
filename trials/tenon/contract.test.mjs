@@ -616,3 +616,141 @@ test(
     });
   },
 );
+
+test(
+  'candidate native preparation, bounded streaming and COPY remain usable beside Tenon queries',
+  { ...within, skip: !clear },
+  async () => {
+    await fixture(async (db, name) => {
+      const table = `"${name}".native_values`;
+      await db.query(unsafeSql(`CREATE TABLE ${table}(n integer PRIMARY KEY)`, []));
+      let expired;
+      await db.native.withSession(async (session) => {
+        expired = await session.prepare(`INSERT INTO ${table} VALUES($1)`);
+        await expired.query([1]);
+        await assert.rejects(expired.query([undefined]), {
+          code: 'PGCLEAR_ENCODE',
+          outcome: 'not-sent',
+        });
+        await expired.query([2]);
+        async function* source() {
+          yield Buffer.from('3\n4\n');
+        }
+        assert.equal((await session.copyFrom(`COPY ${table} FROM STDIN`, source())).rowCount, 2n);
+        const stream = session.stream(`SELECT n FROM ${table} ORDER BY n`, { batchSize: 2 });
+        await stream.fields;
+        await assert.rejects(session.query('SELECT 99'), { code: 'PGCLEAR_BUSY' });
+        const rows = [];
+        for await (const row of stream) rows.push(row.n);
+        assert.deepEqual(rows, [1, 2, 3, 4]);
+        const chunks = [];
+        for await (const chunk of session.copyTo(
+          `COPY (SELECT n FROM ${table} ORDER BY n) TO STDOUT`,
+        ))
+          chunks.push(chunk);
+        assert.equal(Buffer.concat(chunks).toString(), '1\n2\n3\n4\n');
+      });
+      await assert.rejects(expired.query([5]), { code: 'PGCLEAR_EXPIRED' });
+      assert.deepEqual(
+        await db.query(unsafeSql(`SELECT n FROM ${table} ORDER BY n`, []), { returns: 'many' }),
+        [1, 2, 3, 4].map((n) => ({ n })),
+      );
+    });
+  },
+);
+
+test(
+  'candidate native savepoints roll back failed COPY and recover early stream close',
+  { ...within, skip: !clear },
+  async () => {
+    await fixture(async (db, name) => {
+      const table = `"${name}".native_recovery`;
+      await db.query(unsafeSql(`CREATE TABLE ${table}(n integer)`, []));
+      await db.native.transaction(async (tx) => {
+        await assert.rejects(
+          tx.savepoint(async (child) => {
+            async function* source() {
+              yield Buffer.from('1\n');
+              throw Error('fixture source');
+            }
+            await child.copyFrom(`COPY ${table} FROM STDIN`, source());
+          }),
+          { code: 'PGCLEAR_COPY_SOURCE' },
+        );
+        const partial = tx.stream('SELECT generate_series(1,10)', { batchSize: 1 });
+        for await (const row of partial) {
+          assert.ok(row);
+          break;
+        }
+        assert.deepEqual(await partial.completion, { status: 'closed' });
+        await tx.query(`INSERT INTO ${table} VALUES(2)`);
+      });
+      assert.deepEqual(
+        await db.query(unsafeSql(`SELECT n FROM ${table}`, []), { returns: 'many' }),
+        [{ n: 2 }],
+      );
+    });
+  },
+);
+
+test(
+  'candidate dedicated listeners coexist with Tenon transactions, reconnect and close permanently',
+  { ...within, skip: !clear },
+  async () => {
+    const { listen } = await import('@kequtech/pgclear');
+    const channel = marker + '_notify';
+    const messages = [],
+      statuses = [];
+    const listener = await listen(
+      { connectionString: url, applicationName: marker },
+      {
+        channels: [channel],
+        reconnect: true,
+        onNotification(value) {
+          messages.push(value);
+        },
+        onStatus(value) {
+          statuses.push(value);
+        },
+      },
+    );
+    try {
+      await fixture(async (db) => {
+        const sent = await db.query(
+          sql`SELECT pg_backend_pid() AS pid,pg_notify(${channel},${'first'})`,
+          { returns: 'one' },
+        );
+        await eventually(() => messages.length === 1);
+        assert.deepEqual(messages[0], { channel, payload: 'first', backendPid: sent.pid });
+        await assert.rejects(
+          db.transaction(async (tx) => {
+            await tx.query(sql`SELECT pg_notify(${channel},${'rolled back'})`);
+            throw Error('fixture rollback');
+          }),
+          /fixture rollback/,
+        );
+        assert.equal(listener.status.state, 'connected');
+        const first = listener.status.session;
+        // Terminate only the backend positively identified by this owned direct listener.
+        await admin.queryClassic('SELECT pg_terminate_backend($1)', [first.backendPid]);
+        await eventually(
+          () => listener.status.state === 'connected' && listener.status.generation === 2,
+        );
+        assert.notEqual(listener.status.session.id, first.id);
+        await db.query(sql`SELECT pg_notify(${channel},${'restored'})`);
+        await eventually(() => messages.length === 2);
+        assert.equal(messages[1].payload, 'restored');
+        assert.deepEqual(
+          statuses.map((value) => value.state),
+          ['connected', 'disconnected', 'reconnecting', 'connected'],
+        );
+        await listener.close();
+        await db.query(sql`SELECT pg_notify(${channel},${'after close'})`);
+        await pause(50);
+        assert.equal(messages.length, 2);
+      });
+    } finally {
+      await listener.close();
+    }
+  },
+);

@@ -125,7 +125,7 @@ Port behavioral cases, not the current helper implementation. Start with:
 - COMMIT returning ROLLBACK fails; loss after COMMIT dispatch preserves unknown outcome.
 - A held session performs migration/catalog work under the same backend and search_path/role.
 - Owned close is bounded and borrowed pools remain usable; no reconnect occurs after close.
-- At the later listener milestone, notification delivery, gaps, stable close handles and pending retries.
+- Dedicated listener notification delivery, gaps, stable close handles and pending retries.
 
 Tenon's `test/connection-failures.test.ts`, `preparation.test.ts`, `transactions.test.ts`,
 `reservation.test.ts`, `driver.test.ts`, and description/native tests provide starting evidence.
@@ -142,5 +142,6 @@ workarounds are removed only when their behavioral regression passes through the
 
 The local adapter trial does not publish either package or modify the active Tenon checkout.
 [Trial evidence](tenon-trial.md) distinguishes the 180-test pg baseline from the adapted public
-contract fixture. Full adoption remains open: pg-native notification tests belong to the later
-listener milestone, and every applicable consumer regression still needs porting before replacement.
+contract fixture. Its 20 candidate cases now include native preparation, streaming, COPY and listener
+reconnection alongside ORM work. Full adoption remains open: every applicable consumer regression
+still needs porting, and the complete adapted consumer must pass PostgreSQL 16/18 before replacement.

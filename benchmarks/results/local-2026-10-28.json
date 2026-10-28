@@ -1,0 +1,40 @@
+{
+  "status": "passed",
+  "createdAt": "2026-10-28T17:07:03.296Z",
+  "config": {
+    "iterations": 1000,
+    "samples": 3,
+    "latencies": [0, 10],
+    "warmup": 20,
+    "poolSize": 4,
+    "concurrency": 16,
+    "batchSize": 32
+  },
+  "revision": "0d31732fd73f424f36c0af8449853edb1bd49e66",
+  "workingTreeDirty": true,
+  "artifactSha256": "3a5b87ba1c98d8805832453640c1ad5b3e729fb829bf3f5af161648cfac04d08",
+  "comparatorLockSha256": "d8551abff1e97615e172cd08d8922f71fa9e4f370a12aa02c7b2b59b965562ce",
+  "versions": {
+    "pg": "8.23.1",
+    "postgres": "3.4.9"
+  },
+  "serverVersion": "PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit",
+  "node": "v24.4.1",
+  "machine": {
+    "platform": "linux",
+    "release": "6.6.87.2-microsoft-standard-WSL2",
+    "cpu": "AMD Ryzen Threadripper 3970X 32-Core Processor",
+    "logicalCpus": 64
+  },
+  "notes": [
+    "Measured client CPU/RSS exclude the relay and PostgreSQL processes.",
+    "All profiles use the same bounded TCP relay; configured RTT is added delay, not measured total RTT.",
+    "Prepared setup, connection/type discovery, warmup and cleanup are excluded from timing.",
+    "Common value assertions are included. Results use object rows with matching int4/array/JSON mappings; native typed array/JSON bind helpers are used where required.",
+    "Baseline pipelining is disabled. pipeline-probe enables comparator pipelines with bounded concurrency; pgclear stays sequential.",
+    "Transactions use each driver public transaction API (pg uses explicit BEGIN/COMMIT on an acquired client)."
+  ],
+  "measurements": 126,
+  "sourceReportSha256": "a25e5af60554000df4df78403104f9d850bb407da51cf46520ca878d9c6bf813",
+  "results": "local-2026-10-28.csv"
+}

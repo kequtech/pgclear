@@ -2,12 +2,12 @@
 
 Work in the order below. Each milestone produces a usable, verifiable slice and has an observable
 completion gate. Keep this document current by recording completed gates and evidence, not by
-maintaining a second backlog that can disagree with it. M1–M6 and the M4 consumer trial are
-implemented locally; complete Tenon adoption remains open. The current check passes **216 regression
-tests**, with **3 additional compatibility tests**. See [development](development.md) for evidence.
-PostgreSQL 16/18 CI passed the earlier Unicode-fix commit `e742fbf`; M6's new CI jobs are configured
-but their results are unverified here. The [handoff](m5-handoff.md) is historical. M7 measurement is
-next; opt-in pipelining remains conditional on demonstrated benefit.
+maintaining a second backlog that can disagree with it. M1–M6 pass the full driver check and native
+TLS/Unix/PgBouncer CI on PostgreSQL 16/18 at `0d31732` (216 regression tests and three separate
+compatibility tests). The refreshed local Tenon candidate passes 20 contract cases; complete
+adoption and its PostgreSQL 18 consumer run remain open. M7a supplies reproducible measurements;
+opt-in pipelining remains conditional on demonstrated benefit. See [development](development.md)
+and [benchmarks](../benchmarks/README.md) for evidence. The [handoff](m5-handoff.md) is historical.
 
 ## M0 — Design and project setup (this change)
 
@@ -234,7 +234,8 @@ supervision task rather than reconnecting ordinary session handles.
 `npm run check` passes 216 tests. The separate compatibility suite passes 3 tests on PostgreSQL
 16.15 and checksum-pinned PgBouncer 1.26.1: verified native TLS/channel binding, native Unix sockets,
 session features through session pooling and ordinary/transaction queries through transaction
-pooling. Dedicated PostgreSQL 16/18 compatibility jobs are configured, with no new CI result claimed.
+pooling. All four PostgreSQL 16/18 driver and compatibility CI jobs passed for `0d31732` in
+[run 40728530629](https://github.com/kequtech/pgclear/actions/runs/40728530629).
 See [D32](decisions.md#d32--listeners-supervise-a-dedicated-connection-with-explicit-delivery-gaps)
 and [reproduction](development.md#deployment-compatibility).
 
@@ -251,12 +252,22 @@ transaction pooling. Changing session identity is never hidden from an exclusive
 
 ## M7 — Performance and opt-in pipelining
 
-Measure sequential behavior first. Build reproducible small-query, large-result, typed-array/JSON,
-transaction and pool-contention benchmarks with varied latency/concurrency. Compare pg and
-Postgres.js under equivalent preparation/codecs, report CPU/memory and percentile latency, and retain
-raw scripts/configuration. Do not encode universal speed rankings in documentation.
+M7a implements sequential, prepared, large-result, typed-array/JSON, transaction and pool-contention
+comparisons with pinned pg/Postgres.js versions and configurable added RTT. Fresh packed-driver
+workers retain individual latency samples, CPU/RSS, p50/p95/p99 and provenance; driver order rotates
+between repetitions. Baseline workloads admit one operation per connection. A separate bounded
+pipeline probe enables comparator pipelines while pgclear remains sequential. Reproduction,
+measurement limits and results live in [benchmarks](../benchmarks/README.md). Two harness tests
+cover numeric percentiles and the bounded full-duplex relay. No runtime scheduling change is made.
 
-Then specify the pipelining option and implement bounded sent queues with one Sync boundary per
+The first full matrix passed all 126 measurements on PostgreSQL 16.15/Node 24.4.1, with three
+repetitions at 0/10 ms added RTT. Checked-in per-repetition metrics and provenance accompany the
+recipe. Local prepared throughput is close to the comparators; large results and pool contention
+expose CPU/throughput gaps worth profiling. The separate comparator pipeline probe demonstrates
+substantial benefit for requests available ahead of time at 10 ms added RTT. It does not establish
+a pgclear pipeline design or consumer adoption requirement.
+
+M7b remains conditional: specify the pipelining option and implement bounded sent queues with one Sync boundary per
 independent operation. Initially restrict it to exclusive sessions and ordinary queries. No silent
 change to managed transaction semantics or one-off pool scheduling.
 

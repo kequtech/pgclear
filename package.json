@@ -23,12 +23,13 @@
     "check": "npm run format:check && npm run typecheck && npm test",
     "build": "node scripts/build.mjs",
     "test:compile": "node scripts/build.mjs --test",
-    "test:unit": "npm run build && npm run test:compile && node --test .test-dist/test/*.test.js",
+    "test:unit": "npm run build && npm run test:compile && node --test .test-dist/test/*.test.js benchmarks/*.test.mjs",
     "test:integration": "npm run test:compile && node --env-file-if-exists=.env --test .test-dist/test/integration/*.test.js",
     "test": "npm run test:unit && npm run test:integration",
     "prepack": "npm run build",
     "trial:tenon": "node --env-file-if-exists=.env trials/tenon/run.mjs",
-    "test:compat": "npm run test:compile && node --test --test-timeout=45000 .test-dist/test/compatibility/*.test.js"
+    "test:compat": "npm run test:compile && node --test --test-timeout=45000 .test-dist/test/compatibility/*.test.js",
+    "benchmark": "node --env-file-if-exists=.env benchmarks/run.mjs"
   },
   "prettier": {
     "singleQuote": true,

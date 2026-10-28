@@ -514,3 +514,5 @@ PostgreSQL refused TLS on its Unix socket, so transport support is not presented
 server capability. Session features use direct connections or session pooling; transaction pooling
 checks unnamed queries and transaction pinning/recovery. The local result is PostgreSQL 16.15; new
 16/18 compatibility jobs are configured without claiming their results before execution.
+Subsequently, all four driver/deployment jobs passed for `0d31732` in
+[run 40728530629](https://github.com/kequtech/pgclear/actions/runs/40728530629).

@@ -1,0 +1,9 @@
+{
+  "name": "pgclear-benchmark-comparators",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "pg": "8.23.1",
+    "postgres": "3.4.9"
+  }
+}
