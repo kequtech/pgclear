@@ -15,7 +15,10 @@ function invalid(message: string): never {
   throw new DriverError('PGCLEAR_ENCODE', message);
 }
 
-export function encodeQuery(input: QueryInput<object>): Buffer {
+export function encodeQuery(
+  input: QueryInput<object>,
+  { batchSize = 0, flush = batchSize > 0 }: { batchSize?: number; flush?: boolean } = {},
+): Buffer {
   if (typeof input !== 'string' && (!input || typeof input !== 'object'))
     invalid('Expected SQL text, a query tuple or a statement.');
   if (
@@ -38,6 +41,26 @@ export function encodeQuery(input: QueryInput<object>): Buffer {
   const hints = statement.parameterTypes;
   if (hints !== undefined && (!Array.isArray(hints) || hints.length !== values.length))
     invalid('Parameter type hints must match values.');
+  const { oids, formats, parameters } = encodeValues(values, hints);
+  return Buffer.concat([
+    frame(
+      'P',
+      Buffer.concat([
+        cstring(''),
+        cstring(statement.text),
+        int16(oids.length),
+        ...oids.map(uint32),
+      ]),
+    ),
+    bind('', values.length, formats, parameters),
+    frame('D', Buffer.from('P'), cstring('')),
+    frame('E', cstring(''), int32(batchSize)),
+    frame(flush ? 'H' : 'S'),
+  ]);
+}
+
+/** Shared bind encoding; preparation never runs user encoders until execution is reserved. */
+function encodeValues(values: readonly InputValue[], hints?: readonly number[]) {
   const oids: number[] = [],
     formats: Buffer[] = [],
     parameters: Buffer[] = [];
@@ -81,35 +104,58 @@ export function encodeQuery(input: QueryInput<object>): Buffer {
     formats.push(int16(format));
     parameters.push(bytes === undefined ? int32(-1) : Buffer.concat([int32(bytes.length), bytes]));
   }
+  return { oids, formats, parameters };
+}
+
+export function encodePreparedQuery(
+  name: string,
+  values: readonly InputValue[],
+  parameterTypes: readonly number[],
+): Buffer {
+  if (!Array.isArray(values) || values.length !== parameterTypes.length)
+    invalid('Prepared parameter count must match its description.');
+  const { formats, parameters } = encodeValues(values, parameterTypes);
   return Buffer.concat([
-    frame(
-      'P',
-      Buffer.concat([
-        cstring(''),
-        cstring(statement.text),
-        int16(oids.length),
-        ...oids.map(uint32),
-      ]),
-    ),
-    frame(
-      'B',
-      Buffer.concat([
-        cstring(''),
-        cstring(''),
-        int16(values.length),
-        ...formats,
-        int16(values.length),
-        ...parameters,
-        int16(0),
-      ]),
-    ),
+    bind(name, values.length, formats, parameters),
     frame('D', Buffer.from('P'), cstring('')),
     frame('E', cstring(''), int32(0)),
     frame('S'),
   ]);
 }
 
-export function encodeDescribe(input: string | DescribeStatement): Buffer {
+function bind(
+  statement: string,
+  count: number,
+  formats: readonly Buffer[],
+  parameters: readonly Buffer[],
+): Buffer {
+  return frame(
+    'B',
+    Buffer.concat([
+      cstring(''),
+      cstring(statement),
+      int16(count),
+      ...formats,
+      int16(count),
+      ...parameters,
+      int16(0),
+    ]),
+  );
+}
+
+export function encodePortalExecute(batchSize: number): Buffer {
+  return Buffer.concat([frame('E', cstring(''), int32(batchSize)), frame('H')]);
+}
+export function encodePortalClose(): Buffer {
+  return Buffer.concat([frame('C', Buffer.from('P'), cstring('')), frame('S')]);
+}
+export const sync = frame('S');
+
+export function encodeStatementClose(name: string): Buffer {
+  return Buffer.concat([frame('C', Buffer.from('S'), cstring(name)), frame('S')]);
+}
+
+export function encodeDescribe(input: string | DescribeStatement, name = ''): Buffer {
   if (typeof input !== 'string' && (!input || typeof input !== 'object' || Array.isArray(input)))
     invalid('Expected SQL text or a description statement.');
   const statement = typeof input === 'string' ? { text: input } : input;
@@ -123,9 +169,9 @@ export function encodeDescribe(input: string | DescribeStatement): Buffer {
   return Buffer.concat([
     frame(
       'P',
-      Buffer.concat([cstring(''), cstring(text), int16(hints.length), ...hints.map(uint32)]),
+      Buffer.concat([cstring(name), cstring(text), int16(hints.length), ...hints.map(uint32)]),
     ),
-    frame('D', Buffer.from('S'), cstring('')),
+    frame('D', Buffer.from('S'), cstring(name)),
     frame('S'),
   ]);
 }

@@ -344,3 +344,121 @@ custom socket factories; protocol 3.2 negotiation; CommonJS; multi-host discover
 COPY record encoders; optional custom array constructors; and detailed public partial-script errors.
 Do not expose placeholder options for them. Any blocking discovery in M1/M2 should amend the affected
 accepted decision and signatures before later milestones build on it.
+
+## D27 — Prepared statements belong to their creating scope
+
+M5a exposes `prepare` on sessions and managed transactions, including savepoint callbacks. A handle
+belongs to exactly the scope that creates it, rather than merely the underlying PostgreSQL session.
+Connection/lease/session handles cannot execute or close statements while a child transaction owns
+the session; transaction handles likewise cannot enter an active savepoint. Callers prepare within
+the child scope when needed. There is no scope rebinding or implicit borrowing of ancestor handles.
+
+After callback completion or lease release, fence new work, drain accepted operations and close all
+owned statement names before returning control or reusing the physical session. Transaction and
+savepoint statements are closed before commit/release or rollback recovery. PostgreSQL named
+statements are session resources and are not undone by rollback. Failed creation also disposes a
+possibly created name; a lost session destroys its names and is never resurrected. An unconfirmed
+Close retires the session. Physical connection shutdown can dispose names by ending the transport.
+
+Preparation returns only after Parse, description and ReadyForQuery succeed. Subsequent executions
+send Bind/Describe(portal)/Execute/Sync through the ordinary scheduler and result path. Local bind
+failures leave confirmed names intact. Explicit Close fences later executions synchronously, follows
+accepted executions and is idempotent. Server invalidation errors surface without execution retries.
+
+## D28 — Streaming owns one scope and retains native completion evidence
+
+M5b exposes row streams only on held sessions and transaction/savepoint handles. Streams eagerly
+reserve the owning scope before bind encoders run, queue behind earlier accepted work and block
+competing operations until cleanup settles. Pool callers use `withSession` or an explicit lease.
+Prepared handles retain their M5a query/close surface; streaming a prepared handle is not added.
+
+The original M5b implementation used a driver-named portal (superseded by D30) with
+Parse/Bind/Describe/Execute/Flush, then Execute/Flush on consumer demand.
+There is one buffered batch, default 100 rows, bounded by `maxResultBytes` including metadata.
+Sync ends the implicit transaction, so no Sync is sent between portal batches. Completion or early
+close disposes the portal and waits for ReadyForQuery. Server errors first resynchronize with Sync,
+then explicitly Close the portal; failed disposal retires the transport. Explicit close can discard
+an in-flight batch and has a bounded cleanup deadline. Active abort/deadline uses cancellation and
+retires the session, including while a consumer is paused.
+
+`StreamCompletion` distinguishes a complete command from an early close. Complete results preserve
+the exact backend command tag and parsed count. For row-returning portal execution, PostgreSQL may
+report only the last Execute's fetched count, including zero at an exact batch boundary. This was
+observed against `pgclear_test` and agrees with
+[PostgreSQL's PortalRun implementation](https://github.com/postgres/postgres/blob/REL_16_STABLE/src/backend/tcop/pquery.c).
+The driver does not replace the tag/count with a synthesized total. Count yielded rows when that
+quantity is needed. Early close exposes no result/tag/count and does not establish rollback: a
+write with RETURNING can have performed all its effects before the first batch is delivered.
+
+Scope expiry closes unfinished streams before draining accepted operations and prepared names.
+Abandoned streams make successful callbacks fail with `PGCLEAR_BUSY`, force managed transaction
+rollback and cause raw lease release to discard the session. Explicitly closed or fully consumed
+streams permit normal reuse. Single-consumer iteration and observed metadata/completion promises
+prevent abandoned JavaScript consumers from retaining execution ownership or causing unhandled
+promise rejections. COPY remains M5c.
+
+## D29 — COPY shares execution ownership and separates source cleanup from protocol recovery
+
+M5 completes COPY FROM/TO on held sessions and transaction/savepoint scopes. COPY is an exclusive
+scheduled operation, with the same eager FIFO reservation, operation options, physical-session
+identity and no-retry policy as preparation and row streams. Pools require a session callback or
+lease. The public input is a native async iterable of Uint8Array (including Node Readable byte
+streams); output is opaque byte chunks with complete/closed completion evidence. CSV and binary
+record encoding remain caller responsibilities.
+
+COPY begins with one extended-protocol statement and Flush. Sources are not pulled until the server
+accepts COPY FROM. Input sends one frame at a time, splitting producer chunks into at most 64 KiB
+payloads and awaiting socket write callbacks before advancing. Output pauses at each CopyData frame
+until the consumer requests more. Frame and buffered-byte limits still apply; neither entire input
+nor entire output is buffered. Producer-owned chunks and a Readable's own buffer remain outside the
+driver's byte budget.
+
+Source failure sends a fixed CopyFail message (without source-error text), Syncs to recover and
+observes iterator cleanup before settlement. The original extra portal close is superseded by D30. The source error is inspectable through
+`PGCLEAR_COPY_SOURCE` and its cause; invalid chunks use `PGCLEAR_ENCODE`. Iterator return failures
+are aggregated with work failures. Node Readables are destroyed on interruption, and late iterator
+results cannot write to a retired session. An uncooperative iterator return is bounded by the same
+fixed cleanup deadline as protocol disposal.
+
+Cancellation of COPY FROM also sends CopyFail/Sync: an otherwise stopped producer can leave a
+backend waiting for more input despite a CancelRequest. The initial cancellation test took the
+five-second retirement fallback; after this change, the same database workflow settled promptly.
+COPY TO early exit uses backend-key cancellation, drains/discards remaining data and retires its
+physical session. It resolves `closed` only after successful cancellation cleanup; protocol,
+transport and cleanup errors still reject. A queued close is local and does not retire earlier work.
+These directions follow [PostgreSQL's COPY protocol](https://www.postgresql.org/docs/18/protocol-flow.html#PROTOCOL-COPY).
+
+M5's review consolidates single-consumer output lifecycle for rows/bytes, shared resource cleanup
+state and budget, operation/result handling and named execution options. Indexed message draining
+avoids shifting the remaining queue for every frame. Monotonic elapsed-deadline checks before
+continuation and COPY writes prevent synchronous producer/consumer work from bypassing a timer that
+has not yet run. Accepted unawaited COPY FROM work drains within scope cleanup; abandoned COPY
+output follows the existing unfinished-stream policy. Scope ownership, native values and metadata,
+explicit preparation, and final server command evidence remain unchanged.
+
+## D30 — Exclusive execution needs no named portal resource layer
+
+The M5 simplification preserves all public entrypoints, including `queryClassic`. Explicit prepared
+statements still own named server resources and expire with their exact creating scope (D27).
+Streaming and COPY already own the session exclusively, so they use the unnamed portal. This
+supersedes the named portals and extra cleanup cycles described in D28/D29.
+
+Full stream/COPY completion sends Sync and awaits ReadyForQuery. A backend error requires one
+Sync/ReadyForQuery recovery, without another Close/Sync. An early suspended row-stream close still
+sends Close on the unnamed portal plus Sync and requires both acknowledgements. Sync ends an implicit
+transaction but preserves an explicit one; subsequent Bind replaces the unnamed portal there.
+Manual transaction/savepoint regression tests verify successful completion, COPY source failure,
+rollback recovery, partial close and later reuse on the same physical session.
+
+Protocol phases and data belong to discriminated operation variants. The common envelope holds
+queue status, outcome and cleanup deadline; named-portal tracking and separate sent/closing/failed
+flags are removed. One bounded producer/consumer handoff serves rows and COPY bytes, without a COPY
+output subclass or a second callback handshake. Input runs as an ordinary async task; its actual
+iterator-return promise is observed, bounded by connection retirement, and never force-resolved.
+
+One scope reservation replaces the independent exclusive flag and optional stream. It is acquired
+before invoking source getters or encoders, with reentrant access covered by integration tests.
+Scope expiry establishes the absolute cleanup deadline carried through statement disposal, rollback
+and lease release. Bind encoding and fake-server protocol helpers are shared. These changes remove
+redundant lifecycle state while retaining ownership, backpressure, cancellation, native completion
+evidence and no automatic execution retries.

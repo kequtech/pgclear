@@ -75,6 +75,25 @@ export interface QueryOptions extends OperationOptions {
 export interface ArrayQueryOptions extends OperationOptions {
   readonly rowMode: 'array';
 }
+export type StreamCompletion =
+  { readonly status: 'complete'; readonly result: CommandResult } | { readonly status: 'closed' };
+export interface RowStream<T> extends AsyncIterable<T> {
+  readonly fields: Promise<readonly Field[]>;
+  readonly completion: Promise<StreamCompletion>;
+  close(): Promise<void>;
+}
+export interface CopyStream extends AsyncIterable<Uint8Array> {
+  readonly completion: Promise<StreamCompletion>;
+  close(): Promise<void>;
+}
+/** Readable byte streams also implement this native async-iterable contract. */
+export type CopySource = AsyncIterable<Uint8Array>;
+export interface StreamOptions extends QueryOptions {
+  readonly batchSize?: number;
+}
+export interface ArrayStreamOptions extends ArrayQueryOptions {
+  readonly batchSize?: number;
+}
 export interface CloseOptions {
   readonly timeoutMs?: number;
 }
@@ -108,17 +127,48 @@ export interface Executor {
   ): Promise<QueryResult<T>>;
   describe(statement: string | DescribeStatement, options?: OperationOptions): Promise<Description>;
 }
+export interface StreamingExecutor extends Executor {
+  stream<T extends object = Row>(statement: QueryInput<T>, options?: StreamOptions): RowStream<T>;
+  stream<T extends readonly unknown[] = readonly unknown[]>(
+    statement: QueryInput<T>,
+    options: ArrayStreamOptions,
+  ): RowStream<T>;
+  stream(statement: QueryInput<object>, options: ArrayStreamOptions): RowStream<readonly unknown[]>;
+}
+export interface CopyingExecutor extends Executor {
+  copyFrom(text: string, source: CopySource, options?: OperationOptions): Promise<CommandResult>;
+  copyTo(text: string, options?: OperationOptions): CopyStream;
+}
+/** A named statement owned by exactly one expiring session/transaction/savepoint scope. */
+export interface PreparedStatement {
+  readonly description: Description;
+  query<T extends object = Row>(
+    values?: readonly InputValue[],
+    options?: QueryOptions,
+  ): Promise<QueryResult<T>>;
+  query<T extends readonly unknown[] = readonly unknown[]>(
+    values: readonly InputValue[] | undefined,
+    options: ArrayQueryOptions,
+  ): Promise<QueryResult<T>>;
+  close(): Promise<void>;
+}
+export interface PreparingExecutor extends Executor {
+  prepare(
+    statement: string | DescribeStatement,
+    options?: OperationOptions,
+  ): Promise<PreparedStatement>;
+}
 export interface TransactionOptions extends OperationOptions {
   readonly isolation?: 'read committed' | 'repeatable read' | 'serializable';
   readonly readOnly?: boolean;
   readonly deferrable?: boolean;
 }
-export interface Transaction extends Executor {
+export interface Transaction extends PreparingExecutor, StreamingExecutor, CopyingExecutor {
   readonly info: SessionInfo;
   readonly transactionStatus: TransactionStatus;
   savepoint<T>(work: (transaction: Transaction) => Promise<T>): Promise<T>;
 }
-export interface Session extends Executor {
+export interface Session extends PreparingExecutor, StreamingExecutor, CopyingExecutor {
   readonly info: SessionInfo;
   /** Last observed ReadyForQuery status; this is not a liveness probe. */
   readonly transactionStatus: TransactionStatus;
@@ -200,7 +250,15 @@ export type DriverEvent =
   | {
       readonly type: 'operation';
       readonly sessionId: number;
-      readonly operation: 'query' | 'describe' | 'script';
+      readonly operation:
+        | 'query'
+        | 'describe'
+        | 'script'
+        | 'prepare'
+        | 'statement-close'
+        | 'stream'
+        | 'copy-from'
+        | 'copy-to';
       readonly durationMs: number;
       readonly outcome: Outcome;
       readonly errorCode?: string;

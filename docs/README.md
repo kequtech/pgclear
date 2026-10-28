@@ -1,6 +1,6 @@
 # Canonical design documents
 
-Status: accepted initial design, 2026-10-28. The M3 connection/pool/transaction core is implemented locally; later APIs remain
+Status: accepted initial design, 2026-10-28. The M5 connection/pool/transaction/preparation/streaming/COPY surface is implemented locally; later APIs remain
 design targets. See [development](development.md) for the implemented subset and verification.
 
 | Document                                                              | Responsibility                                               |
@@ -12,7 +12,7 @@ design targets. See [development](development.md) for the implemented subset and
 | [Architecture](architecture.md)                                       | Internal boundaries, state machines, failure invariants      |
 | [Decisions](decisions.md)                                             | Accepted decisions, alternatives, and reasons                |
 | [Implementation plan](implementation-plan.md)                         | Ordered work and behavioral completion gates                 |
-| [M5 handoff](m5-handoff.md)                                           | Readiness evidence and the next prepared-statement slice     |
+| [M5 handoff](m5-handoff.md)                                           | Historical starting brief for the prepared-statement slice   |
 | [Tenon integration](tenon-integration.md)                             | First-consumer requirements and migration gate               |
 | [Development](development.md)                                         | Actual setup, verification, and contributor commands         |
 | [Tenon trial](tenon-trial.md)                                         | Pinned consumer trial, evidence and adoption limits          |
@@ -26,12 +26,12 @@ explains how to satisfy that contract. Change conflicting documents together. Re
 reversal in the decision log rather than leaving competing designs in new files. Examples express
 intended usage and compile-time constraints; they are not runtime tests or evidence of implementation.
 
-Implemented shared signatures and `connect` are imported from `src/index.ts` in the design contract
-and examples. `PlannedConnection` describes the future complete session surface; the real
-`Connection` exposes query, describe, script, transaction, identity/status, and close. Pool, lease and
-transaction capability types also come from the real entry point; the `Planned*` types reserve only
-later preparation/stream/COPY additions. Later declarations are never
-published as executable exports. Packed-consumer tests exercise the actual package declarations.
+Implemented signatures and exports are imported from `src/index.ts` in the design contract and
+examples. `Connection` exposes queries, description, preparation, row streaming, COPY, scripts,
+transactions, identity/status and close. Pool, lease and transaction capabilities come from the
+same real entry point. Duplicate `Planned*` session interfaces have been removed; only future
+listener declarations remain proposals, never executable package exports. Packed consumers exercise
+the actual public declarations.
 
 ## Evidence
 

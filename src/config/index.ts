@@ -254,4 +254,11 @@ export function validateOperation(options: OperationOptions, extra: readonly str
   if (options.timeoutMs !== undefined) integer(options.timeoutMs, 'timeoutMs', 0);
   if (options.signal !== undefined && !(options.signal instanceof AbortSignal))
     configurationError('signal must be an AbortSignal.');
+  if (
+    'rowMode' in options &&
+    options.rowMode !== undefined &&
+    options.rowMode !== 'object' &&
+    options.rowMode !== 'array'
+  )
+    configurationError('Invalid row mode.');
 }

@@ -1,10 +1,10 @@
 # Public API
 
-Status: M3 is implemented and locally verified: connections, pools/leases, session callbacks, transactions and
-savepoints, cancellation, immutable codecs, typed/JSON parameters, arrays, description and scripts.
+Status: M5 is implemented and locally verified: connections, pools/leases, session callbacks, transactions and
+savepoints, cancellation, immutable codecs, typed/JSON parameters, arrays, description, scripts, scope-owned named preparation, portal row streams and COPY byte transfer.
 Actual exports/types live in `src/index.ts`; [api-contract.ts](api-contract.ts) imports implemented
-signatures and names later additions `Planned*`. [api-examples.ts](api-examples.ts) compiles with
-`npm run typecheck`. Preparation, streaming, COPY and listeners below remain design targets.
+signatures; only listener APIs remain proposals. [api-examples.ts](api-examples.ts) compiles with
+`npm run typecheck`. Listeners below remain design targets.
 
 ## Connections, pools, and ownership
 
@@ -247,8 +247,15 @@ Completion must remove its timer/listener resources on success and every failure
 metadata alone does not establish that the connection or calling process can be released.
 
 Ordinary queries use the unnamed statement; no automatic named cache. `session.prepare` allocates a
-driver-generated, session-scoped name and returns its description plus `query` and idempotent `close`.
-Prepared handles expire with their owning session/lease even if the transport is later reused.
+driver-generated name and returns its description plus `query` and idempotent `close`.
+`prepare` is also available within transaction and savepoint callbacks. Each handle belongs to the
+exact creating scope and expires with it, even if the transport is later reused. Parent handles
+(including their prepared queries and closes) reject `PGCLEAR_BUSY` while a child owns the session;
+prepare through the child when needed. There is no ancestor-handle borrowing. Callback/lease cleanup
+drains accepted work and closes owned names before commit, savepoint release/recovery or session
+reuse. Named statements outlive PostgreSQL rollback, so rollback alone is insufficient cleanup.
+Explicit close after expiry/loss is harmless; it cannot reactivate the handle. An unacknowledged
+Close retires the physical session. See [D27](decisions.md#d27--prepared-statements-belong-to-their-creating-scope).
 Prepared executions are ordinary queue operations. Close follows earlier accepted executions,
 rejects later ones, and releases the server statement before connection reuse. On known disconnect
 it only expires local state. Server plan-invalidated errors surface; the driver does not retry writes.
@@ -322,14 +329,30 @@ not log them automatically. Telemetry excludes SQL, parameters, credentials and 
 field metadata, row iteration, and a completion promise. Fully consumed streams resolve
 `{ status: 'complete', result }` with the final command tag/count; early close resolves
 `{ status: 'closed' }` without inventing a command tag or total count. Batch size
-defaults to 100. `for await` early exit calls and awaits close. Competing operations reject BUSY while
+defaults to 100 and accepts integers from 1 through 2,147,483,647. Only the first batch starts
+eagerly; subsequent batches wait for consumer demand. `maxResultBytes` bounds each batch plus
+retained metadata, rather than the total stream. `for await` early exit calls and awaits close. Competing operations reject BUSY while
 the stream owns the slot. Cursor cleanup drains to a safe boundary or destroys the connection; an
 open stream outside an explicit transaction uses the implicit protocol transaction until closed.
 Only one consumer may iterate a stream. Unobserved metadata/completion promises have internal
 rejection observers without changing the rejection delivered to callers.
 Closing before field metadata arrives rejects the fields promise with PGCLEAR_ABORTED. Close itself
 resolves after cleanup; protocol/transport failures reject completion and iteration. Partial close
-does not establish rollback or absence of query side effects.
+does not establish rollback or absence of query side effects. Streams are available on sessions and
+transaction/savepoint scopes; pools require `withSession` or a held lease. Prepared-statement handles
+continue to expose `query` and `close`.
+
+Completion waits until all rows have been consumed and portal cleanup receives ReadyForQuery.
+The complete result retains PostgreSQL's exact final command tag and its parsed row count. For
+row-returning portal commands, that count can describe only the last Execute batch (including zero
+when the result ends exactly on a batch boundary). Count iterated rows for a stream-wide total.
+Awaiting completion without consuming or closing a stream with buffered rows cannot make progress.
+A second iterator or overlapping `next()` calls reject `PGCLEAR_BUSY`. Signal/deadline options cover
+both database activity and time spent waiting for the consumer. Expiry closes unfinished streams;
+a successful callback that abandons one fails `PGCLEAR_BUSY`, and managed transactions roll back.
+A raw lease with an abandoned stream is discarded. See
+[D28](decisions.md#d28--streaming-owns-one-scope-and-retains-native-completion-evidence) and
+[D30](decisions.md#d30--exclusive-execution-needs-no-named-portal-resource-layer).
 
 `copyFrom(text, asyncIterable)` and `copyTo(text)` stream protocol payloads. Uint8Array chunks and
 Node Readable sources integrate with standard platform streams. pgclear does not encode CSV or
@@ -337,6 +360,35 @@ binary COPY records, and chunk boundaries are not record boundaries. A source er
 and drains; COPY OUT early exit uses cancellation and retires the connection. COPY command text is
 one extended-protocol statement. Source pulls and socket writes obey backpressure.
 COPY output uses the same complete/closed completion distinction as row streams.
+
+COPY methods require a held session, transaction or savepoint; pools use `withSession` or a lease.
+`copyFrom` returns a `CommandResult`, including the native bigint COPY count. `copyTo` returns a
+single-consumer `CopyStream`; iteration and `completion` settle after all bytes and protocol cleanup.
+Do not await completion without consuming or closing output. COPY bypasses row codecs and preserves
+opaque text/CSV/binary bytes. Sources must yield Uint8Array; encoded strings and synchronous iterables
+are rejected. Node Readable streams yielding Buffer are supported directly.
+
+A source is first pulled after CopyInResponse. One producer chunk is retained at a time and split
+into writes of at most 64 KiB (also respecting `maxMessageBytes`). Socket write callbacks gate further
+writes and pulls. Output delivers one CopyData frame at a time; `maxMessageBytes` bounds frames and
+`maxResultBytes` bounds each chunk plus protocol metadata, rather than the whole transfer. Source
+chunks and source-owned Readable buffering are outside that driver budget.
+
+Source exceptions use `PGCLEAR_COPY_SOURCE` with the original error as a cause; invalid chunks use
+`PGCLEAR_ENCODE`. CopyFail uses fixed text without copying the source error into the protocol. Driver
+cleanup calls iterator `return()` on incomplete sources, destroys interrupted Node Readables, and
+fences late source results. Iterator-return failures aggregate with operation failures. Protocol and
+iterator cleanup share a fixed five-second budget; expiry retires the connection. Source failures
+can reuse the session after verified recovery. Accepted COPY FROM promises drain on callback/lease
+expiry like other accepted operations, within the cleanup bound.
+
+Operation deadlines include source and consumer waits. Active interruption sends CancelRequest;
+COPY FROM also sends CopyFail/Sync to release a backend waiting for source data. COPY output early
+close discards buffered/in-flight bytes, waits for cancellation cleanup and retires the transport.
+It resolves only `closed`, with no invented result/count. Transport/protocol/cleanup failures reject
+completion and close. A close while queued sends no COPY and leaves earlier work intact. Abandoned
+COPY output makes successful callbacks fail `PGCLEAR_BUSY` and is discarded on lease release.
+See [D29](decisions.md#d29--copy-shares-execution-ownership-and-separates-source-cleanup-from-protocol-recovery).
 
 `listen(connectionOptions, { channels, onNotification, onStatus, reconnect })` owns a separate
 connection, resolves after LISTEN acknowledgement, and returns one stable handle for that fixed

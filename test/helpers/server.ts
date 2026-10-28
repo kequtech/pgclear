@@ -147,3 +147,33 @@ export async function fakeServer(
     },
   };
 }
+
+/** Exclusive operations use the unnamed portal; assert protocol, not generated-name policy. */
+export async function extendedRequest(peer: Peer, batchSize = 0): Promise<void> {
+  assert.equal((await peer.message()).type, 'P');
+  const bind = await peer.message();
+  assert.equal(bind.type, 'B');
+  const reader = new Reader(bind.payload);
+  assert.equal(reader.cstring(), '');
+  assert.equal(reader.cstring(), '');
+  const description = await peer.message();
+  assert.equal(description.type, 'D');
+  assert.deepEqual(description.payload, Buffer.concat([Buffer.from('P'), z('')]));
+  await executePortal(peer, batchSize);
+}
+export async function executePortal(peer: Peer, batchSize: number): Promise<void> {
+  const message = await peer.message();
+  assert.equal(message.type, 'E');
+  assert.deepEqual(message.payload, Buffer.concat([z(''), i32(batchSize)]));
+  assert.equal((await peer.message()).type, 'H');
+}
+export async function syncReady(peer: Peer): Promise<void> {
+  assert.equal((await peer.message()).type, 'S');
+  peer.socket.write(ready);
+}
+export async function closePortal(peer: Peer): Promise<void> {
+  const message = await peer.message();
+  assert.equal(message.type, 'C');
+  assert.deepEqual(message.payload, Buffer.concat([Buffer.from('P'), z('')]));
+  assert.equal((await peer.message()).type, 'S');
+}

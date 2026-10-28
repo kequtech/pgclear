@@ -6,7 +6,7 @@ import {
   type Configuration,
 } from '../config/index.js';
 import { DatabaseError, DriverError, protocolError } from '../errors.js';
-import { FrameDecoder, startup, terminate } from '../protocol/framing.js';
+import { FrameDecoder, startup, terminate, frame, cstring } from '../protocol/framing.js';
 import { decodeMessage, type Message } from '../protocol/messages.js';
 import type {
   ArrayQueryOptions,
@@ -16,7 +16,6 @@ import type {
   DescribeStatement,
   ConnectionOptions,
   DriverEvent,
-  Field,
   OperationOptions,
   Outcome,
   QueryOptions,
@@ -26,49 +25,30 @@ import type {
   InputValue,
   QueryInput,
   TransactionStatus,
+  StreamOptions,
+  ArrayStreamOptions,
+  StreamCompletion,
+  CopySource,
 } from '../types.js';
 import { ConnectionHandle } from '../session/index.js';
 import { cancel } from '../transport/cancel.js';
 import { Transport } from '../transport/index.js';
-import { commandResult, encodeDescribe, encodeQuery, encodeScript } from './query.js';
-import { deadline, watchOperation } from './timing.js';
+import {
+  commandResult,
+  encodeDescribe,
+  encodeQuery,
+  encodeScript,
+  encodePreparedQuery,
+  encodeStatementClose,
+  encodePortalExecute,
+  encodePortalClose,
+  sync,
+} from './query.js';
+import { PortalStream, OutputStream } from './stream.js';
+import { rows, result, output, bytes, decodeRow, type Operation, type Work } from './operation.js';
+import { CopyInput } from './copy.js';
+import { CLEANUP_TIMEOUT_MS, deadline, watchOperation } from './timing.js';
 
-interface Operation {
-  readonly kind: 'query' | 'describe' | 'script';
-  readonly commit: boolean;
-  wire: Buffer | undefined;
-  readonly arrayMode: boolean;
-  readonly complete: (operation: Operation) => void;
-  readonly reject: (error: unknown) => void;
-  readonly started: number;
-  stop: () => void;
-  phase:
-    | 'encoding'
-    | 'queued'
-    | 'parse'
-    | 'bind'
-    | 'parameters'
-    | 'description'
-    | 'rows'
-    | 'script'
-    | 'ready'
-    | 'settled';
-  fields: readonly Field[];
-  parameterTypes: readonly number[];
-  rows: object[];
-  results: QueryResult<object>[];
-  resultBytes: number;
-  confirmed: boolean;
-  command?: CommandResult;
-  error?: Error;
-}
-function result(operation: Operation): QueryResult<object> {
-  return Object.freeze({
-    ...operation.command!,
-    rows: Object.freeze(operation.rows),
-    fields: operation.fields,
-  });
-}
 let sessionId = 0;
 const noOp = () => {};
 
@@ -85,6 +65,7 @@ export class PhysicalConnection {
   #terminationSent = false;
   #ready = false;
   #dispatches = 0;
+  #statementId = 0;
   #backendPid = 0;
   #backendSecret: number | undefined;
   #interruption: Error | undefined;
@@ -96,7 +77,7 @@ export class PhysicalConnection {
   #info: SessionInfo | undefined;
   #parameters = new Map<string, string>();
   #status: TransactionStatus = 'idle';
-  #messages: { message: Message; byteLength: number }[] = [];
+  #messages: ({ message: Message; byteLength: number } | undefined)[] = [];
   #processing = false;
   #queue: Operation[] = [];
   #active: Operation | undefined;
@@ -141,7 +122,12 @@ export class PhysicalConnection {
     };
   }
   commit(options: OperationOptions): Promise<QueryResult<object>> {
-    return this.#execute('query', () => encodeQuery('COMMIT'), options, result, true);
+    return this.#execute(
+      { kind: 'query', phase: 'parse', result: rows(), commit: true },
+      () => encodeQuery('COMMIT'),
+      options,
+      result,
+    );
   }
   get dispatchCount(): number {
     return this.#dispatches;
@@ -219,207 +205,151 @@ export class PhysicalConnection {
     if (this.#processing) return;
     this.#processing = true;
     try {
-      for (
-        let message = this.#messages.shift();
-        message && !this.#dead;
-        message = this.#messages.shift()
-      ) {
-        await this.#receive(message.message, message.byteLength);
+      let index = 0;
+      while (!this.#dead && index < this.#messages.length) {
+        const entry = this.#messages[index]!;
+        this.#messages[index++] = undefined;
+        await this.#receive(entry.message, entry.byteLength);
       }
     } catch (error) {
       this.#fail(error instanceof Error ? error : protocolError());
     } finally {
+      this.#messages = [];
       this.#processing = false;
       if (!this.#dead) this.#transport.resume();
     }
   }
 
   async #receive(message: Message, byteLength: number): Promise<void> {
-    if (message.type === 'error') {
-      if (!this.#ready) {
-        this.#fail(message.error);
+    switch (message.type) {
+      case 'error':
+        this.#databaseError(message.error);
+        return;
+      case 'notice':
+        if (this.#info) this.#emit({ type: 'notice', session: this.#info, notice: message.error });
+        return;
+      case 'authentication': {
+        if (this.#ready || !this.#auth) throw protocolError('Unexpected authentication response.');
+        const reply = await this.#auth.receive(message.authentication);
+        if (reply && !this.#dead) this.#write(reply);
         return;
       }
-      if (!this.#active) {
-        this.#fail(message.error);
-        return;
-      }
-      if (
-        this.#active.error instanceof DriverError &&
-        this.#active.error.code === 'PGCLEAR_DECODE'
-      ) {
-        const decodeError = this.#active.error;
-        this.#active.error = new AggregateError(
-          [
-            new DriverError(decodeError.code, decodeError.message, 'confirmed', {
-              cause: decodeError,
-            }),
-            message.error,
-          ],
-          'Result decoding and PostgreSQL command failed.',
-        );
-      } else this.#active.error ??= message.error;
-      this.#active.phase = 'ready';
-      this.#active.confirmed = true;
-      return;
-    }
-    if (message.type === 'notice') {
-      if (this.#info) this.#emit({ type: 'notice', session: this.#info, notice: message.error });
-      return;
-    }
-    if (message.type === 'authentication') {
-      if (this.#ready || !this.#auth) throw protocolError('Unexpected authentication response.');
-      const response = await this.#auth.receive(message.authentication);
-      // A timed-out credential provider or PBKDF2 result cannot write to a closed socket.
-      if (response && !this.#dead) this.#write(response);
-      return;
     }
     if (!this.#auth?.complete && !this.#ready)
       throw protocolError('Server message arrived before authentication completed.');
-    if (message.type === 'parameter') {
-      if (message.name === 'client_encoding' && message.value !== 'UTF8')
-        throw protocolError('Only UTF8 client encoding is supported.');
-      // Ignore unknown server parameters rather than growing retained state without a bound.
-      if (
-        [
-          'server_version',
-          'client_encoding',
-          'TimeZone',
-          'DateStyle',
-          'IntervalStyle',
-          'standard_conforming_strings',
-        ].includes(message.name)
-      ) {
-        this.#parameters.set(message.name, message.value);
-      }
-      return;
-    }
-    if (message.type === 'key') {
-      if (this.#ready) throw protocolError('Unexpected backend key.');
-      this.#backendPid = message.pid;
-      this.#backendSecret = message.secret;
-      return;
-    }
-    if (message.type === 'notification') return;
-    if (message.type === 'ready') {
-      this.#status = message.status;
-      if (!this.#ready) {
-        this.#ready = true;
-        this.#info = Object.freeze({
-          id: this.#id,
-          backendPid: this.#backendPid,
-          serverVersion: this.#parameters.get('server_version') ?? '',
-        });
-        this.#stopStartup();
-        this.#auth = undefined;
-        this.#started.resolve();
-        this.#emit({ type: 'connect', session: this.#info });
-      } else {
-        const operation = this.#active;
+    switch (message.type) {
+      case 'parameter':
+        if (message.name === 'client_encoding' && message.value !== 'UTF8')
+          throw protocolError('Only UTF8 client encoding is supported.');
         if (
-          !operation ||
-          (operation.phase !== 'ready' &&
-            !(operation.kind === 'script' && operation.phase === 'script'))
+          [
+            'server_version',
+            'client_encoding',
+            'TimeZone',
+            'DateStyle',
+            'IntervalStyle',
+            'standard_conforming_strings',
+          ].includes(message.name)
         )
-          throw protocolError('Unexpected ReadyForQuery.');
-        if (this.#interruption) await this.#cancelTask;
-        if (this.#dead) return;
-        this.#active = undefined;
-        let error = operation.error;
-        if (this.#interruption) {
-          error =
-            this.#interruption instanceof DriverError
-              ? new DriverError(this.#interruption.code, this.#interruption.message, 'confirmed', {
-                  cause: error ?? this.#interruption,
-                })
-              : this.#interruption;
-          if (this.#cancelError)
-            error = new AggregateError(
-              [error, this.#cancelError],
-              'Operation interruption and cancellation cleanup failed.',
-            );
-        }
-        this.#settle(operation, error, 'confirmed');
-        this.#pump();
-      }
-      return;
+          this.#parameters.set(message.name, message.value);
+        return;
+      case 'key':
+        if (this.#ready) throw protocolError('Unexpected backend key.');
+        this.#backendPid = message.pid;
+        this.#backendSecret = message.secret;
+        return;
+      case 'notification':
+        return;
+      case 'ready':
+        await this.#receiveReady(message.status);
+        return;
     }
-    const operation = this.#active;
-    if (!operation) throw protocolError('Backend response has no owning operation.');
-    if (message.type === 'command' && operation.kind === 'query') operation.confirmed = true;
-    if (['fields', 'row', 'command', 'empty', 'parameters'].includes(message.type)) {
-      operation.resultBytes += byteLength;
-      if (operation.resultBytes > this.#config.maxResultBytes)
-        throw new DriverError(
-          'PGCLEAR_RESULT_LIMIT',
-          'Buffered result exceeded maxResultBytes.',
-          operation.confirmed ? 'confirmed' : 'unknown',
-        );
-    }
-    if (message.type === 'parse' && operation.phase === 'parse') {
-      operation.phase = operation.kind === 'describe' ? 'parameters' : 'bind';
-      return;
-    }
+    const op = this.#active;
+    if (!op) throw protocolError('Backend response has no owning operation.');
+    const work = op.work;
+    if (message.type === 'command' && work.kind !== 'script') op.confirmed = true;
     if (
-      message.type === 'parameters' &&
-      operation.phase === 'parameters' &&
-      operation.kind === 'describe'
-    ) {
-      operation.parameterTypes = message.oids;
-      operation.phase = 'description';
+      ['fields', 'row', 'command', 'empty', 'parameters', 'copy-in', 'copy-out'].includes(
+        message.type,
+      ) &&
+      bytes(work, byteLength) > this.#config.maxResultBytes
+    )
+      throw new DriverError(
+        'PGCLEAR_RESULT_LIMIT',
+        'Buffered result exceeded maxResultBytes.',
+        op.confirmed ? 'confirmed' : 'unknown',
+      );
+
+    if (message.type === 'parse' && work.phase === 'parse') {
+      work.phase = work.kind === 'describe' || work.kind === 'prepare' ? 'parameters' : 'bind';
       return;
     }
-    if (message.type === 'bind' && operation.phase === 'bind') {
-      operation.phase = 'description';
+    if (message.type === 'parameters' && work.phase === 'parameters') {
+      work.description = { ...work.description, parameterTypes: message.oids };
+      work.phase = 'description';
+      return;
+    }
+    if (message.type === 'bind' && work.phase === 'bind') {
+      work.phase = 'description';
+      return;
+    }
+    if (message.type === 'close' && work.phase === 'close') {
+      work.phase = 'ready';
+      op.confirmed = true;
       return;
     }
     if (
       (message.type === 'fields' || message.type === 'no-data') &&
-      (operation.phase === 'description' ||
-        (operation.kind === 'script' && operation.phase === 'script' && message.type === 'fields'))
+      (work.phase === 'description' ||
+        (work.kind === 'script' && work.phase === 'script' && message.type === 'fields'))
     ) {
-      operation.fields = message.type === 'fields' ? message.fields : Object.freeze([]);
-      if (operation.kind === 'describe') {
-        operation.phase = 'ready';
-        operation.confirmed = true;
-        return;
-      }
-      operation.phase = 'rows';
-      if (
-        !operation.arrayMode &&
-        new Set(operation.fields.map((field) => field.name)).size !== operation.fields.length
-      ) {
-        operation.error ??= new DriverError(
-          'PGCLEAR_DECODE',
-          'Duplicate column names require array row mode.',
-          'unknown',
-        );
-      }
+      const fields = message.type === 'fields' ? message.fields : Object.freeze([]);
+      if (work.kind === 'describe' || work.kind === 'prepare') {
+        work.description = { ...work.description, fields };
+        work.phase = 'ready';
+        op.confirmed = true;
+      } else if (work.kind === 'copy-from' || work.kind === 'copy-to') {
+        work.columns = fields.length;
+        work.phase = message.type === 'no-data' ? 'copy-start' : 'rows';
+        if (message.type === 'fields')
+          op.error = new DriverError('PGCLEAR_CONFIGURATION', 'COPY requires a COPY statement.');
+      } else if ('result' in work) {
+        work.result.fields = fields;
+        work.phase = 'rows';
+        if (work.kind === 'stream') {
+          work.metadataBytes = work.result.bytes;
+          work.output.metadata(fields);
+        }
+        if (
+          !work.result.arrayMode &&
+          new Set(fields.map((field) => field.name)).size !== fields.length
+        )
+          op.error ??= new DriverError(
+            'PGCLEAR_DECODE',
+            'Duplicate column names require array row mode.',
+            'unknown',
+          );
+      } else throw protocolError();
       return;
     }
-    if (message.type === 'row' && operation.phase === 'rows') {
-      if (message.values.length !== operation.fields.length)
+    if (message.type === 'row' && work.phase === 'rows') {
+      const columns = 'result' in work ? work.result.fields.length : work.columns;
+      if (message.values.length !== columns)
         throw protocolError('Data row does not match its fields.');
-      if (!operation.error) {
+      if (work.kind === 'stream' && ++work.batchRows > work.batchSize)
+        throw protocolError('Portal exceeded its requested batch size.');
+      if ('result' in work && !op.error && !this.#interruption && !output(work)?.closing) {
         try {
-          const values = message.values.map((value, index) =>
-            this.#config.codecs.decode(value, operation.fields[index]!),
+          work.result.rows.push(
+            decodeRow(
+              message.values,
+              work.result.fields,
+              this.#config.codecs,
+              work.result.arrayMode,
+            ),
           );
-          if (operation.arrayMode) operation.rows.push(values);
-          else {
-            const row = {};
-            operation.fields.forEach((field, index) =>
-              Object.defineProperty(row, field.name, {
-                value: values[index],
-                enumerable: true,
-                writable: true,
-                configurable: true,
-              }),
-            );
-            operation.rows.push(row);
-          }
         } catch (cause) {
-          operation.error = new DriverError(
+          op.error = new DriverError(
             'PGCLEAR_DECODE',
             'Failed to decode a PostgreSQL result.',
             'unknown',
@@ -430,43 +360,276 @@ export class PhysicalConnection {
       return;
     }
     if (
-      (message.type === 'command' || message.type === 'empty') &&
-      (operation.phase === 'rows' || (operation.kind === 'script' && operation.phase === 'script'))
+      (message.type === 'copy-in' || message.type === 'copy-out') &&
+      work.phase === 'copy-start'
     ) {
-      operation.command = commandResult(message.type === 'command' ? message.tag : '');
-      if (operation.kind === 'script') {
-        if (!operation.error) operation.results.push(result(operation));
-        operation.rows = [];
-        operation.fields = Object.freeze([]);
-        operation.phase = 'script';
-      } else {
-        operation.phase = 'ready';
-        operation.confirmed = true;
+      work.phase = message.type;
+      this.#expired(op);
+      if (message.type === 'copy-in') {
+        if (this.#interruption) this.#copyFail(op, this.#interruption);
+        else if (work.kind !== 'copy-from')
+          this.#copyFail(
+            op,
+            new DriverError('PGCLEAR_CONFIGURATION', 'COPY TO requires COPY ... TO STDOUT.'),
+          );
+        else
+          void work.input
+            .run((data) => this.#copyWrite(op, data))
+            .then(
+              () => {
+                if (
+                  op.state !== 'active' ||
+                  work.phase !== 'copy-in' ||
+                  this.#interruption ||
+                  this.#expired(op)
+                )
+                  return;
+                work.phase = 'copy-done';
+                this.#write(Buffer.concat([frame('c'), frame('H')]));
+              },
+              (error) => this.#copyFail(op, error),
+            );
+      } else if (work.kind !== 'copy-to')
+        this.#interrupt(
+          op,
+          new DriverError('PGCLEAR_CONFIGURATION', 'COPY FROM requires COPY ... FROM STDIN.'),
+        );
+      return;
+    }
+    if (message.type === 'copy-data' && work.phase === 'copy-out') {
+      if (byteLength + work.bytes > this.#config.maxResultBytes)
+        throw new DriverError('PGCLEAR_RESULT_LIMIT', 'COPY output chunk exceeded maxResultBytes.');
+      if (!this.#expired(op) && !this.#interruption && work.kind === 'copy-to')
+        await work.output.publish([new Uint8Array(message.bytes)]);
+      return;
+    }
+    if (message.type === 'copy-done' && work.phase === 'copy-out') {
+      work.phase = 'copy-done';
+      return;
+    }
+    if (message.type === 'suspended' && work.kind === 'stream' && work.phase === 'rows') {
+      if (work.batchRows !== work.batchSize)
+        throw protocolError('Portal suspended before filling its requested batch.');
+      work.phase = 'suspended';
+      await this.#publish(op, false);
+      if (op.state !== 'active') return;
+      if (work.output.closing || op.error || this.#interruption || this.#expired(op))
+        this.#sync(op, true);
+      else {
+        work.result.bytes = work.metadataBytes;
+        work.batchRows = 0;
+        work.phase = 'rows';
+        this.#write(encodePortalExecute(work.batchSize));
       }
+      return;
+    }
+    if (
+      (message.type === 'command' || message.type === 'empty') &&
+      (work.phase === 'rows' ||
+        work.phase === 'copy-done' ||
+        work.phase === 'copy-start' ||
+        (work.kind === 'script' && work.phase === 'script'))
+    ) {
+      op.command = commandResult(message.type === 'command' ? message.tag : '');
+      if (work.kind === 'script') {
+        if (!op.error) work.results.push(result(op));
+        work.result.rows = [];
+        work.result.fields = Object.freeze([]);
+        work.phase = 'script';
+      } else if (work.kind === 'stream') {
+        await this.#publish(op, true);
+        if (op.state === 'active') {
+          this.#expired(op);
+          this.#sync(op);
+        }
+      } else if (work.kind === 'copy-from' || work.kind === 'copy-to') {
+        if (work.phase !== 'copy-done')
+          op.error ??= new DriverError(
+            'PGCLEAR_CONFIGURATION',
+            'COPY requires a matching COPY statement.',
+          );
+        else if (op.command.command !== 'COPY')
+          throw protocolError('COPY ended without its command tag.');
+        this.#sync(op);
+      } else work.phase = 'ready';
       return;
     }
     throw protocolError('Unexpected operation response sequence.');
   }
 
-  query<T extends object = Row>(
-    statement: QueryInput<T>,
-    options?: QueryOptions,
-  ): Promise<QueryResult<T>>;
-  query<T extends readonly unknown[] = readonly unknown[]>(
-    statement: QueryInput<T>,
-    options: ArrayQueryOptions,
-  ): Promise<QueryResult<T>>;
-  query(
-    statement: QueryInput<object>,
-    options: ArrayQueryOptions,
-  ): Promise<QueryResult<readonly unknown[]>>;
+  #databaseError(error: DatabaseError): void {
+    const op = this.#active;
+    if (!this.#ready || !op) {
+      this.#fail(error);
+      return;
+    }
+    const work = op.work;
+    if (op.error instanceof DriverError && op.error.code === 'PGCLEAR_DECODE')
+      op.error = new AggregateError(
+        [new DriverError(op.error.code, op.error.message, 'confirmed', { cause: op.error }), error],
+        'Result decoding and PostgreSQL command failed.',
+      );
+    else op.error ??= error;
+    op.confirmed = true;
+    output(work)?.discard();
+    if (work.kind === 'copy-from') void work.input.stop();
+    if (work.phase === 'close') {
+      this.#fail(error);
+      return;
+    }
+    if (work.kind === 'stream' || work.kind === 'copy-from' || work.kind === 'copy-to') {
+      if (work.phase !== 'ready' && work.phase !== 'copy-fail') this.#sync(op);
+    }
+    work.phase = 'ready';
+  }
+
+  async #receiveReady(status: TransactionStatus): Promise<void> {
+    this.#status = status;
+    if (!this.#ready) {
+      this.#ready = true;
+      this.#info = Object.freeze({
+        id: this.#id,
+        backendPid: this.#backendPid,
+        serverVersion: this.#parameters.get('server_version') ?? '',
+      });
+      this.#stopStartup();
+      this.#auth = undefined;
+      this.#started.resolve();
+      this.#emit({ type: 'connect', session: this.#info });
+      return;
+    }
+    const op = this.#active;
+    if (
+      !op ||
+      (op.work.phase !== 'ready' && !(op.work.kind === 'script' && op.work.phase === 'script'))
+    )
+      throw protocolError('Unexpected ReadyForQuery.');
+    if (this.#interruption) await this.#cancelTask;
+    if (this.#dead) return;
+    let unsafe = false;
+    if (op.work.kind === 'copy-from') {
+      this.#cleanup(op);
+      try {
+        await Promise.race([op.work.input.stop(), this.closed]);
+      } catch (cleanup) {
+        op.error = new AggregateError(
+          [...(op.error ? [op.error] : []), cleanup],
+          'COPY and source cleanup failed.',
+        );
+        unsafe = true;
+      }
+      if (this.#dead) return;
+    }
+    let error = op.error;
+    if (this.#interruption) {
+      error =
+        this.#interruption instanceof DriverError
+          ? new DriverError(this.#interruption.code, this.#interruption.message, 'confirmed', {
+              cause: error ?? this.#interruption,
+            })
+          : this.#interruption;
+      if (this.#cancelError)
+        error = new AggregateError(
+          [error, this.#cancelError],
+          'Operation interruption and cancellation cleanup failed.',
+        );
+    }
+    if (
+      op.work.kind === 'copy-to' &&
+      op.work.closedByUser &&
+      !this.#cancelError &&
+      (!op.error || (op.error instanceof DatabaseError && op.error.code === '57014'))
+    )
+      error = undefined;
+    if (unsafe) this.#closing = this.#requestedClose = true;
+    this.#active = undefined;
+    this.#settle(op, error, 'confirmed');
+    if (unsafe) this.#fail(error!);
+    else this.#pump();
+  }
+
+  async #publish(op: Operation, last: boolean): Promise<void> {
+    const work = op.work;
+    if (work.kind !== 'stream') return;
+    const batch = work.result.rows;
+    work.result.rows = [];
+    if (!op.error && !this.#interruption) await work.output.publish(batch, last);
+  }
+  #sync(op: Operation, close = false): void {
+    if (op.state !== 'active' || op.work.phase === 'ready' || op.work.phase === 'close') return;
+    this.#cleanup(op);
+    if (close && op.work.kind === 'stream') {
+      op.work.phase = 'close';
+      this.#write(encodePortalClose());
+    } else {
+      op.work.phase = 'ready';
+      this.#write(sync);
+    }
+  }
+  #cleanup(op: Operation, end = performance.now() + CLEANUP_TIMEOUT_MS): void {
+    if (op.cleanupEnd !== undefined && op.cleanupEnd <= end) return;
+    op.stopCleanup?.();
+    op.cleanupEnd = end;
+    op.stopCleanup = deadline(Math.max(0, end - performance.now()), () => {
+      const error = new DriverError('PGCLEAR_TIMEOUT', 'Resource cleanup deadline expired.');
+      if (op.error)
+        op.error = new AggregateError([op.error, error], 'Operation and resource cleanup failed.');
+      this.#fail(error);
+    });
+  }
+  #closeOutput(op: Operation, end?: number): void {
+    if (op.state === 'settled') return;
+    if (op.state !== 'active') {
+      const index = this.#queue.indexOf(op);
+      if (index !== -1) this.#queue.splice(index, 1);
+      this.#settle(op, undefined, 'not-sent');
+      this.#pump();
+      return;
+    }
+    this.#cleanup(op, end);
+    if (op.work.kind === 'copy-to') {
+      op.work.closedByUser = !this.#interruption;
+      this.#interrupt(op, new DriverError('PGCLEAR_ABORTED', 'COPY output closed.'));
+    }
+  }
+  async #copyWrite(op: Operation, data: Uint8Array): Promise<void> {
+    const work = op.work,
+      size = Math.min(65536, this.#config.maxMessageBytes - 4);
+    if (work.kind !== 'copy-from') return;
+    if (size < 1) throw new DriverError('PGCLEAR_ENCODE', 'maxMessageBytes cannot hold COPY data.');
+    for (let index = 0; index < data.length || (index === 0 && data.length === 0); index += size) {
+      if (
+        op.state !== 'active' ||
+        work.phase !== 'copy-in' ||
+        work.input.stopped ||
+        this.#interruption ||
+        this.#expired(op)
+      )
+        return;
+      await this.#transport.send(frame('d', data.subarray(index, index + size)));
+    }
+  }
+  #copyFail(op: Operation, error: Error): void {
+    const work = op.work;
+    if (op.state !== 'active' || work.phase !== 'copy-in') return;
+    op.error ??= error;
+    if (work.kind === 'copy-from') void work.input.stop();
+    this.#cleanup(op);
+    work.phase = 'copy-fail';
+    this.#write(Buffer.concat([frame('f', cstring('pgclear COPY source failed.')), sync]));
+  }
+
   query(
     statement: QueryInput<object>,
     options: QueryOptions | ArrayQueryOptions = {},
   ): Promise<QueryResult<object>> {
-    return this.#execute('query', () => encodeQuery(statement), options, result);
+    return this.#execute(
+      { kind: 'query', phase: 'parse', result: rows(options.rowMode === 'array') },
+      () => encodeQuery(statement),
+      options,
+      result,
+    );
   }
-
   queryClassic<T extends object = Row>(
     text: string,
     values: readonly InputValue[],
@@ -482,84 +645,170 @@ export class PhysicalConnection {
     values: readonly InputValue[],
     options: QueryOptions | ArrayQueryOptions = {},
   ): Promise<QueryResult<object>> {
-    return options?.rowMode === 'array'
-      ? this.query([text, values], options)
-      : this.query([text, values], options);
+    return this.query([text, values], options);
   }
-
   describe(
     statement: string | DescribeStatement,
     options: OperationOptions = {},
   ): Promise<Description> {
+    return this.#describe('describe', statement, '', options);
+  }
+  prepare(
+    name: string,
+    statement: string | DescribeStatement,
+    options: OperationOptions,
+  ): Promise<Description> {
+    return this.#describe('prepare', statement, name, options);
+  }
+  #describe(
+    kind: 'describe' | 'prepare',
+    statement: string | DescribeStatement,
+    name: string,
+    options: OperationOptions,
+  ): Promise<Description> {
+    const work: Work = {
+      kind,
+      phase: 'parse',
+      description: { fields: Object.freeze([]), parameterTypes: Object.freeze([]) },
+      bytes: 0,
+    };
     return this.#execute(
-      'describe',
-      () => encodeDescribe(statement),
+      work,
+      () => encodeDescribe(statement, name),
       options,
-      (operation) =>
-        Object.freeze({ parameterTypes: operation.parameterTypes, fields: operation.fields }),
+      () => Object.freeze(work.description),
     );
   }
-
-  script(text: string, options: OperationOptions = {}): Promise<readonly QueryResult[]> {
+  allocateStatementName(): string {
+    return 'pgclear_statement_' + ++this.#statementId;
+  }
+  preparedQuery(
+    name: string,
+    values: readonly InputValue[],
+    description: Description,
+    options: QueryOptions | ArrayQueryOptions,
+  ): Promise<QueryResult<object>> {
     return this.#execute(
-      'script',
+      { kind: 'query', phase: 'bind', result: rows(options.rowMode === 'array') },
+      () => encodePreparedQuery(name, values, description.parameterTypes),
+      options,
+      result,
+    );
+  }
+  closeStatement(name: string, options: OperationOptions = {}): Promise<void> {
+    return this.#execute(
+      { kind: 'statement-close', phase: 'close' },
+      () => encodeStatementClose(name),
+      options,
+      () => {},
+    );
+  }
+  script(text: string, options: OperationOptions = {}): Promise<readonly QueryResult[]> {
+    const work: Work = { kind: 'script', phase: 'script', result: rows(), results: [] };
+    return this.#execute(
+      work,
       () => encodeScript(text),
       options,
-      (operation) => Object.freeze(operation.results) as readonly QueryResult[],
+      () => Object.freeze(work.results) as readonly QueryResult[],
+    );
+  }
+  stream(
+    statement: QueryInput<object>,
+    options: StreamOptions | ArrayStreamOptions,
+    stream: PortalStream,
+  ): void {
+    const batchSize = options.batchSize === undefined ? 100 : options.batchSize;
+    const work: Work = {
+      kind: 'stream',
+      phase: 'parse',
+      result: rows(options.rowMode === 'array'),
+      output: stream,
+      batchSize,
+      metadataBytes: 0,
+      batchRows: 0,
+    };
+    this.#output(
+      work,
+      () => {
+        integer(batchSize, 'batchSize', 1, 0x7fffffff);
+        return encodeQuery(statement, { batchSize });
+      },
+      options,
+    );
+  }
+  copyTo(text: string, options: OperationOptions, stream: OutputStream<Uint8Array>): void {
+    this.#output(
+      { kind: 'copy-to', phase: 'parse', output: stream, bytes: 0, columns: 0 },
+      () => this.#encodeCopy(text),
+      options,
+    );
+  }
+  copyFrom(text: string, source: CopySource, options: OperationOptions): Promise<CommandResult> {
+    const input = new CopyInput(source);
+    return this.#execute(
+      { kind: 'copy-from', phase: 'parse', input, bytes: 0, columns: 0 },
+      () => {
+        input.validate();
+        return this.#encodeCopy(text);
+      },
+      options,
+      (op) => op.command!,
+    );
+  }
+  #encodeCopy(text: string): Buffer {
+    if (typeof text !== 'string')
+      throw new DriverError('PGCLEAR_ENCODE', 'COPY requires SQL text.');
+    return encodeQuery(text, { flush: true });
+  }
+  #output(
+    work: Extract<Work, { kind: 'stream' | 'copy-to' }>,
+    encode: () => Buffer,
+    options: StreamOptions | ArrayStreamOptions,
+  ): void {
+    const promise = this.#execute<StreamCompletion>(work, encode, options, (op) =>
+      work.output.closing ? { status: 'closed' } : { status: 'complete', result: op.command! },
+    );
+    void promise.then(
+      (value) => work.output.finish(value),
+      (error) => work.output.fail(error),
     );
   }
 
   #execute<T>(
-    kind: Operation['kind'],
+    work: Work,
     encode: () => Buffer,
-    options: QueryOptions | ArrayQueryOptions,
+    options: OperationOptions,
     read: (operation: Operation) => T,
-    commit = false,
   ): Promise<T> {
     const started = performance.now();
     return new Promise((resolve, reject) => {
-      let operation: Operation | undefined;
+      let op: Operation | undefined;
       try {
-        validateOperation(options, kind === 'query' ? ['rowMode'] : []);
-        if (
-          kind === 'query' &&
-          options.rowMode !== undefined &&
-          !['object', 'array'].includes(options.rowMode)
-        )
-          throw new DriverError('PGCLEAR_CONFIGURATION', 'Invalid row mode.');
-        if (this.#closing || this.#dead)
-          throw new DriverError('PGCLEAR_CLOSED', 'The connection is closed.');
+        if (!this.usable) throw new DriverError('PGCLEAR_CLOSED', 'The connection is closed.');
         if (options.signal?.aborted) throw new DriverError('PGCLEAR_ABORTED', 'Operation aborted.');
         if (options.timeoutMs === 0)
           throw new DriverError('PGCLEAR_TIMEOUT', 'Operation deadline expired.');
         if (this.#queue.length >= this.#config.maxQueuedOperations)
           throw new DriverError('PGCLEAR_QUEUE_FULL', 'The connection queue is full.');
-        operation = {
-          kind,
-          commit,
-          wire: undefined,
-          arrayMode: kind === 'query' && options.rowMode === 'array',
-          complete: (op) => {
+        const accepted: Operation = (op = {
+          work,
+          state: 'encoding',
+          started,
+          expiresAt: options.timeoutMs === undefined ? undefined : started + options.timeoutMs,
+          resolve: (operation) => {
             try {
-              resolve(read(op));
+              resolve(read(operation));
             } catch (error) {
               reject(error);
             }
           },
           reject,
-          started,
           stop: noOp,
-          phase: 'encoding',
-          fields: Object.freeze([]),
-          parameterTypes: Object.freeze([]),
-          rows: [],
-          results: [],
-          resultBytes: 0,
           confirmed: false,
-        };
-        const accepted = operation;
-        // Reserve FIFO position before invoking a user encoder, which may reenter this connection.
+        });
+        // Reservation precedes any user encoder or source getter, including reentrant calls.
         this.#queue.push(accepted);
+        output(work)?.onClose((end) => this.#closeOutput(accepted, end));
         accepted.stop = watchOperation(options, (error) => this.#interrupt(accepted, error));
         try {
           accepted.wire = encode();
@@ -573,35 +822,39 @@ export class PhysicalConnection {
                 { cause },
               );
         }
-        if (accepted.phase === 'settled') return;
-        if (options.timeoutMs !== undefined && performance.now() - started >= options.timeoutMs) {
-          this.#interrupt(
-            accepted,
-            new DriverError('PGCLEAR_TIMEOUT', 'Operation deadline expired.'),
-          );
-          return;
-        }
-        accepted.phase = 'queued';
+        if (accepted.state === 'settled' || this.#expired(accepted)) return;
+        accepted.state = 'queued';
         this.#pump();
       } catch (error) {
-        if (operation && operation.phase !== 'settled')
+        if (op && op.state !== 'settled')
           this.#interrupt(
-            operation,
+            op,
             error instanceof Error
               ? error
               : new DriverError('PGCLEAR_ENCODE', 'Operation encoding failed.'),
           );
-        else reject(error);
+        else {
+          if (work.kind === 'copy-from') void work.input.stop();
+          reject(error);
+        }
       }
     });
   }
-
-  #interrupt(operation: Operation, error: Error): void {
-    if (operation.phase === 'settled') return;
-    if (operation.phase !== 'queued' && operation.phase !== 'encoding') {
+  #expired(op: Operation): boolean {
+    if (op.expiresAt === undefined || performance.now() < op.expiresAt) return false;
+    this.#interrupt(op, new DriverError('PGCLEAR_TIMEOUT', 'Operation deadline expired.'));
+    return true;
+  }
+  #interrupt(op: Operation, error: Error): void {
+    if (op.state === 'settled') return;
+    if (op.state === 'active') {
       if (this.#interruption) return;
       this.#interruption = error;
       this.#closing = this.#requestedClose = true;
+      output(op.work)?.discard();
+      if (op.work.kind === 'copy-from') void op.work.input.stop();
+      if (op.work.phase === 'copy-in') this.#copyFail(op, error);
+      if (this.#dead) return;
       for (const queued of this.#queue.splice(0))
         this.#settle(
           queued,
@@ -612,7 +865,7 @@ export class PhysicalConnection {
         this.#fail(error);
         return;
       }
-      this.#stopCancel = deadline(5000, () => this.#fail(error));
+      this.#stopCancel = deadline(CLEANUP_TIMEOUT_MS, () => this.#fail(error));
       this.#cancelController = new AbortController();
       this.#cancelTask = cancel(
         this.#config,
@@ -623,51 +876,50 @@ export class PhysicalConnection {
         this.#cancelError = cause;
         this.#fail(error);
       });
-      return;
+    } else {
+      const index = this.#queue.indexOf(op);
+      if (index !== -1) this.#queue.splice(index, 1);
+      this.#settle(op, error, 'not-sent');
+      this.#pump();
     }
-    const index = this.#queue.indexOf(operation);
-    if (index !== -1) this.#queue.splice(index, 1);
-    this.#settle(operation, error, 'not-sent');
-    this.#pump();
   }
-
   #pump(): void {
-    if (this.#dead || this.#active) return;
-    if (this.#queue[0]?.phase === 'encoding') return;
-    const operation = this.#queue.shift();
-    if (!operation) {
+    if (this.#dead || this.#active || this.#queue[0]?.state === 'encoding') return;
+    const op = this.#queue.shift();
+    if (!op) {
       if (this.#closing && !this.#terminationSent) {
         this.#terminationSent = true;
         this.#transport.end(terminate);
       }
       return;
     }
-    this.#active = operation;
-    operation.phase = operation.kind === 'script' ? 'script' : 'parse';
+    this.#active = op;
+    op.state = 'active';
     this.#dispatches++;
-    this.#write(operation.wire!);
+    this.#write(op.wire!);
   }
-
-  #settle(operation: Operation, error: Error | undefined, outcome: Outcome): void {
-    if (operation.phase === 'settled') return;
-    operation.phase = 'settled';
-    operation.stop();
+  #settle(op: Operation, error: Error | undefined, outcome: Outcome): void {
+    if (op.state === 'settled') return;
+    op.state = 'settled';
+    op.stop();
+    op.stopCleanup?.();
+    if (op.work.kind === 'copy-from') void op.work.input.stop();
+    output(op.work)?.discard();
     if (error instanceof DriverError && error.outcome !== outcome)
       error = new DriverError(error.code, error.message, outcome, { cause: error });
-    if (error) operation.reject(error);
-    else operation.complete(operation);
+    if (error) op.reject(error);
+    else op.resolve(op);
     this.#emit({
       type: 'operation',
       sessionId: this.#id,
-      operation: operation.kind,
-      durationMs: performance.now() - operation.started,
+      operation: op.work.kind,
+      durationMs: performance.now() - op.started,
       outcome,
       ...(error instanceof DriverError || error instanceof DatabaseError
         ? { errorCode: error.code }
         : {}),
     });
   }
-
   #fail(error: Error): void {
     if (this.#dead) return;
     this.#dead = this.#closing = true;
@@ -676,37 +928,30 @@ export class PhysicalConnection {
     this.#stopCancel();
     this.#cancelController?.abort();
     this.#started.reject(error);
-    const active = this.#active;
+    const op = this.#active;
     this.#active = undefined;
-    if (active) {
-      const knownCommit =
-        active.commit &&
-        active.command?.commandTag === 'COMMIT' &&
-        !active.error &&
-        !this.#interruption;
-      let failure = this.#interruption ?? active.error ?? error;
-      if (active.commit && !active.confirmed)
+    if (op) {
+      const commit = op.work.kind === 'query' && op.work.commit;
+      const known =
+        commit && op.command?.commandTag === 'COMMIT' && !op.error && !this.#interruption;
+      let failure = this.#interruption ?? op.error ?? error;
+      if (commit && !op.confirmed)
         failure = new DriverError(
           'PGCLEAR_COMMIT_UNKNOWN',
           'COMMIT was dispatched without a definitive response.',
           'unknown',
           { cause: failure },
         );
-      this.#settle(
-        active,
-        knownCommit ? undefined : failure,
-        active.confirmed ? 'confirmed' : 'unknown',
-      );
+      this.#settle(op, known ? undefined : failure, op.confirmed ? 'confirmed' : 'unknown');
     }
-    for (const operation of this.#queue.splice(0)) {
+    for (const queued of this.#queue.splice(0))
       this.#settle(
-        operation,
+        queued,
         new DriverError('PGCLEAR_CLOSED', 'The connection closed before dispatch.', 'not-sent', {
           cause: error,
         }),
         'not-sent',
       );
-    }
     this.#messages = [];
     this.#auth = undefined;
     this.#parameters.clear();
@@ -717,16 +962,14 @@ export class PhysicalConnection {
     if (this.#info)
       this.#emit({ type: 'disconnect', session: this.#info, expected: this.#requestedClose });
   }
-
   close(options: CloseOptions = {}): Promise<void> {
     if (this.#closePromise) return this.#closePromise;
     try {
       validateOperation(options);
       if ('signal' in options)
         throw new DriverError('PGCLEAR_CONFIGURATION', 'Close accepts only timeoutMs.');
-      const timeout = integer(options.timeoutMs ?? 5000, 'timeoutMs', 0);
-      this.#requestedClose = true;
-      this.#closing = true;
+      const timeout = integer(options.timeoutMs ?? CLEANUP_TIMEOUT_MS, 'timeoutMs', 0);
+      this.#requestedClose = this.#closing = true;
       this.#closePromise = this.#disposed.promise.then(() => {
         if (this.#cancelError)
           throw new AggregateError([this.#cancelError], 'Cancellation cleanup failed.');

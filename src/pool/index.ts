@@ -6,7 +6,7 @@ import {
   type Configuration,
 } from '../config/index.js';
 import { openConnection, type PhysicalConnection } from '../connection/index.js';
-import { abortError, deadline, Lifetime } from '../connection/timing.js';
+import { CLEANUP_TIMEOUT_MS, abortError, deadline, Lifetime } from '../connection/timing.js';
 import { DriverError } from '../errors.js';
 import { callback, drain, Scope, SessionHandle, validateTransaction } from '../session/index.js';
 import type {
@@ -240,18 +240,13 @@ class ConnectionPool implements Pool {
     );
   }
   async #release(entry: Entry, scope: Scope, discard: boolean): Promise<void> {
-    const end = Math.min(performance.now() + 5000, scope.cleanupDeadline ?? Infinity),
+    const end = Math.min(performance.now() + CLEANUP_TIMEOUT_MS, scope.cleanupDeadline ?? Infinity),
       remaining = () => Math.max(0, Math.ceil(end - performance.now()));
-    let timedOut = false;
-    const stopCleanup = deadline(remaining(), () => {
-      timedOut = true;
-      entry.connection!.dispose();
-    });
     try {
       await drain(scope, remaining());
-      if (timedOut) throw new DriverError('PGCLEAR_TIMEOUT', 'Lease cleanup deadline expired.');
       if (
         discard ||
+        scope.abandonedStream ||
         this.#closing ||
         !entry.connection!.usable ||
         entry.connection!.transactionStatus !== 'idle' ||
@@ -279,11 +274,9 @@ class ConnectionPool implements Pool {
         throw new AggregateError([error, cleanup], 'Lease release and disposal failed.');
       }
       throw error;
-    } finally {
-      stopCleanup();
     }
   }
-  #retire(entry: Entry, timeoutMs = 5000): Promise<void> {
+  #retire(entry: Entry, timeoutMs = CLEANUP_TIMEOUT_MS): Promise<void> {
     if (entry.retirement) return entry.retirement;
     const end = performance.now() + timeoutMs;
     entry.state = 'retiring';
@@ -437,9 +430,11 @@ class ConnectionPool implements Pool {
           errors.push(error);
         }
         scope.expire();
-        lease!.scope.cleanupDeadline = performance.now() + 5000;
+        lease!.scope.cleanupDeadline = scope.cleanupDeadline;
         try {
           await drain(scope);
+          if (scope.abandonedStream && errors.length === 0)
+            errors.push(new DriverError('PGCLEAR_BUSY', 'A callback left an unfinished stream.'));
         } catch (error) {
           errors.push(error);
         }
@@ -499,7 +494,7 @@ class ConnectionPool implements Pool {
       validateOperation(options);
       if ('signal' in options)
         throw new DriverError('PGCLEAR_CONFIGURATION', 'Close accepts only timeoutMs.');
-      const timeout = integer(options.timeoutMs ?? 5000, 'timeoutMs', 0);
+      const timeout = integer(options.timeoutMs ?? CLEANUP_TIMEOUT_MS, 'timeoutMs', 0);
       this.#closing = true;
       for (const waiter of [...this.#waiters])
         this.#reject(waiter, new DriverError('PGCLEAR_CLOSED', 'Pool closed before acquisition.'));

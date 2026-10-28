@@ -4,10 +4,11 @@ A standalone TypeScript PostgreSQL driver built around explicit session ownershi
 predictable failure handling, and first-class protocol operations. Tenon is the first intended
 consumer; pgclear has no runtime dependency on Tenon.
 
-**Status: M3 implemented; not ready for production or publication.** Native TypeScript
+**Status: M5 implemented locally; not ready for production or publication.** Native TypeScript
 declarations cover connections, pools, leases, transaction/savepoint scopes, immutable codecs,
-explicit typed/JSON parameters, description and scripts. Preparation, streaming, COPY and
-notifications remain planned. An isolated Tenon 0.3.1 adapter trial uses the native driver contracts;
+explicit typed/JSON parameters, description, scripts, scope-owned prepared statements, portal row
+streams and byte COPY.
+Notifications remain planned. An isolated Tenon 0.3.1 adapter trial uses the native driver contracts;
 its evidence and remaining adoption work are recorded in [docs/tenon-trial.md](docs/tenon-trial.md).
 `private: true` prevents accidental publication until the implementation and release gates are ready.
 
@@ -28,6 +29,22 @@ try {
 `sql` binds values only; it returns an immutable `[text, values]` tuple. `query` also accepts that
 classic tuple or the existing `{ text, values, parameterTypes }` statement form. Row annotations
 are trusted TypeScript assertions. Type generation and query checking belong in Tenon.
+
+`prepare` is available on held sessions and transaction/savepoint callbacks. Its handle exposes
+`description`, `query(values, options)` and idempotent `close()`. Handles expire with the exact
+creating scope; parent handles are blocked while a child owns the session. Accepted executions drain
+before Close, and names are disposed before session reuse. There is no automatic cache or retry.
+
+`session.stream(query, { batchSize: 100 })` returns a single-consumer async iterable with `fields`,
+`completion` and `close()`. It owns the session until consumed or closed; `for await` early exit
+awaits cleanup. Streams buffer one bounded batch and also work in transaction/savepoint callbacks.
+Completion preserves the backend tag/count; count iterated rows when a stream-wide total is needed.
+
+`session.copyFrom(text, byteSource)` accepts an async iterable or Node Readable of Uint8Array chunks;
+`session.copyTo(text)` returns a byte stream with completion and close. Both own the session while
+active and support transaction/savepoint scopes. Input pulls and writes obey backpressure; output
+pauses for slow consumers. CSV/binary record encoding stays with the caller. Early COPY output close
+uses cancellation and retires the connection.
 
 The connection supports TCP/Unix sockets, verified TLS, trust/password/MD5/SCRAM authentication,
 SCRAM channel binding, sequential extended queries, scalar results, field metadata, and bounded

@@ -2,11 +2,12 @@
 
 Work in the order below. Each milestone produces a usable, verifiable slice and has an observable
 completion gate. Keep this document current by recording completed gates and evidence, not by
-maintaining a second backlog that can disagree with it. The M1–M3 core and M4 consumer trial are
-implemented; complete Tenon adoption remains open. The Unicode-fix commit `e742fbf` passed both
-PostgreSQL 16/18 CI jobs. The later query API passed 106 local tests; its own PostgreSQL 18 result
-remains unverified. D26 resumes M5 development, starting with preparation only; see
-[the handoff](m5-handoff.md).
+maintaining a second backlog that can disagree with it. The M1–M3 core, M4 consumer trial and all M5
+slices are implemented; complete Tenon adoption remains open. The complete M5 check passes **201
+local tests**. See [development](development.md) for current and historical verification evidence.
+The Unicode-fix commit `e742fbf` passed PostgreSQL 16/18 CI; this does not verify M5, whose own
+PostgreSQL 18/CI results remain unverified. The [handoff](m5-handoff.md) is the historical M5 starting
+brief. M6 notifications/deployment compatibility is the next implementation milestone.
 
 ## M0 — Design and project setup (this change)
 
@@ -188,14 +189,26 @@ decision separately from full Tenon adoption.
 Development resumed on 2026-10-28 under D26 after the correctness follow-up. Both PostgreSQL 16/18
 jobs passed for the Unicode fixes; the later query API passed 106 local tests and the 17-case
 candidate trial. Its own PostgreSQL 18 result remains unverified. Full Tenon adoption remains an
-independent gate. Begin with M5a only; see [the handoff](m5-handoff.md).
+independent gate. All three M5 slices and their combined review pass the full 201-test local check. See [the handoff](m5-handoff.md)
+for the historical starting point.
 
-1. **M5a:** Implement session-owned prepared statement handles, close ordering and lease cleanup, without
-   automatic named caches/retries. Distinguish submitted from confirmed creation; do not close a
-   confirmed statement when a later execution's parameter encoder fails.
-2. **M5b:** Implement async row iteration, metadata, bounded portal batches, explicit/early close and command
-   completion distinctions. Reject competing session operations while streaming.
-3. **M5c:** Implement COPY FROM/TO byte streams, source failures, protocol recovery and cancellation retirement.
+1. **M5a implemented:** Exact-scope prepared statement handles on held sessions, transactions and
+   savepoints, with FIFO Close and name disposal before scope reuse ([D27](decisions.md#d27--prepared-statements-belong-to-their-creating-scope)).
+   Submission is distinct from confirmed creation; local bind failures leave confirmed statements
+   intact. No automatic named caches or execution retries. Streaming and COPY remain separate slices.
+2. **M5b implemented:** Single-consumer async row iteration, metadata, bounded demand-driven portal
+   batches, explicit/early close and native completion evidence ([D28](decisions.md#d28--streaming-owns-one-scope-and-retains-native-completion-evidence)).
+   Competing operations reject while streaming; abandoned callbacks fail and clean up before scope reuse.
+3. **M5c implemented:** COPY FROM/TO byte streams, native Readable/async iterable input, source failure
+   and iterator cleanup, bounded writes/output backpressure, protocol recovery and cancellation
+   retirement ([D29](decisions.md#d29--copy-shares-execution-ownership-and-separates-source-cleanup-from-protocol-recovery)).
+
+The subsequent simplification (D30) uses unnamed portals for exclusive execution, a discriminated
+operation state, one bounded row/byte handoff and an ordinary async COPY source task. Scope ownership
+uses one reservation and carries an absolute cleanup budget through release; `queryClassic` remains
+public. Tests retain mixed lifetimes, protocol failures, packed consumers, backpressure and process
+exit checks, with added manual transaction recovery and reentrant source coverage. PostgreSQL 18/CI
+verification and full Tenon adoption remain separate gates.
 
 Gate: prepared handles expire after release; stale plans surface without re-executing writes;
 prepared close orders correctly with accepted executions; early stream exit permits a subsequent

@@ -71,7 +71,14 @@ export type Message =
   | { readonly type: 'parameters'; readonly oids: readonly number[] }
   | { readonly type: 'row'; readonly values: readonly (Buffer | null)[] }
   | { readonly type: 'command'; readonly tag: string }
-  | { readonly type: 'parse' | 'bind' | 'no-data' | 'empty' }
+  | {
+      readonly type: 'copy-in' | 'copy-out';
+      readonly format: number;
+      readonly columns: readonly number[];
+    }
+  | { readonly type: 'copy-data'; readonly bytes: Buffer }
+  | { readonly type: 'copy-done' }
+  | { readonly type: 'parse' | 'bind' | 'no-data' | 'empty' | 'close' | 'suspended' }
   | {
       readonly type: 'notification';
       readonly pid: number;
@@ -194,6 +201,30 @@ export function decodeMessage(frame: Frame): Message {
       message = { type: 'row', values };
       break;
     }
+    case 'G':
+    case 'H': {
+      const format = reader.byte(),
+        count = reader.uint16(),
+        columns: number[] = [];
+      if (format > 1) throw protocolError('Invalid COPY format.');
+      for (let i = 0; i < count; i++) {
+        const column = reader.uint16();
+        if (column > 1) throw protocolError('Invalid COPY column format.');
+        columns.push(column);
+      }
+      message = {
+        type: frame.type === 71 ? 'copy-in' : 'copy-out',
+        format,
+        columns: Object.freeze(columns),
+      };
+      break;
+    }
+    case 'd':
+      message = { type: 'copy-data', bytes: reader.bytes(reader.remaining) };
+      break;
+    case 'c':
+      message = { type: 'copy-done' };
+      break;
     case 'C':
       message = { type: 'command', tag: reader.cstring() };
       break;
@@ -202,6 +233,12 @@ export function decodeMessage(frame: Frame): Message {
       break;
     case '2':
       message = { type: 'bind' };
+      break;
+    case 's':
+      message = { type: 'suspended' };
+      break;
+    case '3':
+      message = { type: 'close' };
       break;
     case 'n':
       message = { type: 'no-data' };

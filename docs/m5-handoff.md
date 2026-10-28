@@ -1,7 +1,10 @@
 # M5 handoff — explicit prepared statements first
 
+Historical starting brief. All M5 slices are now implemented; see [D27](decisions.md#d27--prepared-statements-belong-to-their-creating-scope)
+for ownership and [development](development.md) for verification. D28 documents portal streaming and D29 documents COPY. D30 records the later simplification of their internal lifecycle.
+
 Prepared on 2026-10-28. The completed query API and discussion outcomes are committed as `c51ea8c`.
-No M5 runtime implementation has started. This is the starting brief for a fresh chat focused on M5a.
+At that checkpoint no M5 runtime implementation had started. This was the starting brief for a fresh chat focused on M5a.
 
 ## Final scope
 

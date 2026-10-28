@@ -55,13 +55,37 @@ export class Transport {
   }
   write(bytes: Buffer): void {
     if (this.#destroyed) return;
-    // The sequential scheduler writes one complete request at a time, waiting for ReadyForQuery
-    // before the next. It therefore cannot accumulate further writes behind socket backpressure.
+    // Control requests are bounded by the sequential scheduler; COPY payloads use send() below.
     try {
       this.#socket.write(bytes);
     } catch (error) {
       this.#error(error);
     }
+  }
+  /** A single outstanding COPY write bounds buffering even when the socket is backpressured. */
+  send(bytes: Buffer): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (this.#destroyed) {
+        reject(new DriverError('PGCLEAR_CLOSED', 'Transport is closed.'));
+        return;
+      }
+      const socket = this.#socket;
+      const closed = () =>
+        finish(new DriverError('PGCLEAR_CONNECTION_LOST', 'Transport closed during COPY write.'));
+      const finish = (error?: Error | null) => {
+        socket.removeListener('close', closed);
+        if (error) {
+          this.#error(error);
+          reject(error);
+        } else resolve();
+      };
+      socket.once('close', closed);
+      try {
+        socket.write(bytes, finish);
+      } catch (cause) {
+        finish(cause instanceof Error ? cause : protocolError());
+      }
+    });
   }
   end(bytes: Buffer): void {
     if (this.#destroyed) return;

@@ -28,10 +28,69 @@ JavaScript/TypeScript consumers, and real PostgreSQL integration tests. Set the 
 Fake-server tests require loopback/Unix sockets. Integration tests require `psql`; packed-consumer
 tests use `tar` and reuse only runtime dependencies declared in the packed manifest. TLS fixtures
 are explicitly public test-only keys/certificates. The package remains private; `npm pack` exercises
-distribution locally and does not publish it. The runtime exports are `connect`, `createPool`, `DriverError`, `DatabaseError`, `builtin`, `defaultCodecs`, `param`
-and `json`.
+distribution locally and does not publish it. The runtime exports are `connect`, `createPool`, `DriverError`, `DatabaseError`, `builtin`, `defaultCodecs`, `param`,
+`json` and `sql`.
 
 ## Current verification and limits
+
+M5 and its subsequent simplification on 2026-10-28 passed `npm run check`: **201 tests**
+(107 database-independent, 94 integration) against the existing `pgclear_test` database. Explicit
+preparation, portal row streaming and COPY FROM/TO are implemented on their owning held-session,
+transaction and savepoint scopes. Native values, strict binds, immutable codecs, FIFO reservation,
+expiration and no automatic execution retries remain intact.
+
+New COPY coverage includes fragmented text and binary round trips, Node Readables, source/iterator
+failures, server failures, wrong SQL/direction, opaque chunk ownership, bounded source/socket
+backpressure, result limits, queued/active cancellation, paused consumers, deadlines, partial close,
+stalled producer cleanup, forced shutdown and verified TLS. Six subprocess scenarios verify long
+operation timers, external abort listeners, producer cleanup and sockets do not strand a process.
+Packed consumers exercise COPY runtime exports and strict byte-source/output/completion types.
+
+The simplification replaces named stream/COPY portals and their extra cleanup cycles with unnamed
+portals, a discriminated operation state and one bounded row/byte handoff. COPY input uses an ordinary
+async source task, and scope ownership uses one reservation. A single absolute cleanup budget carries
+through statement disposal, rollback and release. Bind encoding, public option validation and
+fake-server helpers are shared. `queryClassic` remains a public entrypoint with packed-consumer and
+scope-ownership coverage. [D30](decisions.md#d30--exclusive-execution-needs-no-named-portal-resource-layer)
+records the change; D27–D29 retain the original M5 decisions.
+
+All 199 prior tests remain, with two new integration workflows: manual transaction/savepoint recovery
+across stream/COPY completion, source failure and partial close; and source getter/iterator reentrancy
+blocked by the scope reservation. The seeded 25-step mixed lifetime workflow now checks all remaining
+cursors before reuse. Native command evidence, decoder errors, stalled cleanup, cancellation,
+backpressure, TLS and child-process exit checks remain green.
+
+This is local evidence. No PostgreSQL 18/CI result for M5, publication, production performance or
+full Tenon migration is claimed. Local PostgreSQL was preserved; the existing isolated CI matrix
+remains the PostgreSQL 16/18 compatibility gate. No new CI run was awaited.
+
+M5b on 2026-10-28 passed `npm run check`: **161 tests** (85 database-independent, 76 integration)
+against the existing `pgclear_test` database. Portal streams now work on held sessions and
+transaction/savepoint scopes. Tests cover exact and partial batch boundaries, eager first batches
+and demand-driven continuation, metadata, object/array decoding, strict parameters, isolated codecs,
+encoder reentrancy/deadlines, exclusive/single-consumer ownership, early exit, queued/active close,
+callback abandonment/rollback, paused-consumer cancellation/deadlines, per-batch byte bounds, losses
+throughout the protocol, malformed/excess responses and failed portal disposal. Packed consumers
+verify exported streaming types, inferred tagged rows, unknown unannotated values and closed
+completion narrowing. Child-process fixtures verify timers/listeners are removed on success, early
+close, server error, timeout and abort. Prior M5a regressions remain green.
+
+PostgreSQL returns the final Execute's fetched row count for a row-returning portal; exact batch
+boundaries can end with a zero count. Tests retain that native command tag/count. Early write-stream
+close is also verified to permit server-side effects while exposing only `status: 'closed'`.
+[D28](decisions.md#d28--streaming-owns-one-scope-and-retains-native-completion-evidence) records these
+semantics. COPY remains M5c; no new PostgreSQL 18/CI, publication or full Tenon migration evidence is
+claimed.
+
+M5a on 2026-10-28 passed `npm run check`: **132 tests** (70 database-independent, 62 integration)
+against the existing `pgclear_test` database. Named preparation is available on exact session,
+transaction and savepoint scopes ([D27](decisions.md#d27--prepared-statements-belong-to-their-creating-scope)).
+Coverage includes metadata/readiness, creation loss at each protocol boundary, valid/invalid/valid
+reuse, reentrant query/Close FIFO, owner expiry, failed transaction/savepoint cleanup, immutable codec
+isolation, array rows, decoder/server errors, invalidation without retries, queued/active cancellation,
+encoder deadlines, failed Close retirement and packed-consumer types/exports. Child-process fixtures
+verify preparation/Close remove timers and abort listeners. Streaming and COPY remain M5b/M5c. No
+new PostgreSQL 18, CI, publication or full Tenon migration result is claimed.
 
 Readiness update (2026-10-28): both PostgreSQL 16/18 jobs passed the full driver check for the
 Unicode-fix commit `e742fbf` in
@@ -107,7 +166,7 @@ built-in arrays use the selected scalar decoders. JSON.parse still has JavaScrip
 limits; raw JSON codecs are the explicit alternative. Binary results and catalog-driven custom array
 discovery are not implemented. Active interruption uses protocol cancellation and retires the session, bounded by cleanup time;
 force-close disposes both transports. Managed scopes classify lost COMMIT responses separately.
-Tenon adaptation, prepared statements, streaming, COPY, listeners and a real proxy/TLS deployment
+Full Tenon adoption, listeners and a real proxy/TLS deployment
 matrix remain unverified later work.
 
 ## Tenon adapter trial

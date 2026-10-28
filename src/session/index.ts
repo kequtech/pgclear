@@ -1,7 +1,9 @@
 import type { PhysicalConnection } from '../connection/index.js';
-import { abortError, deadline, Lifetime } from '../connection/timing.js';
+import { CLEANUP_TIMEOUT_MS, abortError, deadline, Lifetime } from '../connection/timing.js';
 import { validateOperation } from '../config/index.js';
 import { DriverError } from '../errors.js';
+import { OutputStream, PortalStream } from '../connection/stream.js';
+import { PreparedHandle } from './prepared.js';
 import type {
   ArrayQueryOptions,
   CloseOptions,
@@ -9,6 +11,7 @@ import type {
   DescribeStatement,
   Description,
   OperationOptions,
+  PreparedStatement,
   QueryOptions,
   QueryResult,
   Row,
@@ -17,6 +20,12 @@ import type {
   QueryInput,
   Transaction,
   TransactionOptions,
+  RowStream,
+  StreamOptions,
+  ArrayStreamOptions,
+  CommandResult,
+  CopySource,
+  CopyStream,
 } from '../types.js';
 
 const expired = () => new DriverError('PGCLEAR_EXPIRED', 'This session scope has expired.');
@@ -38,9 +47,13 @@ export class Scope {
   active = true;
   child: Scope | undefined;
   poisoned = false;
+  #reservation:
+    { output?: Pick<OutputStream<unknown>, 'closing' | 'settled' | 'close'> } | undefined;
+  abandonedStream = false;
   cleanupDeadline: number | undefined;
   readonly expiry = new AbortController();
   readonly pending = new Set<Promise<unknown>>();
+  readonly statements = new Set<PreparedHandle>();
   readonly #initialDispatches: number;
   constructor(
     readonly connection: PhysicalConnection,
@@ -68,11 +81,18 @@ export class Scope {
     if (!this.connection.usable)
       throw new DriverError('PGCLEAR_CLOSED', 'The physical session is closed.');
     if (this.child) throw busy();
+    if (this.#reservation) throw new DriverError('PGCLEAR_BUSY', 'A stream owns this session.');
     this.lifetime?.check();
   }
   expire(reason: unknown = expired()): void {
     if (!this.active) return;
     this.active = false;
+    this.cleanupDeadline ??= performance.now() + CLEANUP_TIMEOUT_MS;
+    const stream = this.#reservation?.output;
+    if (stream && !stream.settled) {
+      this.abandonedStream ||= !stream.closing;
+      void stream.close(this.cleanupDeadline).catch(() => {});
+    }
     this.child?.expire(reason);
     this.expiry.abort(reason);
   }
@@ -84,10 +104,30 @@ export class Scope {
     );
     return promise;
   }
+  claim<T>(
+    work: () => Promise<T>,
+    stream?: Pick<OutputStream<unknown>, 'closing' | 'settled' | 'close'>,
+  ): Promise<T> {
+    this.check();
+    const reservation = stream ? { output: stream } : {};
+    this.#reservation = reservation;
+    const clear = () => {
+      if (this.#reservation === reservation) this.#reservation = undefined;
+    };
+    try {
+      const promise = this.track(work());
+      void promise.then(clear, clear);
+      return promise;
+    } catch (error) {
+      clear();
+      throw error;
+    }
+  }
   drain(): Promise<unknown> {
     return Promise.allSettled([...this.pending]);
   }
-  options<T extends OperationOptions>(options: T): T {
+  options<T extends OperationOptions>(options: T, extra: readonly string[] = []): T {
+    validateOperation(options, extra);
     this.lifetime?.check();
     if (!this.signal) return options;
     const remaining = this.lifetime!.remaining();
@@ -134,11 +174,7 @@ class ExecutorHandle {
     options: QueryOptions | ArrayQueryOptions = {},
   ): Promise<QueryResult<object>> {
     return this.scope.call(() => {
-      validateOperation(options, ['rowMode']);
-      const actual = this.scope.options(options);
-      return actual.rowMode === 'array'
-        ? this.scope.connection.query(statement, actual)
-        : this.scope.connection.query(statement, actual);
+      return this.scope.connection.query(statement, this.scope.options(options, ['rowMode']));
     });
   }
   queryClassic<T extends object = Row>(
@@ -161,12 +197,73 @@ class ExecutorHandle {
       : this.query([text, values], options);
   }
 
+  stream<T extends object = Row>(statement: QueryInput<T>, options?: StreamOptions): RowStream<T>;
+  stream<T extends readonly unknown[] = readonly unknown[]>(
+    statement: QueryInput<T>,
+    options: ArrayStreamOptions,
+  ): RowStream<T>;
+  stream(statement: QueryInput<object>, options: ArrayStreamOptions): RowStream<readonly unknown[]>;
+  stream(
+    statement: QueryInput<object>,
+    options: StreamOptions | ArrayStreamOptions = {},
+  ): RowStream<object> {
+    const stream = new PortalStream();
+    try {
+      this.scope.claim(() => {
+        this.scope.connection.stream(
+          statement,
+          this.scope.options(options, ['rowMode', 'batchSize']),
+          stream,
+        );
+        return stream.completion;
+      }, stream);
+    } catch (error) {
+      stream.fail(error);
+    }
+    return stream;
+  }
+
+  copyFrom(
+    text: string,
+    source: CopySource,
+    options: OperationOptions = {},
+  ): Promise<CommandResult> {
+    try {
+      return this.scope.claim(() =>
+        this.scope.connection.copyFrom(text, source, this.scope.options(options)),
+      );
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+  copyTo(text: string, options: OperationOptions = {}): CopyStream {
+    const output = new OutputStream<Uint8Array>();
+    try {
+      this.scope.claim(() => {
+        this.scope.connection.copyTo(text, this.scope.options(options), output);
+        return output.completion;
+      }, output);
+    } catch (error) {
+      output.fail(error);
+    }
+    return output;
+  }
+
+  prepare(
+    statement: string | DescribeStatement,
+    options: OperationOptions = {},
+  ): Promise<PreparedStatement> {
+    return this.scope.call(() => {
+      const actual = this.scope.options(options);
+      return new PreparedHandle(this.scope).create(statement, actual);
+    });
+  }
+
   describe(
     statement: string | DescribeStatement,
     options: OperationOptions = {},
   ): Promise<Description> {
     return this.scope.call(() => {
-      validateOperation(options);
       return this.scope.connection.describe(statement, this.scope.options(options));
     });
   }
@@ -228,13 +325,18 @@ export async function callback<T>(
 }
 
 /** Accepted work drains within a fixed cleanup budget even when a callback never returns. */
-export async function drain(scope: Scope, timeoutMs = 5000): Promise<void> {
+export async function drain(scope: Scope, timeoutMs = CLEANUP_TIMEOUT_MS): Promise<void> {
+  const end = Math.min(scope.cleanupDeadline ?? Infinity, performance.now() + timeoutMs);
+  scope.cleanupDeadline = end;
   let stop = () => {};
   try {
     await Promise.race([
-      scope.drain(),
+      (async () => {
+        await scope.drain();
+        for (const statement of scope.statements) await statement.dispose(end);
+      })(),
       new Promise<never>((_, reject) => {
-        stop = deadline(timeoutMs, () => {
+        stop = deadline(Math.max(0, end - performance.now()), () => {
           scope.connection.dispose();
           reject(new DriverError('PGCLEAR_TIMEOUT', 'Session cleanup deadline expired.'));
         });
@@ -261,7 +363,6 @@ export function validateTransaction(work: unknown, options: TransactionOptions):
 export class SessionHandle extends ExecutorHandle implements Session {
   script(text: string, options: OperationOptions = {}): Promise<readonly QueryResult[]> {
     return this.scope.call(() => {
-      validateOperation(options);
       return this.scope.connection.script(text, this.scope.options(options));
     });
   }
@@ -312,6 +413,8 @@ async function finishBody<T>(
   if (scope.child) throw busy();
   scope.expire();
   await drain(scope);
+  if (scope.abandonedStream)
+    throw new DriverError('PGCLEAR_BUSY', 'A callback left an unfinished stream.');
   if (scope.poisoned || scope.connection.transactionStatus !== 'transaction') throw state();
   return value;
 }
@@ -360,9 +463,9 @@ async function transaction<T>(
   } catch (error) {
     errors.push(error);
     scope.expire();
-    const end = performance.now() + 5000,
+    const end = scope.cleanupDeadline!,
       remaining = () => Math.max(0, Math.ceil(end - performance.now()));
-    const stopCleanup = deadline(5000, () => connection.dispose());
+    const stopCleanup = deadline(remaining(), () => connection.dispose());
     try {
       await drain(scope, remaining());
       if (began && connection.usable && connection.transactionStatus !== 'idle') {
@@ -414,9 +517,9 @@ async function savepoint<T>(
   } catch (error) {
     errors.push(error);
     scope.expire();
-    const end = performance.now() + 5000,
+    const end = scope.cleanupDeadline!,
       remaining = () => Math.max(0, Math.ceil(end - performance.now()));
-    const stopCleanup = deadline(5000, () => connection.dispose());
+    const stopCleanup = deadline(remaining(), () => connection.dispose());
     try {
       await drain(scope, remaining());
       if (!created || !connection.usable) {

@@ -111,7 +111,7 @@ RowDescription/NoData, then await ReadyForQuery. No Bind/Execute is sent. Named 
 the same description cycle using a driver-generated name; explicit close sends Close(statement),
 Sync. Each preparation handle stores field/OID metadata, never permanently cached parser functions.
 Codecs belong to the immutable connection configuration. Dispose all lease-owned preparations before
-returning its connection; failed disposal discards it. This named-preparation cleanup is M5 work. External SQL that deallocates statements is
+returning its connection; failed disposal discards it. M5a implements this cleanup for exact session, transaction and savepoint owners (D27). External SQL that deallocates statements is
 caller-owned and invalidates those handles on the subsequent server error.
 
 Named statement records distinguish submitting, confirmed, closing and expired states. Publish a
@@ -119,6 +119,39 @@ usable handle only after its creation operation succeeds. An encode error during
 operation failure, not a reason to close or delete the previously confirmed statement. If creation
 parses successfully but later description fails, close the unpublished statement during recovery
 or discard the connection when that cleanup cannot be confirmed.
+
+Row streaming keeps one scheduler operation active across batches on the unnamed portal. Parse/Bind/
+Describe/Execute/Flush starts execution; subsequent consumer demand sends Execute/Flush. A
+PortalSuspended boundary exposes one decoded batch without prefetch, and its byte budget includes
+retained metadata. After the final rows are consumed, Sync/ReadyForQuery completes the operation.
+Early close discards buffered rows, reaches the in-flight batch boundary, then sends Close(portal)/
+Sync and requires CloseComplete/ReadyForQuery. Server errors recover with a single Sync/ReadyForQuery.
+There is no second portal cleanup cycle after completion or an error.
+
+COPY uses the same unnamed portal and exclusive scheduler slot. CopyInResponse starts an independent
+async producer task, so a pending source pull cannot block backend errors. `copy.ts` owns input
+iteration and fences late results. Writes split into bounded frames and await transport callbacks
+before another write or source pull. CopyDone/Flush obtains the command tag, then Sync/ReadyForQuery
+finishes input. Source errors send CopyFail/Sync, recover to ReadyForQuery and observe iterator cleanup.
+A real iterator-return promise remains pending if user code stalls; the cleanup deadline retires the
+physical session and releases its caller instead of pretending that iterator cleanup finished.
+
+`stream.ts` supplies a single bounded handoff for row batches and COPY byte chunks. Message draining
+awaits consumption or demand; close, interruption and failure release the handoff. COPY output early
+close cancels and retires the session, resolving closed only after server recovery and cancellation
+transport cleanup. Cancellation also sends CopyFail for active input.
+
+`operation.ts` separates queue status and final outcome from a discriminated union of protocol work.
+Each operation carries only its own phases and data. Physical connection code retains scheduling,
+protocol transitions and settlement; the indexed message queue clears consumed slots without shifting
+all remaining entries. Scope ownership uses one reservation, acquired before user codecs or source
+getters. Public option validation occurs at the scope boundary, and Bind encoding is shared.
+
+A five-second absolute cleanup deadline survives scope expiry, statement disposal, rollback and lease
+release. No Sync is sent between stream batches: it would end an implicit transaction. Inside an
+explicit transaction, Sync preserves that transaction, and the next Bind replaces the unnamed portal;
+commit/rollback also ends its lifetime. Named statements retain explicit scope ownership and disposal.
+See [D30](decisions.md#d30--exclusive-execution-needs-no-named-portal-resource-layer).
 
 Built-in array metadata maps array OIDs to element OIDs and delimiters. The immutable codec registry
 derives default array decoders from the selected scalar decoder, so scalar overrides apply without
@@ -202,13 +235,13 @@ Unfinished establishment belongs to the pool from its creation, not from its che
 
 ## Streaming, COPY, and listeners
 
-Portal streaming owns an exclusive execution slot and performs bounded Execute/Flush batches. Close
-sends Close(portal) and Sync, then drains before permitting another operation. A transport failure
+Portal streaming owns an exclusive execution slot and performs bounded Execute/Flush batches. Early
+close sends Close(portal)/Sync; full completion sends Sync. Both await ReadyForQuery before reuse. A transport failure
 invalidates the whole stream and its metadata/completion promises. An abandoned stream fails managed
 callback success; it is not silently left alive after lease release.
 
 COPY uses separate connection substates. Input respects source/socket backpressure; source errors
-send CopyFail and recover to ReadyForQuery. Output buffers only to the stream high-water mark; early
+send CopyFail and recover to ReadyForQuery. Output hands off one CopyData frame at a time; early
 exit cancels and retires the connection. No CSV or binary-record interpretation occurs in transport.
 
 A listener supervisor owns immutable channel registrations and a replaceable physical connection.

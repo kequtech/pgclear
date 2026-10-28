@@ -1,6 +1,9 @@
 import { DriverError } from '../errors.js';
 import type { OperationOptions } from '../types.js';
 
+/** Fixed cleanup budget for physical resources; operation deadlines remain caller controlled. */
+export const CLEANUP_TIMEOUT_MS = 5000;
+
 /** Absolute monotonic deadlines avoid timer overflow and resetting the budget at each stage. */
 export function deadline(delay: number, expire: () => void, unref = false): () => void {
   const end = performance.now() + delay;
