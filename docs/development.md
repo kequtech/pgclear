@@ -72,6 +72,13 @@ packets. Pool cleanup allocates expiry signals/errors only when observed, uncons
 avoid abort composition, and empty drains need no cleanup timer. New/expanded checks retain inherited
 deadline/cancellation behavior and safe writable/enumerable own properties for special column names.
 See [profiling](../benchmarks/README.md#profiling) for evidence and reproduction.
+The final runtime checkpoint `990ac77` was committed before its measurements. Its full check passes
+219 tests, native compatibility passes three tests, and the packed Tenon trial passes the 180-test
+pg baseline and 20 candidate cases with a clean working tree
+(`.trial-dist/tenon-m4-kVzHLC/report.json`). The 126-measurement matrix also passes. Five alternating
+longer runs per artifact show about 22% higher large-result throughput and 93% higher pool
+throughput, with lower CPU use; see [results](../benchmarks/README.md#profiled-follow-up-results).
+These are local PostgreSQL 16.15 results, not a new PostgreSQL 18 CI claim.
 
 The M1–M5 lifecycle cleanup on 2026-10-28 passed `npm run check`: **203 tests**
 (109 database-independent, 94 integration) against the existing `pgclear_test` database. The new

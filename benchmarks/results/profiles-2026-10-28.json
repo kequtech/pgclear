@@ -1,0 +1,505 @@
+{
+  "intervalMicroseconds": 500,
+  "configuredIterations": 100000,
+  "warmupOperations": 100,
+  "addedRttMs": 0,
+  "note": "CPU profiles include startup/warmup/cleanup. Worker measurement metrics exclude them; profiler overhead means neither is an uninstrumented benchmark.",
+  "before": {
+    "revision": "9ee5456",
+    "workloads": {
+      "large": {
+        "source": ".benchmark-dist/profiles-before/large.cpuprofile",
+        "sha256": "e1f7ba5149b9b2c4f394ca1c1b3ec54bebaff586bbe7ad8d60e03e4e2579edaa",
+        "wallMs": 8999.25599999999,
+        "activeMs": 7389.957000000003,
+        "operations": 5000,
+        "workerCpuMs": {
+          "user": 7344.542,
+          "system": 940.228
+        },
+        "memoryBytes": {
+          "rssStart": 80838656,
+          "rssEnd": 110211072,
+          "sampledPeakRss": 110211072,
+          "heapStart": 13609080,
+          "heapEnd": 21595776
+        },
+        "self": [
+          {
+            "name": "decodeRow dist/connection/operation.js:24",
+            "sampledMs": 904.7169999999985,
+            "percentOfActive": 12.242520490985239
+          },
+          {
+            "name": "#drainMessages dist/connection/index.js:148",
+            "sampledMs": 641.6729999999997,
+            "percentOfActive": 8.683041051524379
+          },
+          {
+            "name": "#receive dist/connection/index.js:170",
+            "sampledMs": 564.1930000000003,
+            "percentOfActive": 7.634591107904959
+          },
+          {
+            "name": "decode dist/codecs/builtin.js:20",
+            "sampledMs": 424.13100000000065,
+            "percentOfActive": 5.739289146066756
+          },
+          {
+            "name": "push dist/protocol/framing.js:13",
+            "sampledMs": 392.97500000000036,
+            "percentOfActive": 5.317689940550401
+          },
+          {
+            "name": "decodeMessage dist/protocol/messages.js:92",
+            "sampledMs": 386.78100000000046,
+            "percentOfActive": 5.233873485326103
+          },
+          {
+            "name": "decode dist/codecs/index.js:80",
+            "sampledMs": 143.94099999999997,
+            "percentOfActive": 1.9477921184115132
+          },
+          {
+            "name": "#data dist/connection/index.js:123",
+            "sampledMs": 91.55299999999994,
+            "percentOfActive": 1.2388840692848402
+          },
+          {
+            "name": "text dist/codecs/index.js:62",
+            "sampledMs": 63.00300000000004,
+            "percentOfActive": 0.8525489390533668
+          },
+          {
+            "name": "uint16 dist/protocol/messages.js:23",
+            "sampledMs": 51.37299999999999,
+            "percentOfActive": 0.6951731924827164
+          }
+        ],
+        "inclusive": [
+          {
+            "name": "#drainMessages dist/connection/index.js:148",
+            "sampledMs": 3781.8550000000046,
+            "percentOfActive": 51.17560223963417
+          },
+          {
+            "name": "#receive dist/connection/index.js:170",
+            "sampledMs": 3122.3929999999823,
+            "percentOfActive": 42.25184260206089
+          },
+          {
+            "name": "decodeRow dist/connection/operation.js:24",
+            "sampledMs": 2460.524999999994,
+            "percentOfActive": 33.295525264896575
+          },
+          {
+            "name": "#data dist/connection/index.js:123",
+            "sampledMs": 2288.167000000009,
+            "percentOfActive": 30.963197756089894
+          },
+          {
+            "name": "#data dist/transport/index.js:116",
+            "sampledMs": 2288.167000000009,
+            "percentOfActive": 30.963197756089894
+          },
+          {
+            "name": "push dist/protocol/framing.js:13",
+            "sampledMs": 2171.8270000000093,
+            "percentOfActive": 29.388899015244725
+          },
+          {
+            "name": "(anonymous) dist/connection/operation.js:25",
+            "sampledMs": 1533.571000000009,
+            "percentOfActive": 20.75209639244191
+          },
+          {
+            "name": "decode dist/codecs/index.js:80",
+            "sampledMs": 1520.1110000000092,
+            "percentOfActive": 20.56995730827674
+          },
+          {
+            "name": "(anonymous) dist/connection/index.js:128",
+            "sampledMs": 1019.8430000000008,
+            "percentOfActive": 13.800391531371567
+          },
+          {
+            "name": "decodeMessage dist/protocol/messages.js:92",
+            "sampledMs": 1012.5210000000006,
+            "percentOfActive": 13.701311117236544
+          }
+        ]
+      },
+      "pool": {
+        "source": ".benchmark-dist/profiles-before/pool.cpuprofile",
+        "sha256": "5f67f64855cd2fe7a23309fdb897d466c71070bea25b799420a5d4782316a6e8",
+        "wallMs": 14873.253999999337,
+        "activeMs": 13364.329999999525,
+        "operations": 100000,
+        "workerCpuMs": {
+          "user": 13008.022,
+          "system": 4268.234
+        },
+        "memoryBytes": {
+          "rssStart": 71303168,
+          "rssEnd": 309968896,
+          "sampledPeakRss": 310194176,
+          "heapStart": 12902784,
+          "heapEnd": 111041408
+        },
+        "self": [
+          {
+            "name": "DriverError dist/errors.js:5",
+            "sampledMs": 1930.079000000004,
+            "percentOfActive": 14.442018417684032
+          },
+          {
+            "name": "commandResult dist/connection/query.js:147",
+            "sampledMs": 203.54700000000017,
+            "percentOfActive": 1.5230617621684543
+          },
+          {
+            "name": "decodeRow dist/connection/operation.js:24",
+            "sampledMs": 195.14000000000024,
+            "percentOfActive": 1.4601555034933078
+          },
+          {
+            "name": "#receive dist/connection/index.js:170",
+            "sampledMs": 192.26799999999986,
+            "percentOfActive": 1.4386654624661819
+          },
+          {
+            "name": "drain dist/session/index.js:222",
+            "sampledMs": 159.4859999999999,
+            "percentOfActive": 1.193370711438625
+          },
+          {
+            "name": "encodeQuery dist/connection/query.js:8",
+            "sampledMs": 145.66399999999993,
+            "percentOfActive": 1.0899461476931886
+          },
+          {
+            "name": "Lifetime dist/connection/timing.js:41",
+            "sampledMs": 144.39499999999995,
+            "percentOfActive": 1.0804507221836417
+          },
+          {
+            "name": "decodeMessage dist/protocol/messages.js:92",
+            "sampledMs": 140.27399999999992,
+            "percentOfActive": 1.0496149077432606
+          },
+          {
+            "name": "#drainMessages dist/connection/index.js:148",
+            "sampledMs": 118.76100000000001,
+            "percentOfActive": 0.8886416303698295
+          },
+          {
+            "name": "drain dist/session/index.js:89",
+            "sampledMs": 116.86999999999988,
+            "percentOfActive": 0.8744920246656888
+          }
+        ],
+        "inclusive": [
+          {
+            "name": "#withLease dist/pool/index.js:280",
+            "sampledMs": 7655.817999999916,
+            "percentOfActive": 57.285460625412476
+          },
+          {
+            "name": "finishScope dist/session/index.js:331",
+            "sampledMs": 6765.565999999937,
+            "percentOfActive": 50.624056724131904
+          },
+          {
+            "name": "(anonymous) dist/pool/index.js:291",
+            "sampledMs": 5062.744999999998,
+            "percentOfActive": 37.88252011137242
+          },
+          {
+            "name": "(anonymous) dist/pool/index.js:262",
+            "sampledMs": 5060.1849999999995,
+            "percentOfActive": 37.86336464304742
+          },
+          {
+            "name": "query dist/session/index.js:118",
+            "sampledMs": 5048.3009999999995,
+            "percentOfActive": 37.7744413674324
+          },
+          {
+            "name": "call dist/session/index.js:97",
+            "sampledMs": 4478.930000000012,
+            "percentOfActive": 33.51406318161981
+          },
+          {
+            "name": "(anonymous) dist/session/index.js:119",
+            "sampledMs": 4457.809000000016,
+            "percentOfActive": 33.356023085333675
+          },
+          {
+            "name": "query dist/connection/index.js:538",
+            "sampledMs": 4378.77300000001,
+            "percentOfActive": 32.76462793121814
+          },
+          {
+            "name": "(anonymous) dist/connection/index.js:609",
+            "sampledMs": 4305.376000000006,
+            "percentOfActive": 32.21542718565134
+          },
+          {
+            "name": "#execute dist/connection/index.js:607",
+            "sampledMs": 3902.5830000000137,
+            "percentOfActive": 29.201486344621486
+          }
+        ]
+      }
+    }
+  },
+  "after": {
+    "revision": "990ac77",
+    "workloads": {
+      "large": {
+        "source": ".benchmark-dist/profiles-after/large.cpuprofile",
+        "sha256": "ac23898d192f15084e9d5a9fc04251417c1e878dd21aeb05f4e778e44bfc7bc4",
+        "wallMs": 8208.946999999944,
+        "activeMs": 5923.883999999977,
+        "operations": 5000,
+        "workerCpuMs": {
+          "user": 6196.049,
+          "system": 893.612
+        },
+        "memoryBytes": {
+          "rssStart": 81821696,
+          "rssEnd": 94724096,
+          "sampledPeakRss": 94724096,
+          "heapStart": 9728608,
+          "heapEnd": 19228840
+        },
+        "self": [
+          {
+            "name": "decodeRow dist/connection/operation.js:24",
+            "sampledMs": 844.7990000000017,
+            "percentOfActive": 14.260897073609222
+          },
+          {
+            "name": "push dist/protocol/framing.js:13",
+            "sampledMs": 391.6350000000002,
+            "percentOfActive": 6.611118651209269
+          },
+          {
+            "name": "#drainMessages dist/connection/index.js:148",
+            "sampledMs": 380.4960000000005,
+            "percentOfActive": 6.4230832339053565
+          },
+          {
+            "name": "decode dist/codecs/builtin.js:20",
+            "sampledMs": 361.2960000000001,
+            "percentOfActive": 6.098971553122943
+          },
+          {
+            "name": "#receive dist/connection/index.js:173",
+            "sampledMs": 344.8450000000006,
+            "percentOfActive": 5.821265237469234
+          },
+          {
+            "name": "decodeMessage dist/protocol/messages.js:93",
+            "sampledMs": 275.2060000000004,
+            "percentOfActive": 4.645702042781416
+          },
+          {
+            "name": "(anonymous) dist/connection/operation.js:27",
+            "sampledMs": 274.86600000000016,
+            "percentOfActive": 4.63996256510089
+          },
+          {
+            "name": "#data dist/connection/index.js:123",
+            "sampledMs": 96.47599999999996,
+            "percentOfActive": 1.6285936726647638
+          },
+          {
+            "name": "bytes dist/protocol/messages.js:32",
+            "sampledMs": 58.13499999999997,
+            "percentOfActive": 0.9813662792856882
+          },
+          {
+            "name": "commandResult dist/connection/query.js:147",
+            "sampledMs": 39.044,
+            "percentOfActive": 0.6590946075243902
+          }
+        ],
+        "inclusive": [
+          {
+            "name": "#data dist/transport/index.js:116",
+            "sampledMs": 4885.355000000026,
+            "percentOfActive": 82.46878230566372
+          },
+          {
+            "name": "#data dist/connection/index.js:123",
+            "sampledMs": 4882.939000000027,
+            "percentOfActive": 82.42799825249863
+          },
+          {
+            "name": "#drainMessages dist/connection/index.js:148",
+            "sampledMs": 3086.808000000013,
+            "percentOfActive": 52.10784005898875
+          },
+          {
+            "name": "#receive dist/connection/index.js:173",
+            "sampledMs": 2700.6800000000053,
+            "percentOfActive": 45.58968406538709
+          },
+          {
+            "name": "decodeRow dist/connection/operation.js:24",
+            "sampledMs": 2262.588000000007,
+            "percentOfActive": 38.19433331240138
+          },
+          {
+            "name": "push dist/protocol/framing.js:13",
+            "sampledMs": 1695.419000000005,
+            "percentOfActive": 28.620057381272346
+          },
+          {
+            "name": "(anonymous) dist/connection/operation.js:27",
+            "sampledMs": 1427.9420000000043,
+            "percentOfActive": 24.104827170822553
+          },
+          {
+            "name": "decode dist/codecs/index.js:80",
+            "sampledMs": 1150.1240000000012,
+            "percentOfActive": 19.415032434801315
+          },
+          {
+            "name": "(anonymous) dist/connection/index.js:128",
+            "sampledMs": 560.8770000000005,
+            "percentOfActive": 9.468061832405947
+          },
+          {
+            "name": "decodeMessage dist/protocol/messages.js:93",
+            "sampledMs": 548.2810000000009,
+            "percentOfActive": 9.255431065159327
+          }
+        ]
+      },
+      "pool": {
+        "source": ".benchmark-dist/profiles-after/pool.cpuprofile",
+        "sha256": "64c1e54d2b100aa6b7c038d7c64b2d8b2e943370c6264c0669245256c8401576",
+        "wallMs": 8333.920999999891,
+        "activeMs": 5388.6629999999695,
+        "operations": 100000,
+        "workerCpuMs": {
+          "user": 5504.251,
+          "system": 2297.379
+        },
+        "memoryBytes": {
+          "rssStart": 69206016,
+          "rssEnd": 124067840,
+          "sampledPeakRss": 124067840,
+          "heapStart": 9994528,
+          "heapEnd": 22792760
+        },
+        "self": [
+          {
+            "name": "commandResult dist/connection/query.js:147",
+            "sampledMs": 140.64,
+            "percentOfActive": 2.6099238345393054
+          },
+          {
+            "name": "#receive dist/connection/index.js:173",
+            "sampledMs": 131.01599999999985,
+            "percentOfActive": 2.43132665746588
+          },
+          {
+            "name": "decodeRow dist/connection/operation.js:24",
+            "sampledMs": 124.04699999999988,
+            "percentOfActive": 2.3019995869105303
+          },
+          {
+            "name": "encodeQuery dist/connection/query.js:8",
+            "sampledMs": 104.07699999999997,
+            "percentOfActive": 1.9314067329873952
+          },
+          {
+            "name": "decodeMessage dist/protocol/messages.js:93",
+            "sampledMs": 97.39499999999994,
+            "percentOfActive": 1.807405658880514
+          },
+          {
+            "name": "#release dist/pool/index.js:199",
+            "sampledMs": 88.77400000000002,
+            "percentOfActive": 1.6474216331583647
+          },
+          {
+            "name": "#pump dist/pool/index.js:143",
+            "sampledMs": 72.58299999999994,
+            "percentOfActive": 1.3469574920532301
+          },
+          {
+            "name": "#pump dist/connection/index.js:714",
+            "sampledMs": 70.729,
+            "percentOfActive": 1.3125519261456953
+          },
+          {
+            "name": "#withLease dist/pool/index.js:280",
+            "sampledMs": 69.71399999999997,
+            "percentOfActive": 1.293716085047448
+          },
+          {
+            "name": "#drainMessages dist/connection/index.js:148",
+            "sampledMs": 68.72499999999998,
+            "percentOfActive": 1.2753627384009794
+          }
+        ],
+        "inclusive": [
+          {
+            "name": "#withLease dist/pool/index.js:280",
+            "sampledMs": 2960.9760000000124,
+            "percentOfActive": 54.94824968642554
+          },
+          {
+            "name": "finishScope dist/session/index.js:342",
+            "sampledMs": 2615.7770000000114,
+            "percentOfActive": 48.542226522609155
+          },
+          {
+            "name": "(anonymous) dist/pool/index.js:262",
+            "sampledMs": 2568.7920000000126,
+            "percentOfActive": 47.67030337581005
+          },
+          {
+            "name": "(anonymous) dist/pool/index.js:291",
+            "sampledMs": 2565.307000000014,
+            "percentOfActive": 47.60563056179294
+          },
+          {
+            "name": "query dist/session/index.js:129",
+            "sampledMs": 2550.1590000000124,
+            "percentOfActive": 47.324521871195635
+          },
+          {
+            "name": "query dist/connection/index.js:541",
+            "sampledMs": 2507.217000000013,
+            "percentOfActive": 46.52762661164795
+          },
+          {
+            "name": "(anonymous) dist/connection/index.js:612",
+            "sampledMs": 2476.4050000000125,
+            "percentOfActive": 45.95583357133349
+          },
+          {
+            "name": "call dist/session/index.js:108",
+            "sampledMs": 2234.112000000017,
+            "percentOfActive": 41.45948633269569
+          },
+          {
+            "name": "(anonymous) dist/session/index.js:130",
+            "sampledMs": 2229.862000000016,
+            "percentOfActive": 41.380617047308924
+          },
+          {
+            "name": "#execute dist/connection/index.js:610",
+            "sampledMs": 2191.804000000015,
+            "percentOfActive": 40.67435651477978
+          }
+        ]
+      }
+    }
+  }
+}

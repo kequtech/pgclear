@@ -267,6 +267,14 @@ expose CPU/throughput gaps worth profiling. The separate comparator pipeline pro
 substantial benefit for requests available ahead of time at 10 ms added RTT. It does not establish
 a pgclear pipeline design or consumer adoption requirement.
 
+The profiled follow-up is committed as `37b38df`/`990ac77`, retaining the same scheduler and public
+ownership rules. Native row mapping uses one decode/entry pass, numeric readers avoid temporary
+views, and ordinary packets process synchronously. Scope/lifetime cleanup avoids unobserved expiry
+signals/errors and empty-drain timers. The final 219-test check, three compatibility tests,
+20-case Tenon candidate trial and full 126-measurement matrix pass locally. Five longer alternating
+old/new runs per workload confirm about 22% more large-result throughput and 93% more pool throughput;
+CPU per operation falls about 22%/50%. See the [evidence](../benchmarks/README.md#profiled-follow-up-results).
+
 M7b remains conditional: specify the pipelining option and implement bounded sent queues with one Sync boundary per
 independent operation. Initially restrict it to exclusive sessions and ordinary queries. No silent
 change to managed transaction semantics or one-off pool scheduling.

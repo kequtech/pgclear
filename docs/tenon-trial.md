@@ -112,6 +112,13 @@ passed. Evidence: `.trial-dist/tenon-m4-6qtkCb/report.json`, driver artifact SHA
 working tree containing the fixture additions. No driver compatibility changes were required.
 The machine-readable report is the authority for a particular run's observed outcome.
 
+The performance follow-up reran the same fixture at clean runtime checkpoint `990ac77`: all
+**180 pg baseline tests**, **15 shared baseline cases** (five candidate-only skips) and **20 candidate
+cases** pass again, including source declarations and TypeScript 6/7 generated consumers. Evidence:
+`.trial-dist/tenon-m4-kVzHLC/report.json`, packed driver SHA256
+`54d113be7ec2d4e70ca038a105dd2ee384716cb6afd8ea4fe385bff286feb883`. This is the same driver artifact
+as the follow-up benchmark, with no adapter or contract changes.
+
 The independent Tenon review found two Unicode corruption bugs after the original 15-case trial
 and 93 driver tests had passed. The UTF-8 decoders and array whitespace grammar are corrected in D21.
 New shared cases preserve leading U+FEFF in values/column names and 20 non-ASCII characters at array

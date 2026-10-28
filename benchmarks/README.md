@@ -111,9 +111,10 @@ Raw profiles and worker metrics remain in ignored `.benchmark-dist/profiles-befo
 Before changes, row mapping accounts for about 33% of sampled active time inclusively, and expiry
 error construction alone accounts for about 14% in the pool profile. Numeric readers also allocate
 short-lived Buffer views; ordinary packet handling creates a promise/microtask for each row.
-The follow-up combines decoding and entry construction in one map for `Object.fromEntries`, bounded direct numeric reads,
-synchronous ordinary packets, lazy scope expiry signals/errors, unconstrained lifetimes without
-abort composition, and an immediate return from empty cleanup drains. Authentication, recovery,
+Row mapping combines decoding and entry construction in one map for `Object.fromEntries`.
+Numeric readers use bounded direct reads, and ordinary packets process synchronously. Scope expiry
+signals/errors are lazy, unconstrained lifetimes avoid abort composition, and empty cleanup drains
+return immediately. Authentication, recovery,
 stream/COPY backpressure, strict UTF8 and copied payload ownership retain their existing rules.
 No generated row functions, decoder cache, alternative pool scheduler or runtime dependency is added.
 
@@ -139,7 +140,60 @@ JS
 Replace `pool` with `large` for result decoding. Load the generated `.cpuprofile` in a V8-compatible
 CPU profile viewer. Keep uninstrumented benchmark runs separate and compare the same configuration.
 
-## Recorded results
+## Profiled follow-up results
+
+Runtime changes were committed before measurement: `37b38df`, followed by the simpler native row
+mapping in `990ac77`. The working tree was clean for the full matrix, the alternating comparison
+and the final packed Tenon trial. No benchmark settings or runtime dependencies changed.
+
+The full matrix passed **126 measurements** with the original 1,000-iteration/three-repetition
+configuration. On the 0 ms profile, large-result throughput moved from 506 to 621 queries/second
+and pool throughput from 4,366 to 6,481. Median client CPU fell from 2.27 to 1.78 ms per large query
+and from 0.322 to 0.230 ms per pool operation. The unchanged comparison drivers also moved by
+roughly 10% in these workloads, so a longer alternating comparison checked the result under closer
+conditions. At 10 ms added RTT, sequential/pool throughput remains largely network-bound.
+
+The alternating comparison reuses the exact initial and new packed pgclear artifacts with the
+same worker and 0 ms relay. Each workload has **five repetitions per artifact**, with phase order
+reversed on odd repetitions. It configures 10,000 iterations and 100 warmup operations: 500 queries
+of 1,000 rows, or 10,000 pool queries with four connections and 16 callers. These longer runs are
+separate from the shorter matrix; their absolute rates should not be compared across configurations.
+
+Medians across those five repetitions:
+
+| Metric                   | Large result, before → after | Pool contention, before → after |
+| ------------------------ | ---------------------------: | ------------------------------: |
+| Queries/second           |         569 → 693 (**+22%**) |       6,001 → 11,582 (**+93%**) |
+| Client CPU per operation |  1.726 → 1.341 ms (**−22%**) |     0.205 → 0.103 ms (**−50%**) |
+| p50 latency              |               1.68 → 1.36 ms |                  2.39 → 1.20 ms |
+| p95 latency              |               2.28 → 1.90 ms |                  4.26 → 2.26 ms |
+| p99 latency              |               2.83 → 2.39 ms |                  6.69 → 3.35 ms |
+| Sampled peak worker RSS  |              84.3 → 83.2 MiB |                196.2 → 85.6 MiB |
+
+Every paired repetition has higher throughput in both workloads. RSS includes the runtime baseline and GC behavior;
+the reduction indicates lower pressure in these runs, not a proof of a memory leak or a general
+allocation profile. These remain local, exploratory measurements rather than production guarantees.
+
+Evidence:
+
+- [Full matrix metrics](results/profiled-2026-10-28.csv) and
+  [configuration/provenance](results/profiled-2026-10-28.json).
+- [Alternating old/new metrics](results/paired-2026-10-28.csv) and
+  [configuration/artifact hashes](results/paired-2026-10-28.json).
+- [CPU profile summaries and hashes](results/profiles-2026-10-28.json).
+
+Complete raw samples/reports remain in `.benchmark-dist/run-5BmYiu/` and
+`.benchmark-dist/paired-tK1TlZ/`. Diagnostic launch scripts are retained with the ignored profile and
+paired artifacts. The original artifact has the M6 runtime source; its dirty flag reflects the
+then-uncommitted benchmark/consumer fixture and documentation. The new runtime is `990ac77`.
+
+Validation at that checkpoint passes **219 driver/harness tests**, **three native compatibility
+tests**, the original Tenon pg baseline's **180 tests**, and all **20 candidate consumer cases**.
+The final Tenon report is `.trial-dist/tenon-m4-kVzHLC/report.json`; its packed driver SHA256 matches
+the full benchmark's artifact. All follow-up runs here use PostgreSQL 16.15. PostgreSQL 18 CI
+evidence remains the earlier M6 checkpoint; full Tenon adoption and M7b remain separate work.
+
+## Initial measurements
 
 The 2026-10-28 run passed all **126 measurements**: seven workloads, three drivers, three
 repetitions, two added-RTT profiles. Node 24.4.1 and PostgreSQL 16.15 ran on Linux/WSL2 with an AMD
@@ -190,6 +244,6 @@ pipeline and 22.82 ms for Postgres.js's pipeline. This demonstrates an opportuni
 available ahead of time; it does not predict pgclear's eventual pipeline throughput. Existing code
 that awaits each response before submitting another query would still be sequential.
 
-The next investigation should profile local large-result and pool overhead and assess an actual
-consumer's available concurrency/RTT. M7b remains optional; full Tenon adoption and the M8 release
+These initial measurements motivated the profiled follow-up above. M7b remains optional and should
+follow an assessment of actual consumer concurrency/RTT. Full Tenon adoption and the M8 release
 checks remain separate correctness work. No benchmark result justifies weakening ownership rules.

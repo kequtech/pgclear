@@ -1,0 +1,30 @@
+{
+  "status": "passed",
+  "createdAt": "2026-10-28T17:58:28.337Z",
+  "config": {
+    "driver": "pgclear",
+    "iterations": 10000,
+    "warmup": 100,
+    "poolSize": 4,
+    "concurrency": 16,
+    "batchSize": 32,
+    "addedRttMs": 0
+  },
+  "samples": 5,
+  "artifacts": {
+    "before": {
+      "revision": "0d31732fd73f424f36c0af8449853edb1bd49e66",
+      "workingTreeDirty": true,
+      "artifactSha256": "3a5b87ba1c98d8805832453640c1ad5b3e729fb829bf3f5af161648cfac04d08"
+    },
+    "after": {
+      "revision": "990ac774750379a897ef2d93ab1855402407e064",
+      "workingTreeDirty": false,
+      "artifactSha256": "54d113be7ec2d4e70ca038a105dd2ee384716cb6afd8ea4fe385bff286feb883"
+    }
+  },
+  "environmentEvidence": "profiled-2026-10-28.json",
+  "measurements": 20,
+  "sourceReportSha256": "bb6d0f6257cbc28b578b0ca6bd70da1cefcc9f5b6b6fd9c2c8a6a7b6365418cd",
+  "results": "paired-2026-10-28.csv"
+}
