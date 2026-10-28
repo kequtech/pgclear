@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .test-dist/
+.trial-dist/
 coverage/
 .env
 .env.*

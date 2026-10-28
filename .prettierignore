@@ -1,3 +1,4 @@
 package-lock.json
 # Preserve the supplied report body as authored.
 docs/references/tenon-driver-migration-report.md
+.trial-dist/

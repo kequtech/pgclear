@@ -49,7 +49,8 @@ one-hour deadlines, and their external abort listeners are removed. PostgreSQL c
 rollback. Existing M1/M2 regression coverage remains in the same suite.
 
 M2 was pushed as `e37c28b`; its CI result was deliberately not awaited before M3 at the maintainer's
-request. M3 is local and unpushed. No new PostgreSQL 16/18 CI success is claimed.
+request. M3 was pushed as `a91a83b`; its CI was likewise not polled or awaited. No new
+PostgreSQL 16/18 CI success is claimed.
 
 On 2026-10-28, M2 passed `npm run check`: 63 tests (38 database-independent, 25 integration) against
 local PostgreSQL 16.15 and Node 24.4.1. M2 coverage includes exact scalar/numeric-array/bigint values,
@@ -83,6 +84,25 @@ discovery are not implemented. Active interruption uses protocol cancellation an
 force-close disposes both transports. Managed scopes classify lost COMMIT responses separately.
 Tenon adaptation, prepared statements, streaming, COPY, listeners and a real proxy/TLS deployment
 matrix remain unverified later work.
+
+## Tenon adapter trial
+
+`npm run trial:tenon` runs the optional, pinned consumer trial from a sibling Tenon checkout. Pass
+`-- --source /path/to/tenon-orm` for another checkout containing the pinned commit. It uses the same
+ignored `.env` and requires the existing `pgclear_test` database explicitly. It never loads Tenon's
+`.env`, fetches a moving branch, edits the source checkout or publishes a package.
+
+The runner packs pgclear, archives Tenon 0.3.1 twice, runs the full pg baseline, applies the reviewed
+adapter patch only to the candidate snapshot, builds strict declarations, and installs both tarballs
+into separate external consumers. The shared contract fixture checks runtime values, ORM policies,
+inspection/generation, migration scripts, session loss and ownership. Generated types compile under
+TypeScript 6 and 7. Dependencies are installed with lifecycle scripts disabled; build/test commands
+are then run explicitly.
+
+Output stays under ignored `.trial-dist/tenon-m4-*`: artifact SHA256 hashes, per-step logs and
+`report.json`. `.trial-dist/latest-tenon-trial.json` points to the most recent attempt. This optional
+trial is separate from `npm run check`, which needs neither another repository nor its dependencies.
+See [trial evidence](tenon-trial.md) for exact scope and limits. No registry version is required.
 
 ## Test database
 

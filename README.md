@@ -4,10 +4,11 @@ A standalone TypeScript PostgreSQL driver built around explicit session ownershi
 predictable failure handling, and first-class protocol operations. Tenon is the first intended
 consumer; pgclear has no runtime dependency on Tenon.
 
-**Status: M3 implemented locally; not ready for production or publication.** Native TypeScript
+**Status: M3 implemented; not ready for production or publication.** Native TypeScript
 declarations cover connections, pools, leases, transaction/savepoint scopes, immutable codecs,
 explicit typed/JSON parameters, description and scripts. Preparation, streaming, COPY and
-notifications remain planned.
+notifications remain planned. An isolated Tenon 0.3.1 adapter trial uses the native driver contracts;
+its evidence and remaining adoption work are recorded in [docs/tenon-trial.md](docs/tenon-trial.md).
 `private: true` prevents accidental publication until the implementation and release gates are ready.
 
 ```ts

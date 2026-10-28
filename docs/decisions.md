@@ -134,15 +134,14 @@ an explicit array-OID codec still wins. The report's numeric-array precision reg
 M2 gate: `9007199254740993.25` must remain an exact string alone and inside numeric arrays. Retain
 native bigint for int8 in both shapes. Typed input encoders remain explicitly chosen by parameters.
 
-## D16 — Make compatibility adaptations deliberate
+## D16 — Keep pgclear's standalone contracts primary
 
 The report's undefined-to-NULL and string-bigint recommendations partly target a pg-compatible
-replacement. pgclear has a standalone API: retain the M1 rejection of undefined binds and ambiguous
-plain arrays/objects, and retain exact native bigint values/counts. These are explicit driver policy,
-not an accidental requirement inherited from Postgres.js. Tenon's adapter must preserve its current
-undefined-to-NULL behavior and published value contracts where required. Do not add a global
-compatibility mode or require Tenon to expose new restrictions merely to match the driver. Revisit
-these defaults only with a concrete consumer need and an explicit contract change.
+replacement. pgclear retains strict binds, native bigint values/counts and explicit array/JSON
+parameters. On 2026-10-28 the maintainer explicitly allowed Tenon's promised contracts to change
+and prioritized comfort in the upstream driver. This supersedes the initial requirement for the
+adapter to preserve Tenon's undefined-to-NULL behavior. The M4 candidate adopts pgclear's contracts
+without input normalization, a compatibility registry or another driver configuration form.
 
 ## D17 — Use native nested arrays for multidimensional parameters
 
@@ -169,6 +168,19 @@ not force replacement when the session remains safely idle. Active cancellation 
 connection and owns its auxiliary transport through disposal. Pool shutdown attempts every resource,
 then aggregates cleanup failures. Keep these policies in the owning pool/session modules rather than
 adding a compatibility mode or an application-defined cleanup plugin.
+
+## D20 — Trial consumers through packed artifacts before publication
+
+Use pinned Tenon 0.3.1 source and local npm tarballs for M4. Exercise actual public exports and
+compiled declarations in external consumers; publication is not needed to test the package boundary.
+Keep the production Tenon checkout and published release unchanged. A separately reviewable adapter
+patch adopts pgclear's native values, explicit parameters, session ownership and close contract.
+
+An initial adapter attempted to normalize ordinary values and preserve Tenon's shutdown behavior.
+The maintainer's clarification removed that requirement. Passing opaque parameters through unchanged
+also removed the proposed need for an isParameter guard. No upstream API is added for this trial.
+Adapt shared ORM policy to bigint counts; retain SQL composition, catalog interpretation and guarded
+write checks in Tenon. Native pg listener/mock tests are not forced through a compatibility shim.
 
 ## Deferred decisions
 

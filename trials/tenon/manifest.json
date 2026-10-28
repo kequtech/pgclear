@@ -1,0 +1,6 @@
+{
+  "repository": "git@github.com:kequtech/tenon-orm.git",
+  "commit": "4d6cb977a4c7fa71ee836ca056bdf95986d4ab3a",
+  "database": "pgclear_test",
+  "version": "0.3.1"
+}

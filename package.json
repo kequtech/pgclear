@@ -26,7 +26,8 @@
     "test:unit": "npm run build && npm run test:compile && node --test .test-dist/test/*.test.js",
     "test:integration": "npm run test:compile && node --env-file-if-exists=.env --test .test-dist/test/integration/*.test.js",
     "test": "npm run test:unit && npm run test:integration",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "trial:tenon": "node --env-file-if-exists=.env trials/tenon/run.mjs"
   },
   "prettier": {
     "singleQuote": true,

@@ -106,7 +106,7 @@ Gate:
 
 ## M3 — Pool, leases, transactions and bounded interruption
 
-Implemented locally on 2026-10-28. Verification covers 93 tests (49 database-independent,
+Implemented on 2026-10-28 and pushed as `a91a83b`. Verification covers 93 tests (49 database-independent,
 44 integration) against PostgreSQL 16. The existing CI matrix automatically includes the added
 pool/session/transaction tests when pushed; neither PostgreSQL 16 nor 18 CI was awaited for this
 work. See [development](development.md) for verification details. M4's Tenon adapter is next;
@@ -144,6 +144,16 @@ Gate:
 
 ## M4 — Tenon trial and differential contract checks
 
+A reproducible local trial is implemented, pinned to Tenon 0.3.1 (`4d6cb97`). M3 was committed and
+pushed as `a91a83b`; CI was not polled or awaited. See [trial evidence](tenon-trial.md) and D16/D20.
+The maintainer explicitly permits Tenon's contracts to change, so this candidate adopts pgclear's
+native defaults and strict binds. It adds no runtime compatibility layer or new upstream API.
+
+This is a trial, not completed adoption. The original pg baseline's 180 tests remain distinct from
+the candidate's adapted public-contract tests. A pgclear run of all 180 legacy tests is not claimed;
+pg-specific mocks/configuration and listener cases must be ported or assigned to their relevant
+feature milestones. The PostgreSQL 16/18 adoption gate below remains open.
+
 Follow [Tenon integration](tenon-integration.md). Implement an adapter fixture first, using a packed
 pgclear build; re-read Tenon's current migration before changing that repository. Exercise explicit
 JSON/array inputs, generated value mappings, result/count metadata, description, advisory locks,
@@ -159,6 +169,9 @@ If it simply recreates helper complexity at the consumer boundary, fix the missi
 before extending breadth.
 
 ## M5 — Explicit preparation, portals and COPY
+
+On hold at the maintainer's request (2026-10-28). Await feedback from the Tenon agent on the M4
+trial before starting this milestone.
 
 1. Implement session-owned prepared statement handles, close ordering and lease cleanup, without
    automatic named caches/retries. Distinguish submitted from confirmed creation; do not close a
@@ -225,6 +238,6 @@ For one engineer, allow approximately 1–3 weeks for M1 experimentation, 6–12
 M1–M4, and 3–6 months cumulative for a credible M1–M6 release. These are uncertain effort envelopes,
 not deadlines or automation schedules. Authentication, cancellation races, codec edge cases and the
 Tenon value migration are the largest risks. M7 is deliberately separable from release correctness.
-M3 is implemented locally; the next implementation milestone is M4, the Tenon adapter trial. Do not
+M3 was pushed as `a91a83b`. M4 has a local adapter trial; its full adoption gate remains open. Do not
 start with benchmarks or runtime compatibility shims while the request/session state machine is
 still being established.

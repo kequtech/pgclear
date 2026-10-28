@@ -2,8 +2,8 @@
 
 Tenon remains a separate package and repository. Its return to pg is complete, and its maintainer
 supplied the [migration lessons report](references/tenon-driver-migration-report.md). The integration
-milestone re-reads its then-current public contracts, tests, and driver boundary. Changes here do not
-authorize edits to Tenon. pgclear depends on neither Tenon nor pg.
+milestone re-reads its then-current public contracts, tests, and driver boundary. The authorized M4 trial uses an isolated, pinned Tenon snapshot and leaves its active checkout
+unchanged. pgclear depends on neither Tenon nor pg.
 
 ## Lessons from the completed migration
 
@@ -25,8 +25,9 @@ acceptance cases and identifies a gap in the planned JSON input API; M1 does not
 Some recommendations target pg compatibility, which pgclear does not promise. Keep native bigint for
 int8 and bigint row counts; both preserve exact values. Keep rejecting undefined binds and ambiguous
 bare arrays/objects rather than carrying over a previous driver's behavior without an explicit policy.
-These choices require a small, deliberate Tenon adapter. Preserve Tenon's existing undefined-to-NULL
-behavior there, and choose JSON versus PostgreSQL-array encoding explicitly when the value is ambiguous.
+At M4 the maintainer explicitly prioritized the upstream driver over compatibility with Tenon's
+existing promises. The candidate therefore adopts strict binds and explicit JSON/array parameters;
+it does not normalize undefined to SQL NULL. See decisions D16/D20 and [trial evidence](tenon-trial.md).
 
 Nested JS arrays retain values but discard PostgreSQL lower bounds. Continue documenting that limit
 and offer text/custom codecs for callers needing bounds; do not introduce a public array wrapper
@@ -58,21 +59,18 @@ pg defaults. int8 becomes bigint, numeric stays string, date/timestamps become s
 Uint8Array, and rowCount becomes bigint. Generic JSON values remain unknown. Result metadata uses
 `dataTypeOid`, `tableOid`, and `columnAttribute`, rather than pg's field-property names.
 
-Choose one deliberate migration strategy at M4: update Tenon's representations to the defaults or
-install a Tenon-owned immutable compatibility codec registry. Prefer the former for new contracts;
-preserving already-published Tenon behavior may justify the latter. Do not silently change consumers'
-values while preserving misleading generated TypeScript. No pg compatibility preset is added to the
-driver itself without a demonstrated standalone need.
+The M4 trial selects the driver's native representations. It changes Tenon's count/event types to
+bigint, temporal reads/writes to text and numeric-array reads to exact strings. Generated definitions
+are compiled under TypeScript 6 and 7. Generation/inspection in this trial describe the default
+registry; they cannot infer arbitrary TypeScript output types from a caller's custom JS decoder.
+Borrowed custom registries remain untouched, and their type contracts remain the caller's responsibility.
 
-Tenon's SQL compiler currently accepts unknown values. Its adapter must convert JSON and PostgreSQL
-arrays explicitly using its schema/query knowledge, or require a typed wrapper when SQL context
-alone cannot select a JavaScript representation. It must not turn arbitrary arrays into JSON or
-guess custom OIDs. Cast-based SQL remains useful for server inference, but never chooses a JS encoder
-for an ambiguous object automatically.
-
-The completed pg transition also accepts undefined binds as SQL NULL. The adapter must normalize
-that deliberate Tenon contract rather than letting pgclear's strict bind policy become a new ORM
-restriction. Do not add a global compatibility flag or extra connection configuration form.
+Tenon's compiler accepts unknown bind values, so the candidate passes them unchanged to pgclear's
+runtime validation. Callers use `json(value)` or `param(value, codec)` for JSON and arrays. Bare
+objects/arrays, Date and undefined reject. SQL NULL remains plain null. Existing insert/assignment
+omission rules are SQL composition policy and remain in Tenon; omission does not bind undefined.
+Catalog operations choose explicit encoders where needed, without SQL parsing or metadata preflight.
+No global compatibility mode or pg-style native client facade is introduced.
 
 Affected-row policies must compare bigint counts directly or perform an explicit safe conversion
 at Tenon's boundary. A metadata or policy error after a write does not reverse that write; execute
@@ -85,7 +83,7 @@ Port behavioral cases, not the current helper implementation. Start with:
 - Array NULL versus quoted NULL, escapes, nesting, custom codecs and consistent scalar/array types,
   including exact `9007199254740993.25` numeric scalars/arrays and a scalar-codec override affecting
   its built-in array type. An explicit array codec still takes precedence.
-- SQL NULL versus JSON null, JSON primitive/array inputs, raw JSON text, and Tenon's undefined binds.
+- SQL NULL versus JSON null, JSON primitive/array inputs, raw JSON text, and explicit rejection of undefined binds in the candidate.
 - Description returns parameter OIDs and field origins without evaluating a side-effecting function.
 - Description completion releases timers/listeners on success, server error, timeout and abort;
   verify child-process exit as well as promise settlement.
@@ -112,5 +110,7 @@ representations agree. Run Tenon's full checks and packed-consumer tests against
 No benchmark improvement compensates for regressed session/transaction semantics. Driver-specific
 workarounds are removed only when their behavioral regression passes through the new driver.
 
-The M4 trial is not authorization to publish either package or edit Tenon's ongoing work as part
-of this report assessment. It defines the later consumer integration work.
+The local adapter trial does not publish either package or modify the active Tenon checkout.
+[Trial evidence](tenon-trial.md) distinguishes the 180-test pg baseline from the adapted public
+contract fixture. Full adoption remains open: pg-native notification tests belong to the later
+listener milestone, and every applicable consumer regression still needs porting before replacement.

@@ -1,0 +1,954 @@
+diff --git a/src/affected-rows.ts b/src/affected-rows.ts
+index 8fa14c3..18881e2 100644
+--- a/src/affected-rows.ts
++++ b/src/affected-rows.ts
+@@ -29,12 +29,11 @@ export function checkAffectedRows(
+   if (
+     !['INSERT', 'UPDATE', 'DELETE', 'MERGE'].includes(result.command) ||
+     result.rowCount === null ||
+-    !Number.isSafeInteger(result.rowCount) ||
+-    result.rowCount < 0
++    result.rowCount < 0n
+   ) {
+     throw new AffectedRowsError(constraint, result.rowCount, result.command, false);
+   }
+-  const expected = constraint.exact ?? constraint.max;
++  const expected = BigInt(constraint.exact ?? constraint.max);
+   const matches =
+     constraint.exact === undefined ? result.rowCount <= expected : result.rowCount === expected;
+   if (!matches) {
+diff --git a/src/client.ts b/src/client.ts
+index bb797d8..00d97ff 100644
+--- a/src/client.ts
++++ b/src/client.ts
+@@ -18,7 +18,7 @@ export function createClient(
+     validateTransactionSql(statement.text, options.label ?? 'Query');
+     const started = performance.now();
+     let command: string | undefined;
+-    let rowCount: number | null | undefined;
++    let rowCount: bigint | null | undefined;
+     let failure: unknown;
+     let succeeded = false;
+     try {
+diff --git a/src/connection.ts b/src/connection.ts
+index 0564330..76fe6b8 100644
+--- a/src/connection.ts
++++ b/src/connection.ts
+@@ -1,17 +1,17 @@
+ import {
+-  Pool,
+-  type Client,
+-  type PoolClient,
+-  type PoolConfig,
+-  type QueryConfig,
+-  type QueryResult as PgResult,
+-} from 'pg';
++  createPool,
++  type Pool,
++  type PoolOptions,
++  type QueryResult as DriverResult,
++  type Executor,
++  type InputValue,
++} from '@kequtech/pgclear';
+ import type { UnknownRow } from './query.js';
+ import { plainObject } from './validation.js';
+ 
+-export type ConnectionOptions = PoolConfig;
++export type ConnectionOptions = PoolOptions;
+ export type Connection = string | ConnectionOptions | Pool;
+-export type QueryResult<Row extends object = UnknownRow> = PgResult<Row>;
++export type QueryResult<Row extends object = UnknownRow> = DriverResult<Row>;
+ export type QueryExecutor = <T>(
+   text: string,
+   input: readonly unknown[],
+@@ -19,139 +19,31 @@ export type QueryExecutor = <T>(
+   guarded: boolean,
+ ) => Promise<T>;
+ 
+-/** A supplied pool may come from another installed copy of pg. */
+ function isPool(connection: Connection): connection is Pool {
+   return (
+     connection !== null &&
+     typeof connection === 'object' &&
+-    'connect' in connection &&
+-    typeof connection.connect === 'function' &&
+-    'query' in connection &&
+-    typeof connection.query === 'function' &&
+-    'totalCount' in connection &&
+-    typeof connection.totalCount === 'number' &&
+-    'end' in connection &&
+-    typeof connection.end === 'function'
++    'acquire' in connection &&
++    typeof connection.acquire === 'function' &&
++    'close' in connection &&
++    typeof connection.close === 'function' &&
++    'stats' in connection
+   );
+ }
+-
+-/** Own constructed pools; supplied pools retain their application's ownership and error policy. */
++/** Constructed pools are owned; supplied public pgclear pools remain application-owned. */
+ export function createConnection(connection: Connection): {
+   pool: Pool;
+-  run<T>(work: () => Promise<T>): Promise<T>;
+   close(timeoutMs: number): Promise<void>;
+ } {
+-  if (isPool(connection)) return { pool: connection, run: (work) => work(), close: async () => {} };
+-  let config: PoolConfig;
+-  if (typeof connection === 'string') {
+-    if (!connection.trim()) throw new Error('Connection string must not be empty.');
+-    config = { connectionString: connection };
+-  } else {
+-    plainObject(connection, 'Connection configuration');
+-    if ('url' in connection) {
+-      throw new Error(
+-        'Use pg connectionString in the connection configuration instead of url/options.',
+-      );
+-    }
+-    config = connection;
+-  }
+-  const pool = new Pool(config);
+-  const clients = new Set<Client>();
+-  const pending = new Map<Promise<unknown>, (error: Error) => void>();
+-  let terminating = false;
+-  const terminate = (client: Client) => {
+-    void client.end().catch(() => {});
+-  };
+-  // pool.end handles idle clients; the deadline also ends native checkouts.
+-  pool.on('acquire', (client: Client) => {
+-    clients.add(client);
+-    if (terminating) terminate(client);
+-  });
+-  pool.on('release', (_error: Error | undefined, client: Client) => clients.delete(client));
+-  pool.on('error', (error: Error) => process.emitWarning(error));
+-  return {
+-    pool,
+-    run<T>(work: () => Promise<T>): Promise<T> {
+-      let expire!: (error: Error) => void;
+-      const task = new Promise<T>((resolve, reject) => {
+-        expire = reject;
+-        void Promise.resolve().then(work).then(resolve, reject);
+-      });
+-      pending.set(task, expire);
+-      const forget = () => {
+-        pending.delete(task);
+-      };
+-      void task.then(forget, forget);
+-      return task;
+-    },
+-    async close(timeoutMs) {
+-      let timer: ReturnType<typeof setTimeout> | undefined;
+-      let ending: Promise<void> | undefined;
+-      const end = () => (ending ??= pool.end());
+-      try {
+-        await Promise.race([
+-          (async () => {
+-            await Promise.allSettled([...pending.keys()]);
+-            await end();
+-          })(),
+-          new Promise<void>((resolve) => {
+-            timer = setTimeout(resolve, timeoutMs);
+-          }).then(async () => {
+-            // Native callbacks must reject close on failure, not escape a timer callback.
+-            terminating = true;
+-            const error = new Error('The database shutdown deadline expired.');
+-            for (const reject of pending.values()) reject(error);
+-            try {
+-              void end().catch(() => {});
+-            } finally {
+-              // Attempt every checkout even when one native end call throws.
+-              await Promise.all([...clients].map(async (client) => terminate(client)));
+-            }
+-          }),
+-        ]);
+-      } finally {
+-        clearTimeout(timer);
+-      }
+-    },
+-  };
+-}
+-
+-/** A checked-out pg client remains tied to its session and is discarded after a failure. */
+-export function watchClient(client: PoolClient) {
+-  let failure: Error | undefined;
+-  const onError = (error: Error) => {
+-    failure ??= error;
+-  };
+-  const onEnd = () => {
+-    failure ??= new Error('The PostgreSQL connection closed.');
+-  };
+-  client.on('error', onError);
+-  client.on('end', onEnd);
+-  return {
+-    check() {
+-      if (failure) throw failure;
+-    },
+-    release(error?: Error) {
+-      try {
+-        client.release(error ?? failure);
+-      } finally {
+-        client.removeListener('error', onError);
+-        client.removeListener('end', onEnd);
+-      }
+-    },
+-  };
++  if (isPool(connection)) return { pool: connection, close: async () => {} };
++  if (typeof connection !== 'string') plainObject(connection, 'Connection configuration');
++  const pool = createPool(connection);
++  return { pool, close: (timeoutMs) => pool.close({ timeoutMs }) };
+ }
+-
+-/** Unnamed extended protocol enforces a single statement, even without parameters. */
+ export function executeSql(
+-  connection: Pool | PoolClient,
++  connection: Executor,
+   text: string,
+   input: readonly unknown[] = [],
+-) {
+-  const config: QueryConfig & { queryMode: 'extended' } = {
+-    text,
+-    values: [...input],
+-    queryMode: 'extended',
+-  };
+-  return connection.query<UnknownRow>(config);
++): Promise<QueryResult> {
++  return connection.query({ text, values: input as readonly InputValue[] });
+ }
+diff --git a/src/database.ts b/src/database.ts
+index df1457f..05ced99 100644
+--- a/src/database.ts
++++ b/src/database.ts
+@@ -37,7 +37,7 @@ export function createTenon(options: TenonOptions): Database {
+   if (options.onQuery !== undefined && typeof options.onQuery !== 'function') {
+     throw new Error('onQuery must be a function.');
+   }
+-  const { pool, run, close } = createConnection(options.connection);
++  const { pool, close } = createConnection(options.connection);
+   let closing: Promise<void> | undefined;
+ 
+   function checkOpen() {
+@@ -48,12 +48,8 @@ export function createTenon(options: TenonOptions): Database {
+ 
+   const query: QueryExecutor = (text, input, readResult, guarded) => {
+     checkOpen();
+-    return run(async () => {
+-      if (guarded) {
+-        return withTransaction(pool, (query) => query(text, input, readResult, false));
+-      }
+-      return readResult(await executeSql(pool, text, input));
+-    });
++    if (guarded) return withTransaction(pool, (query) => query(text, input, readResult, false));
++    return executeSql(pool, text, input).then(readResult);
+   };
+ 
+   return {
+@@ -61,9 +57,7 @@ export function createTenon(options: TenonOptions): Database {
+     native: pool,
+     async transaction(callback) {
+       checkOpen();
+-      return run(() =>
+-        withTransaction(pool, (query) => callback(createClient(query, options.onQuery))),
+-      );
++      return withTransaction(pool, (query) => callback(createClient(query, options.onQuery)));
+     },
+     close(options) {
+       if (closing) return closing;
+diff --git a/src/driver/session.ts b/src/driver/session.ts
+new file mode 100644
+index 0000000..2037000
+--- /dev/null
++++ b/src/driver/session.ts
+@@ -0,0 +1,16 @@
++import type { Session, InputValue } from '@kequtech/pgclear';
++import type { UnknownRow } from '../query.js';
++
++/** Keep the catalog/tool SQL calling convention at Tenon's boundary. */
++export class SessionClient {
++  constructor(readonly session: Session) {}
++  query<Row extends object = UnknownRow>(text: string, values: readonly unknown[] = []) {
++    return this.session.query<Row>({ text, values: values as readonly InputValue[] });
++  }
++  script(text: string) {
++    return this.session.script(text);
++  }
++  describe(text: string) {
++    return this.session.describe(text);
++  }
++}
+diff --git a/src/driver/types.ts b/src/driver/types.ts
+index 2d02c53..cc53147 100644
+--- a/src/driver/types.ts
++++ b/src/driver/types.ts
+@@ -1,27 +1,27 @@
+-/** pg default representations, shared by generation and query inspection. */
++/** pgclear default representations, shared by generation and query inspection. */
+ export type ValueTypes = Readonly<{ read: string; write: string }>;
+ type TypeMapping = string | ValueTypes;
+ 
+ // Arrays use verified built-in OIDs: their parsers can differ from scalar parsers.
+ export const arrayTypes: Readonly<Record<string, TypeMapping>> = {
+   '1000': 'boolean',
+-  '1001': 'import("node:buffer").Buffer',
++  '1001': 'Uint8Array',
+   '1005': 'number',
+   '1007': 'number',
+   '1021': 'number',
+   '1022': 'number',
+   '1028': 'number',
+-  '1016': { read: 'string', write: 'string | bigint' },
+-  '1231': { read: 'number', write: 'string | number' },
++  '1016': { read: 'bigint', write: 'string | bigint' },
++  '1231': { read: 'string', write: 'string | number' },
+   '1009': 'string',
+   '1014': 'string',
+   '1015': 'string',
+   '1183': 'string',
+   '1270': 'string',
+   '2951': 'string',
+-  '1182': { read: 'globalThis.Date | number', write: 'globalThis.Date | string' },
+-  '1115': { read: 'globalThis.Date | number', write: 'globalThis.Date | string' },
+-  '1185': { read: 'globalThis.Date | number', write: 'globalThis.Date | string' },
++  '1182': { read: 'string', write: 'string' },
++  '1115': { read: 'string', write: 'string' },
++  '1185': { read: 'string', write: 'string' },
+   '199': { read: 'unknown', write: 'string' },
+   '3807': { read: 'unknown', write: 'string' },
+ };
+@@ -40,14 +40,14 @@ export const scalarTypes: Readonly<Record<string, TypeMapping>> = {
+   time: 'string',
+   timetz: 'string',
+   uuid: 'string',
+-  date: { read: 'globalThis.Date | number', write: 'globalThis.Date | string' },
+-  timestamp: { read: 'globalThis.Date | number', write: 'globalThis.Date | string' },
+-  timestamptz: { read: 'globalThis.Date | number', write: 'globalThis.Date | string' },
+-  int8: { read: 'string', write: 'string | bigint' },
++  date: { read: 'string', write: 'string' },
++  timestamp: { read: 'string', write: 'string' },
++  timestamptz: { read: 'string', write: 'string' },
++  int8: { read: 'bigint', write: 'string | bigint' },
+   numeric: { read: 'string', write: 'string | number' },
+-  json: { read: 'unknown', write: 'string' },
+-  jsonb: { read: 'unknown', write: 'string' },
+-  bytea: 'import("node:buffer").Buffer',
++  json: { read: 'unknown', write: 'string | import("@kequtech/pgclear").Parameter' },
++  jsonb: { read: 'unknown', write: 'string | import("@kequtech/pgclear").Parameter' },
++  bytea: 'Uint8Array',
+ };
+ 
+ export function valueTypes(mapping: TypeMapping): ValueTypes {
+diff --git a/src/errors.ts b/src/errors.ts
+index 03d242b..4431646 100644
+--- a/src/errors.ts
++++ b/src/errors.ts
+@@ -20,12 +20,12 @@ export class AffectedRowsError extends Error {
+   override name = 'AffectedRowsError';
+   readonly code: 'TENON_AFFECTED_ROWS_MISMATCH' | 'TENON_AFFECTED_ROWS_UNSUPPORTED';
+   readonly expected: AffectedRowsConstraint;
+-  readonly actual: number | null;
++  readonly actual: bigint | null;
+   readonly command: string;
+ 
+   constructor(
+     expected: AffectedRowsConstraint,
+-    actual: number | null,
++    actual: bigint | null,
+     command: string,
+     supported: boolean,
+   ) {
+diff --git a/src/generation/catalog.ts b/src/generation/catalog.ts
+index df29671..da3604e 100644
+--- a/src/generation/catalog.ts
++++ b/src/generation/catalog.ts
+@@ -1,4 +1,4 @@
+-import type { PoolClient } from 'pg';
++import type { SessionClient as PoolClient } from '../driver/session.js';
+ import { migrationTable } from '../migrations/history.js';
+ 
+ export interface ColumnRow {
+@@ -61,7 +61,7 @@ export async function readTables(client: PoolClient, namespace: string): Promise
+         WHERE a.attrelid = $1::oid AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`,
+       [table.oid],
+     );
+-    definitions.push({ ...table, columns: columns.rows });
++    definitions.push({ ...table, columns: [...columns.rows] });
+   }
+   return definitions;
+ }
+diff --git a/src/generation/schema-summary.ts b/src/generation/schema-summary.ts
+index 62a2205..f5f261b 100644
+--- a/src/generation/schema-summary.ts
++++ b/src/generation/schema-summary.ts
+@@ -1,4 +1,5 @@
+-import type { PoolClient } from 'pg';
++import type { SessionClient as PoolClient } from '../driver/session.js';
++import { builtin, param } from '@kequtech/pgclear';
+ import { quote } from '../sql.js';
+ 
+ interface NamedDefinition {
+@@ -42,7 +43,7 @@ export async function domainSummaries(
+       JOIN pg_catalog.pg_type base ON base.oid = t.typbasetype
+     WHERE t.typtype = 'd'
+     ORDER BY pg_catalog.format_type(t.oid, NULL) COLLATE "C"`,
+-    [typeOids],
++    [param(typeOids, builtin.textArray)],
+   );
+   const summaries: string[] = [];
+   for (const domain of domains.rows) {
+diff --git a/src/generation/table-types.ts b/src/generation/table-types.ts
+index e436514..504b2f8 100644
+--- a/src/generation/table-types.ts
++++ b/src/generation/table-types.ts
+@@ -33,7 +33,10 @@ function columnTypes(
+   let types: ValueTypes;
+   if (isSupportedArray(value)) {
+     const element = valueTypes(arrayTypes[value.oid]!);
+-    types = { read: `PgArray<${element.read}>`, write: `PgArray<${element.write}>` };
++    types = {
++      read: `PgArray<${element.read}>`,
++      write: 'import("@kequtech/pgclear").Parameter | string',
++    };
+   } else if (value.typeKind === 'e') {
+     const choice = value.choices?.map((choice) => JSON.stringify(choice)).join(' | ') || 'never';
+     types = { read: choice, write: choice };
+@@ -50,9 +53,9 @@ function columnTypes(
+           ? ''
+           : ` with underlying type ${JSON.stringify(value.typeSchema)}.${JSON.stringify(value.type)} (OID ${value.oid})`;
+       onWarning(
+-        `Column ${column} uses PostgreSQL type ${JSON.stringify(value.declaredSchema)}.${JSON.stringify(value.declaredType)} (OID ${value.declaredOid})${underlying} without a verified pg mapping; generated as unknown for reads and never for non-null writes.`,
++        `Column ${column} uses PostgreSQL type ${JSON.stringify(value.declaredSchema)}.${JSON.stringify(value.declaredType)} (OID ${value.declaredOid})${underlying} without a specialized pgclear codec; generated as wire text for the default registry.`,
+       );
+-      types = { read: 'unknown', write: 'never' };
++      types = { read: 'string', write: 'string | import("@kequtech/pgclear").Parameter' };
+     }
+   }
+   // unknown already includes null, including for nullable JSON and unmapped types.
+diff --git a/src/inspection/catalog.ts b/src/inspection/catalog.ts
+index 201d91c..66b6abd 100644
+--- a/src/inspection/catalog.ts
++++ b/src/inspection/catalog.ts
+@@ -1,4 +1,4 @@
+-import type { Client } from 'pg';
++import type { SessionClient as Client } from '../driver/session.js';
+ import { describe, type Description } from './protocol.js';
+ 
+ interface CatalogType {
+@@ -32,7 +32,7 @@ export async function readStatementMetadata(
+ ): Promise<StatementMetadata> {
+   const statement = await describe(client, text);
+   const oids = [
+-    ...new Set([...statement.parameters, ...statement.fields.map((c) => c.dataTypeID)]),
++    ...new Set([...statement.parameterTypes, ...statement.fields.map((c) => c.dataTypeOid)]),
+   ];
+   const types = (
+     await client.query<CatalogType>(
+@@ -53,7 +53,7 @@ export async function readStatementMetadata(
+       [oids.join(',')],
+     )
+   ).rows;
+-  const tables = [...new Set(statement.fields.map((c) => c.tableID).filter(Boolean))];
++  const tables = [...new Set(statement.fields.map((c) => c.tableOid).filter(Boolean))];
+   const sources = (
+     await client.query<ColumnSource>(
+       `
+diff --git a/src/inspection/connection.ts b/src/inspection/connection.ts
+index cc72669..62dba56 100644
+--- a/src/inspection/connection.ts
++++ b/src/inspection/connection.ts
+@@ -1,30 +1,22 @@
+-import { Client } from 'pg';
++import { connect } from '@kequtech/pgclear';
++import { SessionClient } from '../driver/session.js';
+ import { inspectionOptions } from './options.js';
+ import type { DescribeOptions, InspectionContext } from './types.js';
+-
+-/** Bound every database statement, including bootstrap and metadata queries. */
+ export async function withInspectionConnection<T>(
+   options: Pick<DescribeOptions, 'connection' | 'session' | 'timeouts'>,
+-  work: (client: Client, context: InspectionContext) => Promise<T>,
++  work: (client: SessionClient, context: InspectionContext) => Promise<T>,
+ ): Promise<T> {
+   const { url, limits, session } = inspectionOptions(options);
+-  const client = new Client({
++  const connection = await connect({
+     connectionString: url.toString(),
+-    connectionTimeoutMillis: limits.connectMs,
+-    statement_timeout: limits.statementMs,
+-    lock_timeout: limits.lockMs,
+-    pipeline: false,
++    connectTimeoutMs: limits.connectMs,
++    startupParameters: {
++      statement_timeout: String(limits.statementMs),
++      lock_timeout: String(limits.lockMs),
++    },
+   });
+-  // Disconnection errors outside an active query must still have a listener.
+-  client.on('error', () => {});
++  const client = new SessionClient(connection);
+   try {
+-    await client.connect();
+-    await client.query(
+-      `SELECT
+-      pg_catalog.set_config('statement_timeout', $1, false),
+-      pg_catalog.set_config('lock_timeout', $2, false)`,
+-      [String(limits.statementMs), String(limits.lockMs)],
+-    );
+     for (const [key, name] of [
+       ['role', 'role'],
+       ['searchPath', 'search_path'],
+@@ -32,21 +24,19 @@ export async function withInspectionConnection<T>(
+     ] as const) {
+       const value = session[key];
+       if (value !== undefined)
+-        await client.query('SELECT pg_catalog.set_config($1, $2, false)', [name, value]);
++        await client.query('SELECT pg_catalog.set_config($1,$2,false)', [name, value]);
+     }
+     const {
+       rows: [context],
+-    } = await client.query<Omit<InspectionContext, 'mode' | 'readMappings'>>(`
+-      SELECT pg_catalog.current_database() AS database, session_user AS "sessionUser",
+-        current_user AS "currentUser", pg_catalog.current_setting('search_path') AS "searchPath",
+-        pg_catalog.to_json(pg_catalog.current_schemas(true)) AS "resolvedSearchPath",
+-        pg_catalog.current_setting('TimeZone') AS "timeZone",
+-        (SELECT setting::integer FROM pg_catalog.pg_settings WHERE name='statement_timeout') AS "statementTimeoutMs",
+-        (SELECT setting::integer FROM pg_catalog.pg_settings WHERE name='lock_timeout') AS "lockTimeoutMs"
+-    `);
++    } = await client.query<
++      Omit<InspectionContext, 'mode' | 'readMappings'>
++    >(`SELECT pg_catalog.current_database() AS database,session_user AS "sessionUser",current_user AS "currentUser",
++      pg_catalog.current_setting('search_path') AS "searchPath",pg_catalog.to_json(pg_catalog.current_schemas(true)) AS "resolvedSearchPath",
++      pg_catalog.current_setting('TimeZone') AS "timeZone",(SELECT setting::integer FROM pg_catalog.pg_settings WHERE name='statement_timeout') AS "statementTimeoutMs",
++      (SELECT setting::integer FROM pg_catalog.pg_settings WHERE name='lock_timeout') AS "lockTimeoutMs"`);
+     if (!context) throw new Error('Inspection context was not returned.');
+-    return await work(client, { mode: 'separate-session', readMappings: 'pg', ...context });
++    return await work(client, { mode: 'separate-session', readMappings: 'pgclear', ...context });
+   } finally {
+-    await client.end();
++    await connection.close();
+   }
+ }
+diff --git a/src/inspection/options.ts b/src/inspection/options.ts
+index 63602ba..b2e8437 100644
+--- a/src/inspection/options.ts
++++ b/src/inspection/options.ts
+@@ -45,12 +45,6 @@ export function inspectionOptions(
+   if (!['postgres:', 'postgresql:'].includes(url.protocol)) {
+     throw new Error('Describe requires a PostgreSQL connection URI.');
+   }
+-  for (const [name, value] of [
+-    ['statement_timeout', limits.statementMs],
+-    ['lock_timeout', limits.lockMs],
+-  ] as const) {
+-    url.searchParams.set(name, String(value));
+-  }
+   if (!url.searchParams.has('application_name')) {
+     url.searchParams.set('application_name', 'tenon-describe');
+   }
+diff --git a/src/inspection/protocol.ts b/src/inspection/protocol.ts
+index 32c882c..aaffba7 100644
+--- a/src/inspection/protocol.ts
++++ b/src/inspection/protocol.ts
+@@ -1,54 +1,6 @@
+-import type { Client, Connection, FieldDef, Submittable } from 'pg';
+-
+-export interface Description {
+-  parameters: number[];
+-  fields: FieldDef[];
+-}
+-
+-/** Describe through pg custom query dispatch; send no Bind or Execute messages. */
+-export function describe(client: Client, text: string): Promise<Description> {
+-  return new Promise((resolve, reject) => {
+-    let connection: Connection | undefined;
+-    const description: Description = { parameters: [], fields: [] };
+-    const parameters = (message: { dataTypeIDs: number[] }) => {
+-      description.parameters = message.dataTypeIDs;
+-    };
+-    const cleanup = () => connection?.removeListener('parameterDescription', parameters);
+-    const query: Submittable & {
+-      callback(error: Error | null): void;
+-      handleRowDescription(message: { fields: FieldDef[] }): void;
+-      handleReadyForQuery(): void;
+-      handleError(error: Error): void;
+-    } = {
+-      // pg wraps callback to manage query_timeout, including clearing its timer.
+-      callback(error) {
+-        cleanup();
+-        if (error) reject(error);
+-        else resolve(description);
+-      },
+-      submit(wire) {
+-        connection = wire;
+-        wire.once('parameterDescription', parameters);
+-        try {
+-          wire.parse({ name: '', text, types: [] }, false);
+-          wire.describe({ type: 'S', name: '' }, false);
+-          wire.sync();
+-        } catch (error) {
+-          return error instanceof Error
+-            ? error
+-            : new Error('Describe dispatch failed', { cause: error });
+-        }
+-      },
+-      handleRowDescription(message) {
+-        description.fields = message.fields;
+-      },
+-      handleReadyForQuery() {
+-        query.callback(null);
+-      },
+-      handleError(error) {
+-        query.callback(error);
+-      },
+-    };
+-    client.query(query);
+-  });
++import type { Description } from '@kequtech/pgclear';
++import type { SessionClient } from '../driver/session.js';
++export type { Description } from '@kequtech/pgclear';
++export function describe(client: SessionClient, text: string): Promise<Description> {
++  return client.describe(text);
+ }
+diff --git a/src/inspection/result.ts b/src/inspection/result.ts
+index 287d8f2..8e5f193 100644
+--- a/src/inspection/result.ts
++++ b/src/inspection/result.ts
+@@ -28,12 +28,12 @@ export function queryDescription(
+     } else if (type.schema === 'pg_catalog' && Object.hasOwn(scalarTypes, type.name)) {
+       readType = valueTypes(scalarTypes[type.name]!).read;
+     } else {
+-      readType = 'unknown';
++      readType = 'string';
+       issues.set(`type:${oid}`, {
+         code: 'unmapped-type',
+         oid,
+         postgres: `${type.schema}.${type.name}`,
+-        message: `No verified pg mapping for ${type.schema}.${type.name} (OID ${oid}).`,
++        message: `Default pgclear wire text for ${type.schema}.${type.name} (OID ${oid}).`,
+       });
+     }
+     return { oid, postgres: `${type.schema}.${type.name}`, readType };
+@@ -45,14 +45,14 @@ export function queryDescription(
+       issues.set(`column:${column.name}`, {
+         code: 'duplicate-column',
+         column: column.name,
+-        message: `Duplicate result column ${JSON.stringify(column.name)}; object rows overwrite earlier values.`,
++        message: `Duplicate result column ${JSON.stringify(column.name)}; pgclear rejects duplicate object columns.`,
+       });
+     }
+     names.add(column.name);
+-    const source = sourceMap.get(`${column.tableID}:${column.columnID}`);
++    const source = sourceMap.get(`${column.tableOid}:${column.columnAttribute}`);
+     return {
+       name: column.name,
+-      ...describeType(column.dataTypeID),
++      ...describeType(column.dataTypeOid),
+       nullability: 'unknown',
+       source: source
+         ? {
+@@ -64,7 +64,7 @@ export function queryDescription(
+         : null,
+     };
+   });
+-  const parameters = statement.parameters.map(describeType);
++  const parameters = statement.parameterTypes.map(describeType);
+   if (columns.length) {
+     issues.set('nullability', {
+       code: 'nullability-unknown',
+diff --git a/src/inspection/types.ts b/src/inspection/types.ts
+index 34c96fc..a50866f 100644
+--- a/src/inspection/types.ts
++++ b/src/inspection/types.ts
+@@ -23,7 +23,7 @@ export interface InspectionContext {
+   readonly timeZone: string;
+   readonly statementTimeoutMs: number;
+   readonly lockTimeoutMs: number;
+-  readonly readMappings: 'pg';
++  readonly readMappings: 'pgclear';
+ }
+ 
+ export interface DescribeOptions {
+@@ -53,7 +53,7 @@ export type DescriptionIssue =
+ export interface DescribedType {
+   readonly oid: number;
+   readonly postgres: string;
+-  /** pg read representation, before considering result nullability. */
++  /** pgclear read representation, before considering result nullability. */
+   readonly readType: string;
+ }
+ 
+diff --git a/src/migrations/connection.ts b/src/migrations/connection.ts
+index 6c413cb..2184e3f 100644
+--- a/src/migrations/connection.ts
++++ b/src/migrations/connection.ts
+@@ -1,58 +1,47 @@
+-import type { PoolClient } from 'pg';
++import type { Lease } from '@kequtech/pgclear';
+ import type { Connection } from '../connection.js';
+-import { createConnection, watchClient } from '../connection.js';
++import { createConnection } from '../connection.js';
++import { SessionClient } from '../driver/session.js';
+ import { validateName } from '../sql.js';
+-
+ export interface DatabaseToolOptions {
+   readonly connection: Connection;
+   readonly namespace?: string;
+   readonly directory?: string;
+ }
+-
+-/** Coordinate tools independently of application sessions; PostgreSQL owns the wait. */
+ export async function withMigrationLock<T>(
+   options: DatabaseToolOptions,
+   mode: 'shared' | 'exclusive',
+-  work: (client: PoolClient, namespace: string) => Promise<T>,
++  work: (client: SessionClient, namespace: string) => Promise<T>,
+ ): Promise<T> {
+   const namespace = options.namespace ?? 'public';
+   validateName(namespace);
+-  const { pool, close } = createConnection(options.connection);
+-  const suffix = mode === 'shared' ? '_shared' : '';
+-  const lockKey = `tenon:migrations:${namespace}`;
++  const { pool, close } = createConnection(options.connection),
++    suffix = mode === 'shared' ? '_shared' : '',
++    key = 'tenon:migrations:' + namespace;
+   const errors: unknown[] = [];
+-  let client: PoolClient | undefined;
+-  let connection: ReturnType<typeof watchClient> | undefined;
+-  let locked = false;
+-  let result!: T;
+-
++  let lease: Lease | undefined,
++    locked = false,
++    result!: T;
+   try {
+-    client = await pool.connect();
+-    connection = watchClient(client);
+-    await client.query(`SELECT pg_advisory_lock${suffix}(hashtextextended($1, 0))`, [lockKey]);
++    lease = await pool.acquire();
++    const client = new SessionClient(lease);
++    await client.query(`SELECT pg_advisory_lock${suffix}(hashtextextended($1,0))`, [key]);
+     locked = true;
+     result = await work(client, namespace);
+-    connection.check();
+   } catch (error) {
+     errors.push(error);
+   } finally {
+-    if (client) {
+-      let releaseError: Error | undefined;
++    if (lease) {
++      const client = new SessionClient(lease);
+       try {
+-        connection!.check();
+-        if (errors.length) await client.query('ROLLBACK');
+-        if (locked) {
+-          await client.query(`SELECT pg_advisory_unlock${suffix}(hashtextextended($1, 0))`, [
+-            lockKey,
+-          ]);
+-        }
++        if (lease.transactionStatus !== 'idle') await client.query('ROLLBACK');
++        if (locked)
++          await client.query(`SELECT pg_advisory_unlock${suffix}(hashtextextended($1,0))`, [key]);
+       } catch (error) {
+         errors.push(error);
+-        releaseError =
+-          error instanceof Error ? error : new Error('Tool connection cleanup failed.');
+       }
+       try {
+-        connection!.release(releaseError);
++        await lease.release({ discard: errors.length > 0 });
+       } catch (error) {
+         errors.push(error);
+       }
+@@ -63,12 +52,9 @@ export async function withMigrationLock<T>(
+       errors.push(error);
+     }
+   }
+-
+-  if (errors.length === 1) {
+-    throw errors[0];
+-  }
+-  if (errors.length > 1) {
+-    throw new AggregateError(errors, 'Database operation and cleanup failed.');
+-  }
++  if (errors.length)
++    throw errors.length === 1
++      ? errors[0]
++      : new AggregateError(errors, 'Database operation and cleanup failed.');
+   return result;
+ }
+diff --git a/src/migrations/history.ts b/src/migrations/history.ts
+index 95ebdc6..1f7cf37 100644
+--- a/src/migrations/history.ts
++++ b/src/migrations/history.ts
+@@ -1,4 +1,4 @@
+-import type { PoolClient } from 'pg';
++import type { SessionClient as PoolClient } from '../driver/session.js';
+ import { qualified } from '../sql.js';
+ import type { SqlMigration } from './files.js';
+ 
+diff --git a/src/migrations.ts b/src/migrations.ts
+index 1c10c7d..0b31409 100644
+--- a/src/migrations.ts
++++ b/src/migrations.ts
+@@ -55,7 +55,7 @@ async function execute(
+         // Match the string-literal rules used by the authored migration scanner.
+         await client.query('SET LOCAL standard_conforming_strings TO on');
+         await client.query(`SET LOCAL search_path TO ${quote(namespace)}, pg_catalog`);
+-        await client.query(direction === 'up' ? file.up : file.down!);
++        await client.script(direction === 'up' ? file.up : file.down!);
+         if (direction === 'up') {
+           await recordMigration(client, namespace, file);
+         } else {
+diff --git a/src/query-options.ts b/src/query-options.ts
+index fb3e70d..4a0b256 100644
+--- a/src/query-options.ts
++++ b/src/query-options.ts
+@@ -15,7 +15,7 @@ export interface QueryOptions {
+ export type QueryOutput<Row extends object, Mode extends QueryReturnMode> = Mode extends 'native'
+   ? QueryResult<Row>
+   : Mode extends 'many'
+-    ? Row[]
++    ? readonly Row[]
+     : Mode extends 'oneOrNone'
+       ? Row | undefined
+       : Row;
+diff --git a/src/transaction.ts b/src/transaction.ts
+index 6f8c93a..e08e9f3 100644
+--- a/src/transaction.ts
++++ b/src/transaction.ts
+@@ -1,88 +1,38 @@
+-import type { Pool } from 'pg';
++import type { Pool, Transaction } from '@kequtech/pgclear';
+ import type { QueryExecutor } from './connection.js';
+-import { executeSql, watchClient } from './connection.js';
++import { executeSql } from './connection.js';
+ 
+-/** The callback owns one connection and expires before commit or rollback begins. */
+-export async function withTransaction<T>(
++/** Serialize whole Tenon policies; pgclear owns transaction, savepoint and transport recovery. */
++export function withTransaction<T>(
+   pool: Pool,
+   work: (query: QueryExecutor) => Promise<T>,
+ ): Promise<T> {
+-  const client = await pool.connect();
+-  const connection = watchClient(client);
+-  let active = true;
+-  let began = false;
+-  let releaseError: Error | undefined;
+-  let savepointId = 0;
+-  let pending: Promise<void> = Promise.resolve();
+-  let recoveryFailure: AggregateError | undefined;
+-
+-  const query: QueryExecutor = async (text, input, readResult, guarded) => {
+-    if (!active) throw new Error('The transaction has finished.');
+-
+-    // Queue whole operations, including savepoint cleanup. Otherwise concurrent
+-    // calls could place another write inside a savepoint that gets rolled back.
+-    const operation = pending.then(async () => {
+-      connection.check();
+-      if (recoveryFailure) throw recoveryFailure;
+-      if (!guarded) return readResult(await executeSql(client, text, input));
+-
+-      const savepoint = `tenon_affected_rows_${++savepointId}`;
+-      await client.query(`SAVEPOINT ${savepoint}`);
+-      try {
+-        const result = readResult(await executeSql(client, text, input));
+-        await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+-        return result;
+-      } catch (error) {
+-        try {
+-          await client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+-          await client.query(`RELEASE SAVEPOINT ${savepoint}`);
+-        } catch (rollbackError) {
+-          // Even if application code catches this error, the outer transaction
+-          // must not commit when the rejected write could still be present.
+-          recoveryFailure = new AggregateError(
+-            [error, rollbackError],
+-            'Operation and savepoint recovery failed.',
+-          );
+-          throw recoveryFailure;
+-        }
+-        throw error;
+-      }
+-    });
+-    pending = operation.then(
+-      () => {},
+-      () => {},
+-    );
+-    return operation;
+-  };
+-
+-  try {
+-    await client.query('BEGIN');
+-    began = true;
+-    const result = await work(query);
+-    active = false;
+-    await pending;
+-    connection.check();
+-    if (recoveryFailure) throw recoveryFailure;
+-    const committed = await client.query('COMMIT');
+-    if (committed.command !== 'COMMIT') {
+-      throw new Error('PostgreSQL rolled back the aborted transaction.');
+-    }
+-    return result;
+-  } catch (error) {
+-    active = false;
+-    await pending;
+-    if (!began) {
+-      releaseError = error instanceof Error ? error : new Error('BEGIN failed.');
+-      throw error;
+-    }
++  return pool.transaction(async (transaction) => {
++    let active = true,
++      pending: Promise<void> = Promise.resolve();
++    const query: QueryExecutor = <R>(
++      text: string,
++      input: readonly unknown[],
++      readResult: (result: import('./connection.js').QueryResult) => R,
++      guarded: boolean,
++    ): Promise<R> => {
++      if (!active) return Promise.reject(new Error('The transaction has finished.'));
++      const operation = pending.then(() => {
++        const execute = async (scope: Transaction) =>
++          readResult(await executeSql(scope, text, input));
++        return guarded ? transaction.savepoint(execute) : execute(transaction);
++      });
++      pending = operation.then(
++        () => {},
++        () => {},
++      );
++      return operation;
++    };
+     try {
+-      await client.query('ROLLBACK');
+-    } catch (rollbackError) {
+-      releaseError = rollbackError instanceof Error ? rollbackError : new Error('Rollback failed.');
+-      throw new AggregateError([error, rollbackError], 'Transaction and rollback failed.');
++      return await work(query);
++    } finally {
++      active = false;
++      await pending;
+     }
+-    throw error;
+-  } finally {
+-    connection.release(releaseError);
+-  }
++  });
+ }
+diff --git a/src/types.ts b/src/types.ts
+index c7444d6..46b144c 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -1,4 +1,4 @@
+-import type { Pool } from 'pg';
++import type { Pool } from '@kequtech/pgclear';
+ import type { QueryResult } from './connection.js';
+ import type { QueryOptions, QueryOutput, QueryReturnMode } from './query-options.js';
+ import type { SqlQuery } from './query.js';
+@@ -36,7 +36,7 @@ export interface QueryEvent {
+   readonly durationMs: number;
+   readonly outcome: 'success' | 'error';
+   readonly command?: string;
+-  readonly rowCount?: number | null;
++  readonly rowCount?: bigint | null;
+   /** Stable Tenon or PostgreSQL error code, when available. */
+   readonly errorCode?: string;
+ }

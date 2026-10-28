@@ -14,6 +14,7 @@ design targets. See [development](development.md) for the implemented subset and
 | [Implementation plan](implementation-plan.md)                         | Ordered work and behavioral completion gates            |
 | [Tenon integration](tenon-integration.md)                             | First-consumer requirements and migration gate          |
 | [Development](development.md)                                         | Actual setup, verification, and contributor commands    |
+| [Tenon trial](tenon-trial.md)                                         | Pinned consumer trial, evidence and adoption limits     |
 | [Tenon migration report](references/tenon-driver-migration-report.md) | Preserved first-consumer evidence and recommendations   |
 
 `src/index.ts` owns implemented public exports and types. The API contract owns proposed signatures

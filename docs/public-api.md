@@ -1,6 +1,6 @@
 # Public API
 
-Status: M3 is implemented locally: connections, pools/leases, session callbacks, transactions and
+Status: M3 is implemented and locally verified: connections, pools/leases, session callbacks, transactions and
 savepoints, cancellation, immutable codecs, typed/JSON parameters, arrays, description and scripts.
 Actual exports/types live in `src/index.ts`; [api-contract.ts](api-contract.ts) imports implemented
 signatures and names later additions `Planned*`. [api-examples.ts](api-examples.ts) compiles with
