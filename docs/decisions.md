@@ -316,7 +316,26 @@ Both entrypoints share the same operation ownership, strict parameter validation
 encoding, cancellation and result path on connections, pools, leases and transaction scopes. Keep
 JSON/arrays explicit through `json`/`param`. Do not evaluate codecs or execute SQL when constructing
 a tag. Freeze tuple/values structure and retain the existing rule that mutable bound data must stay
-unchanged until settlement. This is driver API work; M5 remains on hold pending its existing gates.
+unchanged until settlement. M5 was still on hold at this checkpoint; D26 records its later
+development-readiness decision without changing this product boundary.
+
+## D26 — Resume focused driver work; keep adoption evidence separate
+
+The maintainer authorized moving on after committing completed work if the driver is ready.
+The two known Unicode blockers are fixed; PostgreSQL 16/18 CI passed for `e742fbf` in
+[run 40642777907](https://github.com/kequtech/pgclear/actions/runs/40642777907), and the later query
+API passed 106 local checks plus the isolated 17-case candidate trial. No new failure blocks the
+next protocol slice. The newer query API checkpoint's own PostgreSQL 18 result remains unverified.
+
+Resume development as M5a (explicit preparation), then M5b (portals/streaming), then M5c (COPY).
+This supersedes the broad hold tying all M5 development to completed Tenon adoption. Full consumer
+regression porting, PostgreSQL 16/18 adoption runs and deployment evidence remain required before
+claiming Tenon replacement is validated. They do not require recreating pg's API or blocking driver
+features that a future adoption will itself need. Do not mark those adoption gates completed.
+
+The [handoff](m5-handoff.md) records the evidence, ownership question to resolve and bounded M5a
+acceptance cases. Earlier hold statements in superseded decisions describe their historical state.
+No M5 runtime feature is claimed implemented by this readiness decision.
 
 ## Deferred decisions
 

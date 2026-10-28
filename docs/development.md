@@ -33,6 +33,13 @@ and `json`.
 
 ## Current verification and limits
 
+Readiness update (2026-10-28): both PostgreSQL 16/18 jobs passed the full driver check for the
+Unicode-fix commit `e742fbf` in
+[run 40642777907](https://github.com/kequtech/pgclear/actions/runs/40642777907). This verifies that
+commit, not the later tag/classic API checkpoint. D26 resumes focused M5a development while full
+Tenon adoption and the newer checkpoint's PostgreSQL 18 result remain unverified. See
+[the handoff](m5-handoff.md).
+
 The D25 driver API pass on 2026-10-28 passed `npm run check`: **106 tests**
 (56 database-independent, 50 integration) against PostgreSQL 16.15. Tagged and classic queries,
 readonly tuples and existing statement objects use the same encoding/ownership path. Added cases
@@ -47,8 +54,8 @@ The post-M4 Unicode correctness pass on 2026-10-28 passed `npm run check`: **100
 Unicode-array-space reproductions failed before the fixes and pass afterward. Coverage includes
 field names, Describe/script metadata, diagnostics, custom codecs, 20 non-ASCII characters at array
 edges, ASCII grammar/escapes, nested/bounded arrays and comparison with server JSON output. These
-regressions run automatically in the existing PostgreSQL 16/18 CI matrix on the next push; that CI
-result has not yet been observed. Docker Desktop is not integrated with this WSL distribution, so no
+regressions subsequently passed the existing PostgreSQL 16/18 CI matrix for `e742fbf`, as recorded
+above. Docker Desktop is not integrated with this WSL distribution, so no
 isolated local PostgreSQL 18 run was performed and the local PostgreSQL 16 environment was unchanged.
 
 On 2026-10-28, M3 passed `npm run check`: 93 tests (49 database-independent, 44 integration) against

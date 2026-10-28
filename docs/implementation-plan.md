@@ -2,10 +2,11 @@
 
 Work in the order below. Each milestone produces a usable, verifiable slice and has an observable
 completion gate. Keep this document current by recording completed gates and evidence, not by
-maintaining a second backlog that can disagree with it. M1 is complete: its connection core passes
-local PostgreSQL 16 checks and the PostgreSQL 16/18 CI matrix. M2 is implemented and verified locally;
-it was pushed as `e37c28b`. At the maintainer's request, M3 proceeds without waiting for the
-PostgreSQL 16/18 CI result. CI status for M2/M3 is not claimed here.
+maintaining a second backlog that can disagree with it. The M1–M3 core and M4 consumer trial are
+implemented; complete Tenon adoption remains open. The Unicode-fix commit `e742fbf` passed both
+PostgreSQL 16/18 CI jobs. The later query API passed 106 local tests; its own PostgreSQL 18 result
+remains unverified. D26 resumes M5 development, starting with preparation only; see
+[the handoff](m5-handoff.md).
 
 ## M0 — Design and project setup (this change)
 
@@ -156,8 +157,8 @@ feature milestones. The PostgreSQL 16/18 adoption gate below remains open.
 
 The Tenon agent's review subsequently found leading-U+FEFF and Unicode-array-whitespace corruption.
 D21 records the fixes and independent Unicode regressions; the original green trial did not cover
-these values. Review feedback has been received, but M5 stays on hold for the correctness follow-up
-and the outstanding applicable M4/16/18 gates.
+these values. The Unicode-fix commit subsequently passed both PostgreSQL 16/18 CI jobs. D26 resumes
+focused driver development; the broader consumer-adoption gates remain open.
 
 Follow [Tenon integration](tenon-integration.md). Implement an adapter fixture first, using a packed
 pgclear build; re-read Tenon's current migration before changing that repository. Exercise explicit
@@ -179,20 +180,22 @@ The final scope decision D25 leaves generation, checking and SQL composition too
 pgclear adds only a value-binding tag and a classic text/values entrypoint through the existing
 execution path. No compiler integration, generator, checker, fragments, expansion or chooser is
 part of this driver plan. A future minimal codec-description contract requires a demonstrated need;
-this decision does not begin M5 or close the outstanding M4 adoption gates.
+this decision does not close the outstanding M4 adoption gates. D26 records the later M5 readiness
+decision separately from full Tenon adoption.
 
 ## M5 — Explicit preparation, portals and COPY
 
-On hold at the maintainer's request (2026-10-28). Tenon feedback identified correctness blockers;
-the Unicode fixes are locally verified. Complete the outstanding applicable M4 gates before starting
-this milestone.
+Development resumed on 2026-10-28 under D26 after the correctness follow-up. Both PostgreSQL 16/18
+jobs passed for the Unicode fixes; the later query API passed 106 local tests and the 17-case
+candidate trial. Its own PostgreSQL 18 result remains unverified. Full Tenon adoption remains an
+independent gate. Begin with M5a only; see [the handoff](m5-handoff.md).
 
-1. Implement session-owned prepared statement handles, close ordering and lease cleanup, without
+1. **M5a:** Implement session-owned prepared statement handles, close ordering and lease cleanup, without
    automatic named caches/retries. Distinguish submitted from confirmed creation; do not close a
    confirmed statement when a later execution's parameter encoder fails.
-2. Implement async row iteration, metadata, bounded portal batches, explicit/early close and command
+2. **M5b:** Implement async row iteration, metadata, bounded portal batches, explicit/early close and command
    completion distinctions. Reject competing session operations while streaming.
-3. Implement COPY FROM/TO byte streams, source failures, protocol recovery and cancellation retirement.
+3. **M5c:** Implement COPY FROM/TO byte streams, source failures, protocol recovery and cancellation retirement.
 
 Gate: prepared handles expire after release; stale plans surface without re-executing writes;
 prepared close orders correctly with accepted executions; early stream exit permits a subsequent

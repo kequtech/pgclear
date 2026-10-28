@@ -125,5 +125,7 @@ public type examples, update its user documentation, run the adapted consumer su
 deployments, performance or a production release. It changes neither Tenon 0.3.1 nor pgclear's release
 visibility, and does not advance to M5 automatically.
 
-Tenon feedback has been received. M5 remains on hold for this correctness follow-up and the
-outstanding applicable M4 adoption/16/18 gates, following the maintainer's request on 2026-10-28.
+Tenon feedback has been received and the known Unicode blockers are fixed. D26 resumes focused M5
+driver development separately from full Tenon adoption. The outstanding applicable consumer
+regression/16/18 adoption gates remain open; no compatibility behavior is required merely to
+reproduce pg's baseline.

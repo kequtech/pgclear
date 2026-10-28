@@ -12,6 +12,7 @@ design targets. See [development](development.md) for the implemented subset and
 | [Architecture](architecture.md)                                       | Internal boundaries, state machines, failure invariants      |
 | [Decisions](decisions.md)                                             | Accepted decisions, alternatives, and reasons                |
 | [Implementation plan](implementation-plan.md)                         | Ordered work and behavioral completion gates                 |
+| [M5 handoff](m5-handoff.md)                                           | Readiness evidence and the next prepared-statement slice     |
 | [Tenon integration](tenon-integration.md)                             | First-consumer requirements and migration gate               |
 | [Development](development.md)                                         | Actual setup, verification, and contributor commands         |
 | [Tenon trial](tenon-trial.md)                                         | Pinned consumer trial, evidence and adoption limits          |
