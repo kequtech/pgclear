@@ -266,13 +266,15 @@ Notifications dispatch only for the current connected generation, and callbacks 
 non-awaiting observer helper. Notifications during gaps are not replayable. See
 [D32](decisions.md#d32--listeners-supervise-a-dedicated-connection-with-explicit-delivery-gaps).
 
-## Pipelining after the sequential core
+## Deferred pipelining
 
-Pipelining is opt-in and initially exposed only on exclusive sessions, with its exact option shape
-decided at the performance milestone. Pool one-off queries remain exclusive. Do not add a no-op
-configuration flag to the initial contract.
+M7b is deferred outside the first release by
+[D33](decisions.md#d33--defer-pipelining-and-proceed-to-release-readiness). The current scheduler
+executes one operation at a time per physical connection; there is no pipeline configuration or
+reserved API. The following are constraints for a future proposal, not planned implementation work.
 
-Encode each request before adding it to a sent queue; assign one Sync/error boundary per independent
+If reconsidered, initially limit pipelining to exclusive sessions and ordinary queries. Encode each
+request before adding it to a sent queue; assign one Sync/error boundary per independent
 operation and track ReadyForQuery for that boundary. Never combine independent operations into an
 implicit shared transaction just to save Sync messages. Keep managed transactions, streaming, COPY,
 description and preparation sequential/exclusive until each combination has a demonstrated need and

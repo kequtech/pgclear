@@ -5,8 +5,8 @@ completion gate. Keep this document current by recording completed gates and evi
 maintaining a second backlog that can disagree with it. M1–M6 pass the full driver check and native
 TLS/Unix/PgBouncer CI on PostgreSQL 16/18 at `0d31732` (216 regression tests and three separate
 compatibility tests). The refreshed local Tenon candidate passes 20 contract cases; complete
-adoption and its PostgreSQL 18 consumer run remain open. M7a supplies reproducible measurements;
-opt-in pipelining remains conditional on demonstrated benefit. See [development](development.md)
+adoption and its PostgreSQL 18 consumer run remain open. M7a's measurements and profiled improvements
+are complete; M7b pipelining is deferred by D33. M8 release readiness is next. See [development](development.md)
 and [benchmarks](../benchmarks/README.md) for evidence. The [handoff](m5-handoff.md) is historical.
 
 ## M0 — Design and project setup (this change)
@@ -250,7 +250,7 @@ original close prevents callbacks/reconnects afterward; close during backoff/set
 connections; async observer failures cannot produce unhandled rejection; no LISTEN claim is made for
 transaction pooling. Changing session identity is never hidden from an exclusive session handle.
 
-## M7 — Performance and opt-in pipelining
+## M7 — Performance complete; pipelining deferred
 
 M7a implements sequential, prepared, large-result, typed-array/JSON, transaction and pool-contention
 comparisons with pinned pg/Postgres.js versions and configurable added RTT. Fresh packed-driver
@@ -275,19 +275,21 @@ signals/errors and empty-drain timers. The final 219-test check, three compatibi
 old/new runs per workload confirm about 22% more large-result throughput and 93% more pool throughput;
 CPU per operation falls about 22%/50%. See the [evidence](../benchmarks/README.md#profiled-follow-up-results).
 
-M7b remains conditional: specify the pipelining option and implement bounded sent queues with one Sync boundary per
-independent operation. Initially restrict it to exclusive sessions and ordinary queries. No silent
-change to managed transaction semantics or one-off pool scheduling.
+M7b is explicitly deferred outside the first release
+([D33](decisions.md#d33--defer-pipelining-and-proceed-to-release-readiness)). The benchmark probe
+establishes potential benefit, but no current consumer requirement justifies the added scheduler,
+recovery and maintenance cost. Add no pipeline configuration or placeholder implementation.
 
-Use the report's interaction matrix explicitly: named/unnamed execution, pipeline on/off, local/server
+Reconsider only for a demonstrated consumer workload. Any future proposal must use the interaction
+matrix explicitly: named/unnamed execution, pipeline on/off, local/server
 errors, transaction/savepoint boundaries, cancellation/disconnects, schema changes and distinct codec
 registries. Unsupported combinations must reject before dispatch; the supported subset must retain
 operation ownership across failures. Repeatable seeded sequences complement specific regressions.
 
-Gate: middle serialization/server/decoder failures, concurrent repeated preparations where supported,
+Future gate: middle serialization/server/decoder failures, concurrent repeated preparations where supported,
 cancel races, queue pressure and shutdown all preserve result ownership and settlement. Prove memory
-bounds and measurable benefit in the target workloads before enabling it for any consumer. If it
-fails this gate, ship the sequential release and retain the scheduler boundary for future work.
+bounds and measurable benefit in the target workloads before enabling it for any consumer.
+Sequential execution remains the release behavior until a future proposal passes this gate.
 
 ## M8 — Initial release gate
 
@@ -296,6 +298,28 @@ resource shutdown, license attribution, supported environment matrix and honest 
 Remove design-only declarations/examples that diverge from the actual package. Document deferred
 features and any intentional API changes before selecting 0.1.0. Publishing, repository visibility
 changes and a stable compatibility promise require their own explicit release instruction.
+
+The first readiness review confirms that the packed exports/declarations have executable consumer
+coverage, the license is ISC, and runtime dependencies are external packages with their own MIT
+license notices. The public-API status now correctly identifies listeners as implemented.
+Pipelining is now explicitly deferred, without a public option or scheduler changes.
+Benchmark documentation/results, runners, comparator dependencies, trials and raw generated
+artifacts remain repository-only; the package README links to the benchmark evidence on GitHub.
+
+Remaining work, in order:
+
+1. Finish the applicable Tenon behavioral regression and public type-example port in the isolated
+   candidate. Start with `query.test.ts`, `query-functions.test.ts`, `affected-rows.test.ts`,
+   `transactions.test.ts` and `reservation.test.ts` at the pinned Tenon revision. The 20-case
+   external fixture is partial coverage; the original pg baseline's 180 tests do not establish
+   candidate adoption. Preserve deliberate pgclear representations and update consumer documentation.
+2. Validate the full adapted consumer and current driver on PostgreSQL 16/18, including native
+   TLS/Unix/PgBouncer profiles. Existing CI success at `0d31732` does not verify the newer runtime
+   `990ac77`; its 219-test check, compatibility suite and consumer trial are local PostgreSQL 16.15
+   evidence. Keep those gates distinct.
+3. Finish package/documentation consistency and attribution review, record supported/deferred
+   behavior, then review 0.1.0 readiness. Keep `private: true` and version 0.0.0 during readiness;
+   continue the consumer port in the isolated fixture while preserving Tenon's active checkout.
 
 ## Planning envelope and order
 

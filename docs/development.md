@@ -32,6 +32,13 @@ are explicitly public test-only keys/certificates. The package remains private; 
 distribution locally and does not publish it. The runtime exports are `connect`, `createPool`, `DriverError`, `DatabaseError`, `builtin`, `defaultCodecs`, `param`,
 `json`, `sql` and `listen`.
 
+The M8 package audit keeps the ISC license, ESM exports, declarations and `private: true`. Runtime
+SASLprep and its transitive `sparse-bitfield`/`memory-pager` dependencies are external MIT-licensed
+packages with their own license notices; the TypeScript build does not bundle them. Benchmark
+documentation/results, runners, comparator dependencies, trials and raw generated artifacts remain
+repository-only. The package README points to the benchmark evidence on GitHub.
+See [M8](implementation-plan.md#m8--initial-release-gate) for the remaining consumer/matrix gates.
+
 ## Current verification and limits
 
 M6 on 2026-10-28 passed `npm run check`: **216 tests** (118 database-independent, 98 integration)

@@ -1,10 +1,11 @@
 # Public API
 
-Status: M5 is implemented and locally verified: connections, pools/leases, session callbacks, transactions and
+Status: M1–M6 are implemented and locally verified: connections, pools/leases, session callbacks, transactions and
 savepoints, cancellation, immutable codecs, typed/JSON parameters, arrays, description, scripts, scope-owned named preparation, portal row streams, COPY byte transfer and dedicated notification listeners.
 Actual exports/types live in `src/index.ts`; [api-contract.ts](api-contract.ts) imports implemented
-signatures; only listener APIs remain proposals. [api-examples.ts](api-examples.ts) compiles with
-`npm run typecheck`. Listeners below remain design targets.
+signatures, including listeners. [api-examples.ts](api-examples.ts) compiles with
+`npm run typecheck`. Queries execute sequentially per physical connection. Pipelining is deferred
+outside the first release ([D33](decisions.md#d33--defer-pipelining-and-proceed-to-release-readiness)).
 
 ## Connections, pools, and ownership
 
@@ -301,8 +302,8 @@ no per-query acknowledgement. For 0.1, every active-operation cancellation retir
 connection after recovery or destroys it at the cleanup bound; it is never reused for a successor
 query that a late cancel might hit. Cancellation transports are bounded to one per retiring
 session with a five-second cleanup deadline; they are auxiliary sockets, not additional query
-sessions. Force-close disposes both the original and cancellation transports. Other sent operations on an eventual pipelined connection have
-their own outcomes and can be interrupted by retirement. A timeout never means a write rolled back.
+sessions. Force-close disposes both the original and cancellation transports.
+A timeout never means a write rolled back.
 
 `DriverError.code` uses `PGCLEAR_*`; `DatabaseError.code` preserves SQLSTATE with structured severity,
 position, constraint, table, and other diagnostics. `Outcome` is transport knowledge:

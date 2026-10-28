@@ -17,16 +17,16 @@ The report supports the existing milestone order: a sequential connection core, 
 owned pooling and cancellation, then broader features and optional optimizations. It adds concrete
 acceptance cases and identifies a gap in the planned JSON input API; M1 does not need to be rebuilt.
 
-| Finding                                                                                   | Consequence for pgclear                                                                                               |
-| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| SQL NULL and JSON null need different encodings                                           | M2 adds `json(value)`, including primitives and null; `param(null, codec)` remains typed SQL NULL                     |
-| pg numeric arrays rounded `9007199254740993.25`                                           | M2 must preserve that exact text and resolve built-in array element decoders through the scalar registry              |
-| Parsed JSON loses precision for large numeric tokens                                      | M2 offers explicit json/jsonb text codecs alongside the parsed defaults                                               |
-| Tenon's Describe promise settled while a pg timeout timer remained live                   | M2 Describe uses the ordinary operation settlement path and child-process exit tests for success and failure          |
-| A local encoding failure during named reuse could invalidate a later request with `26000` | M5 distinguishes submitted from confirmed preparation state; an encoding error cannot close or evict a good statement |
-| Acquisitions can remain authenticating after their caller expires                         | M3 owns attempts before checkout and tests close/abort with late credential and authentication results                |
-| One cleanup failure can prevent cleanup of other resources                                | M3 shutdown attempts all disposal paths before reporting failures                                                     |
-| Bugs occur across feature combinations                                                    | M3/M5/M7 add repeatable seeded operation sequences and explicit preparation/pipeline interaction coverage             |
+| Finding                                                                                   | Consequence for pgclear                                                                                                |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| SQL NULL and JSON null need different encodings                                           | M2 adds `json(value)`, including primitives and null; `param(null, codec)` remains typed SQL NULL                      |
+| pg numeric arrays rounded `9007199254740993.25`                                           | M2 must preserve that exact text and resolve built-in array element decoders through the scalar registry               |
+| Parsed JSON loses precision for large numeric tokens                                      | M2 offers explicit json/jsonb text codecs alongside the parsed defaults                                                |
+| Tenon's Describe promise settled while a pg timeout timer remained live                   | M2 Describe uses the ordinary operation settlement path and child-process exit tests for success and failure           |
+| A local encoding failure during named reuse could invalidate a later request with `26000` | M5 distinguishes submitted from confirmed preparation state; an encoding error cannot close or evict a good statement  |
+| Acquisitions can remain authenticating after their caller expires                         | M3 owns attempts before checkout and tests close/abort with late credential and authentication results                 |
+| One cleanup failure can prevent cleanup of other resources                                | M3 shutdown attempts all disposal paths before reporting failures                                                      |
+| Bugs occur across feature combinations                                                    | M3/M5 retain seeded lifecycle/preparation cases; any future pipeline proposal needs its own interaction coverage (D33) |
 
 Some recommendations target pg compatibility, which pgclear does not promise. Keep native bigint for
 int8 and bigint row counts; both preserve exact values. Keep rejecting undefined binds and ambiguous

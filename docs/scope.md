@@ -30,8 +30,9 @@ There is no application account system or deployment service to provision.
 0.1 includes ordinary queries, description without execution, explicit sessions, bounded pooling,
 transactions/savepoints, lossless codec defaults, named preparation with explicit disposal,
 cancellable operations, bounded shutdown, row streaming, COPY streams, and dedicated notification
-listeners. Opt-in pipelining is the last performance milestone and may ship after 0.1 if its recovery
-gate is not met. Sequential dispatch remains fully supported.
+listeners. Pipelining is deferred outside the first release ([D33](decisions.md#d33--defer-pipelining-and-proceed-to-release-readiness)).
+Queries execute sequentially per physical connection. Reconsider pipelining only for a demonstrated
+consumer need that justifies its lifecycle and recovery complexity.
 
 The Tenon integration gate is an earlier milestone, after query/description/session/pool/codec
 correctness. Tenon need not wait for notification supervision or performance work to trial the core.

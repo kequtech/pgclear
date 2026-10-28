@@ -3,7 +3,8 @@
 Status: M1–M6 are implemented and verified in PostgreSQL 16/18 CI, including dedicated notification
 listeners and native TLS/Unix/PgBouncer compatibility. The refreshed Tenon trial passes 20 candidate
 cases locally; full adoption and the consumer's PostgreSQL 18 run remain open. M7a adds reproducible
-benchmarks; opt-in pipelining remains conditional. See [development](development.md) for evidence.
+benchmarks and profiled improvements. M7b pipelining is deferred; M8 release readiness is next.
+See [development](development.md) for evidence and [D33](decisions.md#d33--defer-pipelining-and-proceed-to-release-readiness) for the scope decision.
 
 | Document                                                              | Responsibility                                               |
 | --------------------------------------------------------------------- | ------------------------------------------------------------ |

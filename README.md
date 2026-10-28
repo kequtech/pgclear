@@ -74,6 +74,6 @@ require `PGCLEAR_TEST_DATABASE_URL` naming an explicit `_test` database; the tes
 PgBouncer 1.26.1. See [development](docs/development.md#deployment-compatibility) for its disposable
 fixture, prerequisites and exact tested profiles.
 
-M7a provides opt-in [driver benchmarks](benchmarks/README.md) with pinned pg/Postgres.js comparators,
-raw latency samples, CPU/RSS and added network delay. Pipelining remains a conditional later slice;
+M7a provides opt-in [driver benchmarks](https://github.com/kequtech/pgclear/tree/main/benchmarks) with pinned pg/Postgres.js comparators,
+raw latency samples, CPU/RSS and added network delay. Pipelining is deferred outside the first release;
 pgclear currently executes one operation at a time per connection.

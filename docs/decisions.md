@@ -516,3 +516,22 @@ checks unnamed queries and transaction pinning/recovery. The local result is Pos
 16/18 compatibility jobs are configured without claiming their results before execution.
 Subsequently, all four driver/deployment jobs passed for `0d31732` in
 [run 40728530629](https://github.com/kequtech/pgclear/actions/runs/40728530629).
+
+## D33 — Defer pipelining and proceed to release readiness
+
+On 2026-10-28 the maintainer deferred M7b. M7a's measurements and profile-guided improvements are
+complete; the next milestone is M8 release readiness. The first release keeps sequential execution
+per physical connection. Pipelining is not a 0.1 requirement or a promised follow-up release.
+
+The comparator probe shows a large opportunity for many small requests available ahead of time
+over a higher-latency connection. That result does not establish a current consumer need. Supporting
+multiple sent operations would expand result ownership, transport backpressure, memory limits,
+cancellation/unknown outcomes, exclusive-operation barriers and the regression matrix. The added
+maintenance responsibility is not justified for the current release scope.
+
+Retain the benchmark evidence and future safety constraints. Add no pipeline option, placeholder
+mode or speculative scheduler abstraction. Reconsider only for a demonstrated consumer workload
+whose latency/concurrency still warrants the cost after suitable SQL batching, COPY or pooling.
+Any future proposal must preserve operation ownership, bounded memory and the default sequential
+path, and prove recovery as well as throughput. This supersedes M7b's conditional place before M8;
+it does not change implemented query, transaction, stream, COPY or listener behavior.

@@ -6,9 +6,11 @@ measurements, not release gates or universal rankings.
 
 ## Reproduce
 
-Use Node 24+, the root npm dependencies, `tar`, and the existing `PGCLEAR_TEST_DATABASE_URL` in
+Run from the repository checkout with Node 24+, the root npm dependencies, `tar`, and the existing `PGCLEAR_TEST_DATABASE_URL` in
 `.env`. The runner accepts only a TCP database whose name ends in `_test`, with TLS disabled and
 no URL options other than `sslmode=disable`. It creates no tables or persistent database objects.
+Benchmark documentation, retained results, scripts and comparator dependencies belong to the
+repository checkout and are available on GitHub.
 
 ```sh
 npm ci --prefix benchmarks --ignore-scripts --no-audit --no-fund
@@ -95,9 +97,10 @@ See [PostgreSQL's pipeline documentation](https://www.postgresql.org/docs/18/lib
 
 It also expands the driver's recovery responsibilities: several requests may already be sent when
 an error, cancellation or shutdown occurs. Correct result ownership, sent-queue limits and explicit
-transaction boundaries must survive those cases. M7b would start with bounded ordinary queries on
-exclusive sessions; streaming, COPY and managed transaction semantics would retain their existing
-ownership rules. The probe estimates the opportunity without introducing those runtime changes.
+transaction boundaries must survive those cases. The maintainer deferred M7b outside the first
+release because that maintenance cost is not justified by a current consumer requirement
+([D33](../docs/decisions.md#d33--defer-pipelining-and-proceed-to-release-readiness)). The probe remains
+useful evidence for a future decision; M8 release readiness is the next milestone.
 
 ## Profiling
 
@@ -191,7 +194,7 @@ Validation at that checkpoint passes **219 driver/harness tests**, **three nativ
 tests**, the original Tenon pg baseline's **180 tests**, and all **20 candidate consumer cases**.
 The final Tenon report is `.trial-dist/tenon-m4-kVzHLC/report.json`; its packed driver SHA256 matches
 the full benchmark's artifact. All follow-up runs here use PostgreSQL 16.15. PostgreSQL 18 CI
-evidence remains the earlier M6 checkpoint; full Tenon adoption and M7b remain separate work.
+evidence remains the earlier M6 checkpoint; full Tenon adoption remains open and M7b is deferred.
 
 ## Initial measurements
 
@@ -244,6 +247,6 @@ pipeline and 22.82 ms for Postgres.js's pipeline. This demonstrates an opportuni
 available ahead of time; it does not predict pgclear's eventual pipeline throughput. Existing code
 that awaits each response before submitting another query would still be sequential.
 
-These initial measurements motivated the profiled follow-up above. M7b remains optional and should
-follow an assessment of actual consumer concurrency/RTT. Full Tenon adoption and the M8 release
+These initial measurements motivated the profiled follow-up above. M7b is deferred pending a
+demonstrated consumer need. Full Tenon adoption and the M8 release
 checks remain separate correctness work. No benchmark result justifies weakening ownership rules.
