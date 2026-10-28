@@ -1,13 +1,10 @@
 # Public API
 
-Status: M2 is implemented locally: `connect`, connection query/describe/script/close, immutable
-codecs, explicit typed/JSON parameters, arrays, structured errors and bounded results. Actual
-exports/types live in `src/index.ts`; [api-contract.ts](api-contract.ts) imports implemented signatures
-and proposes later APIs. [api-examples.ts](api-examples.ts) compiles with `npm run typecheck`.
-Pool, transaction, preparation, streaming, COPY and listener examples below remain design targets.
-
-Active abort/deadline expiry currently destroys the socket. CancelRequest, managed transaction
-helpers and special COMMIT_UNKNOWN detection remain M3 work. Unknown OIDs remain strings.
+Status: M3 is implemented locally: connections, pools/leases, session callbacks, transactions and
+savepoints, cancellation, immutable codecs, typed/JSON parameters, arrays, description and scripts.
+Actual exports/types live in `src/index.ts`; [api-contract.ts](api-contract.ts) imports implemented
+signatures and names later additions `Planned*`. [api-examples.ts](api-examples.ts) compiles with
+`npm run typecheck`. Preparation, streaming, COPY and listeners below remain design targets.
 
 ## Connections, pools, and ownership
 
@@ -35,6 +32,9 @@ reject their returned promise. Invalid stream inputs surface through stream prom
 `pool.withSession` holds one lease for its callback; `pool.acquire` transfers explicit release
 responsibility. The callback receives no release or close method. A standalone connection owns its
 transport. `pool.close` closes only its own connections; applications own pools they pass to Tenon.
+`pool.stats.total` includes connecting and retiring sessions until their transports are disposed;
+`waiting` counts FIFO requests not yet assigned to a session/startup attempt. Every acquisition has
+a deadline, including time assigned to startup.
 `withSession` discards its connection if the callback throws, since arbitrary session cleanup may
 have failed; managed transactions can reuse a connection after a successful, verified rollback.
 
@@ -88,7 +88,7 @@ through this map reject. Never infer TLS mode from credentials or hostname.
 | `maxQueuedOperations` | 1,000   | Unsent operations per physical connection                           |
 | `maxMessageBytes`     | 64 MiB  | Maximum inbound protocol frame, including length word               |
 | `maxResultBytes`      | 64 MiB  | Buffered rows, metadata and command bytes, including framing        |
-| `maxConnections`      | 10      | Pool connection ceiling                                             |
+| `maxConnections`      | 10      | Query session ceiling                                               |
 | `maxWaiting`          | 1,000   | Pool acquisition waiters                                            |
 | `acquireTimeoutMs`    | 5,000   | Wait for an exclusive lease, including connection startup           |
 | `idleTimeoutMs`       | 30,000  | Retire an idle pooled connection; 0 disables                        |
@@ -261,7 +261,9 @@ Before dispatch, cancellation removes the queued operation and reports `outcome:
 dispatch, a private cancellation connection targets the recorded backend identity. CancelRequest has
 no per-query acknowledgement. For 0.1, every active-operation cancellation retires the original
 connection after recovery or destroys it at the cleanup bound; it is never reused for a successor
-query that a late cancel might hit. Other sent operations on an eventual pipelined connection have
+query that a late cancel might hit. Cancellation transports are bounded to one per retiring
+session with a five-second cleanup deadline; they are auxiliary sockets, not additional query
+sessions. Force-close disposes both the original and cancellation transports. Other sent operations on an eventual pipelined connection have
 their own outcomes and can be interrupted by retirement. A timeout never means a write rolled back.
 
 `DriverError.code` uses `PGCLEAR_*`; `DatabaseError.code` preserves SQLSTATE with structured severity,
@@ -274,9 +276,12 @@ position, constraint, table, and other diagnostics. `Outcome` is transport knowl
 - `unknown`: dispatch occurred but the definitive outcome was not observed.
 
 Lost COMMIT acknowledgement raises `PGCLEAR_COMMIT_UNKNOWN` with unknown outcome and preserves its
-cause. Never turn it into an ordinary retryable connection failure. Original work and cleanup errors
-remain inspectable with `AggregateError([workError, cleanupError])`, in that order. No automatic
-statement or transaction retries. Database diagnostics may themselves contain values; pgclear does
+cause. A definitive COMMIT tag confirms commit even if the transport closes before ReadyForQuery;
+the transaction succeeds and that connection is discarded. Never turn a lost response into an
+ordinary retryable connection failure. Original work and cleanup errors
+remain inspectable with `AggregateError([workError, cleanupError])`, in that order. Expired capabilities reject `PGCLEAR_EXPIRED`; a parent or sibling excluded by an active child
+rejects `PGCLEAR_BUSY`. Invalid managed state rejects `PGCLEAR_TRANSACTION_STATE`; leaked one-off
+pool transaction state rejects `PGCLEAR_SESSION_STATE`. No automatic statement or transaction retries. Database diagnostics may themselves contain values; pgclear does
 not log them automatically. Telemetry excludes SQL, parameters, credentials and backend cancel keys.
 
 ## Streams, COPY, notifications, and close

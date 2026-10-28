@@ -6,6 +6,13 @@ import type {
   WireFormat,
   Row,
   TransactionStatus,
+  ConnectionOptions,
+  PoolOptions,
+  Pool,
+  Lease,
+  Session,
+  Transaction,
+  TransactionOptions,
   Outcome,
   DatabaseNotice,
   Field,
@@ -28,9 +35,8 @@ import type {
   DescribeStatement,
   Description,
   Executor,
-  ConnectionOptions as ImplementedConnectionOptions,
 } from '../src/index.js';
-export { connect, DriverError, DatabaseError } from '../src/index.js';
+export { connect, createPool, DriverError, DatabaseError } from '../src/index.js';
 export type {
   Oid,
   WireFormat,
@@ -60,15 +66,17 @@ export type {
   Description,
   Executor,
   DatabaseNotice,
+  ConnectionOptions,
+  PoolOptions,
+  Pool,
+  Lease,
+  Session,
+  Transaction,
+  TransactionOptions,
 } from '../src/index.js';
 
 export { param, json, defaultCodecs, builtin } from '../src/index.js';
 
-export interface TransactionOptions extends OperationOptions {
-  readonly isolation?: 'read committed' | 'repeatable read' | 'serializable';
-  readonly readOnly?: boolean;
-  readonly deferrable?: boolean;
-}
 export type StreamCompletion =
   { readonly status: 'complete'; readonly result: CommandResult } | { readonly status: 'closed' };
 export interface RowStream<T> extends AsyncIterable<T> {
@@ -108,12 +116,12 @@ export interface PreparedStatement {
   ): Promise<QueryResult<T>>;
   close(): Promise<void>;
 }
-export interface Transaction extends StreamingExecutor {
+export interface PlannedTransaction extends StreamingExecutor {
   readonly info: SessionInfo;
   readonly transactionStatus: TransactionStatus;
-  savepoint<T>(work: (transaction: Transaction) => Promise<T>): Promise<T>;
+  savepoint<T>(work: (transaction: PlannedTransaction) => Promise<T>): Promise<T>;
 }
-export interface Session extends StreamingExecutor {
+export interface PlannedSession extends StreamingExecutor {
   readonly info: SessionInfo;
   readonly transactionStatus: TransactionStatus;
   script(text: string, options?: OperationOptions): Promise<readonly QueryResult[]>;
@@ -122,21 +130,24 @@ export interface Session extends StreamingExecutor {
     options?: OperationOptions,
   ): Promise<PreparedStatement>;
   transaction<T>(
-    work: (transaction: Transaction) => Promise<T>,
+    work: (transaction: PlannedTransaction) => Promise<T>,
     options?: TransactionOptions,
   ): Promise<T>;
 }
-export interface PlannedConnection extends Session {
+export interface PlannedConnection extends PlannedSession {
   close(options?: CloseOptions): Promise<void>;
 }
-export interface Lease extends Session {
+export interface PlannedLease extends PlannedSession {
   release(options?: { readonly discard?: boolean }): Promise<void>;
 }
-export interface Pool extends Executor {
-  acquire(options?: OperationOptions): Promise<Lease>;
-  withSession<T>(work: (session: Session) => Promise<T>, options?: OperationOptions): Promise<T>;
+export interface PlannedPool extends Executor {
+  acquire(options?: OperationOptions): Promise<PlannedLease>;
+  withSession<T>(
+    work: (session: PlannedSession) => Promise<T>,
+    options?: OperationOptions,
+  ): Promise<T>;
   transaction<T>(
-    work: (transaction: Transaction) => Promise<T>,
+    work: (transaction: PlannedTransaction) => Promise<T>,
     options?: TransactionOptions,
   ): Promise<T>;
   readonly stats: {
@@ -147,32 +158,6 @@ export interface Pool extends Executor {
   };
   close(options?: CloseOptions): Promise<void>;
 }
-
-/** Reuses the implemented configuration; only future observation kinds are added here. */
-export interface ConnectionOptions extends Omit<ImplementedConnectionOptions, 'onEvent'> {
-  readonly onEvent?: (event: DriverEvent) => void;
-}
-export interface PoolOptions extends ConnectionOptions {
-  readonly maxConnections?: number;
-  readonly maxWaiting?: number;
-  readonly acquireTimeoutMs?: number;
-  readonly idleTimeoutMs?: number;
-  readonly maxLifetimeMs?: number;
-}
-export declare function createPool(options: string | PoolOptions): Pool;
-
-export type DriverEvent =
-  | { readonly type: 'connect'; readonly session: SessionInfo }
-  | { readonly type: 'disconnect'; readonly session: SessionInfo; readonly expected: boolean }
-  | { readonly type: 'notice'; readonly session: SessionInfo; readonly notice: DatabaseNotice }
-  | {
-      readonly type: 'operation';
-      readonly sessionId: number;
-      readonly operation: 'query' | 'describe' | 'prepare' | 'script' | 'stream' | 'copy';
-      readonly durationMs: number;
-      readonly outcome: Outcome;
-      readonly errorCode?: string;
-    };
 
 export interface Notification {
   readonly channel: string;

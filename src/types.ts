@@ -88,11 +88,52 @@ export interface Executor {
   ): Promise<QueryResult<T>>;
   describe(statement: string | DescribeStatement, options?: OperationOptions): Promise<Description>;
 }
-export interface Connection extends Executor {
+export interface TransactionOptions extends OperationOptions {
+  readonly isolation?: 'read committed' | 'repeatable read' | 'serializable';
+  readonly readOnly?: boolean;
+  readonly deferrable?: boolean;
+}
+export interface Transaction extends Executor {
+  readonly info: SessionInfo;
+  readonly transactionStatus: TransactionStatus;
+  savepoint<T>(work: (transaction: Transaction) => Promise<T>): Promise<T>;
+}
+export interface Session extends Executor {
   readonly info: SessionInfo;
   /** Last observed ReadyForQuery status; this is not a liveness probe. */
   readonly transactionStatus: TransactionStatus;
   script(text: string, options?: OperationOptions): Promise<readonly QueryResult[]>;
+  transaction<T>(
+    work: (transaction: Transaction) => Promise<T>,
+    options?: TransactionOptions,
+  ): Promise<T>;
+}
+export interface Connection extends Session {
+  close(options?: CloseOptions): Promise<void>;
+}
+export interface Lease extends Session {
+  release(options?: { readonly discard?: boolean }): Promise<void>;
+}
+export interface PoolOptions extends ConnectionOptions {
+  readonly maxConnections?: number;
+  readonly maxWaiting?: number;
+  readonly acquireTimeoutMs?: number;
+  readonly idleTimeoutMs?: number;
+  readonly maxLifetimeMs?: number;
+}
+export interface Pool extends Executor {
+  acquire(options?: OperationOptions): Promise<Lease>;
+  withSession<T>(work: (session: Session) => Promise<T>, options?: OperationOptions): Promise<T>;
+  transaction<T>(
+    work: (transaction: Transaction) => Promise<T>,
+    options?: TransactionOptions,
+  ): Promise<T>;
+  readonly stats: {
+    readonly total: number;
+    readonly idle: number;
+    readonly leased: number;
+    readonly waiting: number;
+  };
   close(options?: CloseOptions): Promise<void>;
 }
 export interface PasswordContext {

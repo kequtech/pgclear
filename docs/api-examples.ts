@@ -11,6 +11,8 @@ import {
   type ConnectionOptions,
   type Pool,
   type Session,
+  type PlannedSession,
+  type PlannedPool,
 } from './api-contract.js';
 
 export async function standalone(connectionString: string) {
@@ -44,7 +46,7 @@ export async function poolUsage(connectionString: string) {
   }
 }
 
-export async function descriptionAndPreparation(session: Session) {
+export async function descriptionAndPreparation(session: PlannedSession) {
   const description = await session.describe('SELECT $1::integer AS value');
   const prepared = await session.prepare({
     text: 'SELECT $1::integer AS value',
@@ -116,7 +118,7 @@ export async function migrationLock(pool: Pool) {
   });
 }
 
-export async function streamRows(pool: Pool) {
+export async function streamRows(pool: PlannedPool) {
   return pool.withSession(async (session) => {
     const stream = session.stream<{ id: number }>('SELECT generate_series(1, 1000) AS id', {
       batchSize: 100,
@@ -129,7 +131,7 @@ export async function streamRows(pool: Pool) {
   });
 }
 
-export async function copy(session: Session, source: AsyncIterable<Uint8Array>) {
+export async function copy(session: PlannedSession, source: AsyncIterable<Uint8Array>) {
   await session.copyFrom('COPY example (id) FROM STDIN', source);
   const output = session.copyTo('COPY example TO STDOUT');
   for await (const chunk of output) {

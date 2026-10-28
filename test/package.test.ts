@@ -72,7 +72,7 @@ test(
         `
       import assert from 'node:assert/strict';
       import * as driver from '@kequtech/pgclear';
-      assert.deepEqual(Object.keys(driver).sort(), ['DatabaseError', 'DriverError', 'builtin', 'connect', 'defaultCodecs', 'json', 'param']);
+      assert.deepEqual(Object.keys(driver).sort(), ['DatabaseError', 'DriverError', 'builtin', 'connect', 'createPool', 'defaultCodecs', 'json', 'param']);
       const client = await driver.connect({host: '127.0.0.1', port: ${server.port}});
       assert.equal(client.info.backendPid, 123);
       assert.deepEqual(await client.describe('BEGIN'), {parameterTypes: [], fields: []});
@@ -80,13 +80,16 @@ test(
       assert.ok(driver.json(null));
       assert.ok(driver.param(['9007199254740993.25', null], driver.builtin.numericArray));
       await client.close();
+      const pool = driver.createPool({host:'127.0.0.1',port:${server.port}});
+      assert.deepEqual(pool.stats,{total:0,idle:0,leased:0,waiting:0});
+      await pool.close();
     `,
       );
       await run(process.execPath, ['index.mjs'], { cwd: directory, timeout: 3000 });
       await writeFile(
         join(directory, 'index.ts'),
         `
-      import { connect, builtin, defaultCodecs, json, param, type Connection, type QueryResult, type PgArray } from '@kequtech/pgclear';
+      import { connect, createPool, builtin, defaultCodecs, json, param, type Connection, type QueryResult, type PgArray } from '@kequtech/pgclear';
       async function example(connection: Connection) {
         const nested: PgArray<number> = [[1,null],[2,3]];
         await connection.query({text:'SELECT $1, $2',values:[param(nested,builtin.int4Array),json(null)]});
@@ -100,6 +103,16 @@ test(
         const script = await connection.script('SELECT 1; SELECT 2');
         // @ts-expect-error Preparation is not implemented or exported in M2.
         await connection.prepare('SELECT 42');
+        const pool = createPool({maxConnections:2});
+        await pool.transaction(async tx => {
+          await tx.savepoint(async child => { await child.query('SELECT 1'); });
+          // @ts-expect-error Transaction callbacks cannot release a lease.
+          await tx.release();
+        });
+        const lease = await pool.acquire(); await lease.release();
+        // @ts-expect-error Multi-statement scripts require a held session.
+        await pool.script('SELECT 1; SELECT 2');
+        await pool.close();
         void oid; void script;
         return {count, result};
       }

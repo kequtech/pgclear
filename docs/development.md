@@ -28,10 +28,28 @@ JavaScript/TypeScript consumers, and real PostgreSQL integration tests. Set the 
 Fake-server tests require loopback/Unix sockets. Integration tests require `psql`; packed-consumer
 tests use `tar` and reuse only runtime dependencies declared in the packed manifest. TLS fixtures
 are explicitly public test-only keys/certificates. The package remains private; `npm pack` exercises
-distribution locally and does not publish it. The runtime exports are `connect`, `DriverError`, `DatabaseError`, `builtin`, `defaultCodecs`, `param`
+distribution locally and does not publish it. The runtime exports are `connect`, `createPool`, `DriverError`, `DatabaseError`, `builtin`, `defaultCodecs`, `param`
 and `json`.
 
 ## Current verification and limits
+
+On 2026-10-28, M3 passed `npm run check`: 93 tests (49 database-independent, 44 integration) against
+local PostgreSQL 16.15. Added coverage includes lazy/capacity-accounted pooling, FIFO and canceled
+acquisitions, cold concurrent startup, expired leases/callbacks, release during activity, idle/lifetime
+retirement, scoped transactions/savepoints, manual SQL-error recovery, poisoned savepoint recovery,
+accepted unawaited work, backend loss during/between transaction statements and whole-callback
+deadlines. A seeded checkout/release/cancel sequence retains its seed for failures.
+
+Fake servers distinguish lost COMMIT, an explicit ROLLBACK tag and a COMMIT tag followed by lost
+ReadyForQuery. Shutdown tests cover TCP/TLS/auth/startup, late credentials, cancellation transport
+faults, forced disposal and all-resource cleanup after a disposer rejects. Cancellation verifies TLS
+and backend-key packets on a separate transport. Packed consumers import the actual M3 API and exit
+after close. Child processes exit after successful/failed session and transaction callbacks with
+one-hour deadlines, and their external abort listeners are removed. PostgreSQL cancellation responses are now observed; timeout alone still cannot establish
+rollback. Existing M1/M2 regression coverage remains in the same suite.
+
+M2 was pushed as `e37c28b`; its CI result was deliberately not awaited before M3 at the maintainer's
+request. M3 is local and unpushed. No new PostgreSQL 16/18 CI success is claimed.
 
 On 2026-10-28, M2 passed `npm run check`: 63 tests (38 database-independent, 25 integration) against
 local PostgreSQL 16.15 and Node 24.4.1. M2 coverage includes exact scalar/numeric-array/bigint values,
@@ -48,8 +66,7 @@ fragmentation/coalescing, malformed frames/strings, RFC 7677 proof vectors, inva
 MD5 compatibility, verified TLS including wrong CA/hostname, SHA384 channel binding, Unix-socket
 passwords, deadline disposal and late credential results.
 
-M2 is verified locally; its PostgreSQL 16/18 CI run has not yet been observed. The CI evidence below
-applies to M1, not the unpushed M2 implementation.
+The CI evidence below applies to M1; it does not establish M2/M3 CI results.
 
 The [M1 CI run](https://github.com/kequtech/pgclear/actions/runs/40629729303) passed the full
 `npm run check` separately on PostgreSQL 16 and 18 for implementation commit `7529693` on 2026-10-28.
@@ -62,9 +79,10 @@ real-server TLS/proxy deployment matrix. SCRAM iteration counts above 100,000 an
 certificate signature digests fail explicitly. Default temporal/numeric/unknown types remain text;
 built-in arrays use the selected scalar decoders. JSON.parse still has JavaScript numeric precision
 limits; raw JSON codecs are the explicit alternative. Binary results and catalog-driven custom array
-discovery are not implemented. Active interruption currently destroys
-the transport rather than sending CancelRequest, and does not establish server rollback. M3 adds
-protocol cancellation and managed transaction handling, including COMMIT_UNKNOWN classification.
+discovery are not implemented. Active interruption uses protocol cancellation and retires the session, bounded by cleanup time;
+force-close disposes both transports. Managed scopes classify lost COMMIT responses separately.
+Tenon adaptation, prepared statements, streaming, COPY, listeners and a real proxy/TLS deployment
+matrix remain unverified later work.
 
 ## Test database
 
@@ -89,7 +107,7 @@ drops or resets the supplied database.
 ## GitHub checks and documentation
 
 The `Check` workflow runs `npm ci` and `npm run check` on pushes to main and pull requests, using
-PostgreSQL 16/18 service containers with SCRAM host authentication. M3 extends this matrix's coverage.
+PostgreSQL 16/18 service containers with SCRAM host authentication. M3 pool/transaction tests run in this same matrix without another workflow.
 
 The documentation workflow uses the canonical shared Kequtech action on docs changes pushed to main.
 It reads `SITE_EDITORIAL_INGEST_TOKEN` from GitHub Actions secrets and `kequtech.source` from the

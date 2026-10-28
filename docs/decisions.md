@@ -153,6 +153,23 @@ up to PostgreSQL's six-dimension limit. Reject ragged or nested-empty input befo
 lower-bound metadata outside the default JS representation. This replaces the initial requirement
 for a custom codec for multidimensional input without adding wrappers or catalog discovery.
 
+## D18 — Separate confirmed commit from reusable connection state
+
+M3 treats a received COMMIT command tag as definitive commit evidence. ReadyForQuery establishes
+that the session can accept another operation; losing it after COMMIT does not make the commit
+unknown. Return the callback result and discard the broken connection in that case. If COMMIT was
+dispatched without a definitive command/error response, return `PGCLEAR_COMMIT_UNKNOWN` and never
+retry. A ROLLBACK tag fails. Deterministic fake-server tests cover all three boundaries.
+
+## D19 — Reuse only after the operation's cleanup contract is satisfied
+
+A managed transaction may reuse its connection after verified rollback; an arbitrary withSession
+callback failure discards because its session cleanup is unknown. Ordinary SQL/encoding errors do
+not force replacement when the session remains safely idle. Active cancellation always retires the
+connection and owns its auxiliary transport through disposal. Pool shutdown attempts every resource,
+then aggregates cleanup failures. Keep these policies in the owning pool/session modules rather than
+adding a compatibility mode or an application-defined cleanup plugin.
+
 ## Deferred decisions
 
 These do not block the sequential core: pipelining configuration shape; binary result selection;

@@ -4,7 +4,8 @@ Work in the order below. Each milestone produces a usable, verifiable slice and 
 completion gate. Keep this document current by recording completed gates and evidence, not by
 maintaining a second backlog that can disagree with it. M1 is complete: its connection core passes
 local PostgreSQL 16 checks and the PostgreSQL 16/18 CI matrix. M2 is implemented and verified locally;
-its PostgreSQL 16/18 CI gate awaits a pushed implementation. M3 follows that verification.
+it was pushed as `e37c28b`. At the maintainer's request, M3 proceeds without waiting for the
+PostgreSQL 16/18 CI result. CI status for M2/M3 is not claimed here.
 
 ## M0 — Design and project setup (this change)
 
@@ -68,7 +69,7 @@ The [Tenon migration report](references/tenon-driver-migration-report.md) sharpe
 see [the assessment](tenon-integration.md#lessons-from-the-completed-migration) and decisions D14–D16.
 It does not reopen the completed M1 gate or change the milestone order.
 
-Implemented locally on 2026-10-28. The verification suite passes 63 tests (38 database-independent,
+Implemented and pushed on 2026-10-28 as `e37c28b`. Its verification suite passed 63 tests (38 database-independent,
 25 integration) against the supplied PostgreSQL 16 database. The packed-consumer test exercises the
 seven actual runtime exports. Describe child processes exit after success/server-error/abort/timeout,
 with abort listeners removed. See [development](development.md) for evidence and remaining limits.
@@ -104,6 +105,12 @@ Gate:
   result; scripts obey server transaction/error semantics and do not invent atomicity.
 
 ## M3 — Pool, leases, transactions and bounded interruption
+
+Implemented locally on 2026-10-28. Verification covers 93 tests (49 database-independent,
+44 integration) against PostgreSQL 16. The existing CI matrix automatically includes the added
+pool/session/transaction tests when pushed; neither PostgreSQL 16 nor 18 CI was awaited for this
+work. See [development](development.md) for verification details. M4's Tenon adapter is next;
+preparation, streaming, COPY and listeners remain later milestones.
 
 1. Implement capacity-accounted lazy pooling, bounded FIFO waiters, expiration generations,
    withSession, release/discard, idle retirement and lifetime retirement on release.
@@ -218,6 +225,6 @@ For one engineer, allow approximately 1–3 weeks for M1 experimentation, 6–12
 M1–M4, and 3–6 months cumulative for a credible M1–M6 release. These are uncertain effort envelopes,
 not deadlines or automation schedules. Authentication, cancellation races, codec edge cases and the
 Tenon value migration are the largest risks. M7 is deliberately separable from release correctness.
-After M2's PostgreSQL 16/18 CI verification, the next implementation task is M3. Do not
+M3 is implemented locally; the next implementation milestone is M4, the Tenon adapter trial. Do not
 start with benchmarks or runtime compatibility shims while the request/session state machine is
 still being established.

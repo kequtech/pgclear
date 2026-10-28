@@ -6,7 +6,7 @@ import { testConnection } from '../helpers/database.js';
 const within = { timeout: 10000 };
 
 test(
-  'active AbortSignal interruption destroys the session and preserves unknown outcome',
+  'active AbortSignal cancellation observes the server response and retires the session',
   within,
   async () => {
     const { client, applicationName } = await testConnection(),
@@ -17,17 +17,17 @@ test(
         client.query('SELECT pg_sleep(30)', { signal: controller.signal }),
         {
           code: 'PGCLEAR_ABORTED',
-          outcome: 'unknown',
+          outcome: 'confirmed',
         },
       );
       controller.abort();
       await interrupted;
       await client.close();
-      await admin.query({
-        text: `SELECT pg_cancel_backend(pid) FROM pg_stat_activity
-      WHERE pid=$1 AND application_name=$2`,
+      const remaining = await admin.query({
+        text: 'SELECT count(*) AS n FROM pg_stat_activity WHERE pid=$1 AND application_name=$2',
         values: [client.info.backendPid, applicationName],
       });
+      assert.equal(remaining.rows[0]!.n, 0n);
       await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_CLOSED' });
     } finally {
       await client.close();

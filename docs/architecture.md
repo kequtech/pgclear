@@ -26,9 +26,9 @@ Layer communication is ordinary functions, discriminated unions and small respon
 interfaces. Avoid a plugin framework, generic event bus, dependency injection container, or public
 raw-protocol escape hatch. Add an internal adapter only where a real boundary benefits testing.
 
-M2 implements config, protocol, auth, transport, codecs and connection modules. Transport owns socket/TLS
-lifetime; the connection owns authentication and protocol/request state. M3 can reuse that transport
-boundary for its separate cancellation connection. The codec module owns value conversion; `connection/query.ts` builds frontend operations.
+M3 implements config, protocol, auth, transport, codecs, connection, session and pool modules. Transport owns socket/TLS
+lifetime; the connection owns authentication and protocol/request state. Cancellation reuses that transport boundary for a separate
+verified connection without startup/authentication. The codec module owns value conversion; `connection/query.ts` builds frontend operations.
 Remaining module rows describe planned responsibility boundaries, not empty scaffolds.
 
 ## Physical connection state
@@ -61,7 +61,9 @@ is a separate field updated by every ReadyForQuery. Session status is not inferr
 A capability has `active -> expiring -> expired` state and a captured owner/generation. Expiring
 fences new calls synchronously before asynchronous cleanup. A physical connection becoming closed
 expires all child handles immediately. A pool lease generation changes on every checkout, even when
-the same physical socket is retained. Prepared/transaction handles capture the lease generation.
+the same physical socket is retained. Every lease and child scope is a fresh, permanently expiring object. M3 uses object ownership
+instead of a reusable numeric generation; a returned connection never reactivates its previous
+capability. Prepared handles will follow the same ownership rule.
 
 ## Operation ownership and dispatch
 
@@ -108,7 +110,7 @@ RowDescription/NoData, then await ReadyForQuery. No Bind/Execute is sent. Named 
 the same description cycle using a driver-generated name; explicit close sends Close(statement),
 Sync. Each preparation handle stores field/OID metadata, never permanently cached parser functions.
 Codecs belong to the immutable connection configuration. Dispose all lease-owned preparations before
-returning its connection; failed disposal discards it. External SQL that deallocates statements is
+returning its connection; failed disposal discards it. This named-preparation cleanup is M5 work. External SQL that deallocates statements is
 caller-owned and invalidates those handles on the subsequent server error.
 
 Named statement records distinguish submitting, confirmed, closing and expired states. Publish a
@@ -168,13 +170,17 @@ poison it merely because an earlier promise rejected. Expired capabilities rejec
 
 No wrapper can stop user JavaScript or undo external side effects. On abort or connection loss,
 expire the handle immediately, observe the still-running callback promise, and bound protocol
-cleanup. A lost COMMIT acknowledgement is a distinct unknown-outcome error. If work and cleanup
+cleanup. A lost COMMIT acknowledgement is a distinct unknown-outcome error. A received COMMIT command tag
+already establishes commit even if ReadyForQuery is subsequently lost; discard the connection
+while preserving that successful transaction result. If work and cleanup
 both fail, preserve both in ordered AggregateError; do not hide the original failure.
 
 ## Cancellation and close
 
 Cancellation before send removes only the queued operation. Once sent, the request's recorded
-backend key is used on a separate bounded transport. Keep that key private. Record an interrupt
+backend key is used on a separate bounded transport. Keep that key private. Its transport uses the same verified TLS/Unix/TCP implementation, without
+a password exchange. At most one cancellation attempt belongs to a retiring session. Main and
+auxiliary transports both remain owned through shutdown and force-disposal. Record an interrupt
 intent separately from evidence of server completion. A canceled connection retires regardless of
 whether the original query finishes before the cancellation arrives, preventing late cancellation
 from affecting a subsequent lease. Waiting unsent operations reject; already sent operations retain
@@ -184,7 +190,10 @@ Close sets a permanent closing fence before doing asynchronous work. Stop waiter
 timers and listener retries; drain allowed work until its fixed deadline; destroy remaining sockets;
 dispose resources and settle every waiter/request. A late password, DNS, TLS or socket completion
 checks the fence before publishing resources. Use remaining absolute deadlines instead of restarting
-timeouts at every stage. Client-side disposal is distinct from remote backend termination.
+timeouts at every stage. Whole-scope deadlines include acquisition and synchronous encoder time.
+A transaction waiting behind pre-existing session work can expire without canceling that earlier
+work. Callback/loss listeners are removed on settlement; arbitrary late callback rejections remain
+observed even after its capability expires. Client-side disposal is distinct from remote backend termination.
 
 Pool close attempts cleanup of every owned connection/attempt even if one disposer fails. Collect
 cleanup errors after all attempts instead of allowing the first rejection to abandon other resources.

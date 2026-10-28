@@ -1,6 +1,6 @@
 # Canonical design documents
 
-Status: accepted initial design, 2026-10-28. The M2 connection/codecs/description/script core is implemented locally; later APIs remain
+Status: accepted initial design, 2026-10-28. The M3 connection/pool/transaction core is implemented locally; later APIs remain
 design targets. See [development](development.md) for the implemented subset and verification.
 
 | Document                                                              | Responsibility                                          |
@@ -24,7 +24,9 @@ intended usage and compile-time constraints; they are not runtime tests or evide
 
 Implemented shared signatures and `connect` are imported from `src/index.ts` in the design contract
 and examples. `PlannedConnection` describes the future complete session surface; the real
-`Connection` currently exposes query, describe, script, identity/status, and close. Later declarations are never
+`Connection` exposes query, describe, script, transaction, identity/status, and close. Pool, lease and
+transaction capability types also come from the real entry point; the `Planned*` types reserve only
+later preparation/stream/COPY additions. Later declarations are never
 published as executable exports. Packed-consumer tests exercise the actual package declarations.
 
 ## Evidence

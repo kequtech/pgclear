@@ -14,7 +14,6 @@ import type {
   CommandResult,
   Description,
   DescribeStatement,
-  Connection,
   ConnectionOptions,
   DriverEvent,
   Field,
@@ -27,12 +26,15 @@ import type {
   Statement,
   TransactionStatus,
 } from '../types.js';
+import { ConnectionHandle } from '../session/index.js';
+import { cancel } from '../transport/cancel.js';
 import { Transport } from '../transport/index.js';
 import { commandResult, encodeDescribe, encodeQuery, encodeScript } from './query.js';
 import { deadline, watchOperation } from './timing.js';
 
 interface Operation {
   readonly kind: 'query' | 'describe' | 'script';
+  readonly commit: boolean;
   wire: Buffer | undefined;
   readonly arrayMode: boolean;
   readonly complete: (operation: Operation) => void;
@@ -70,7 +72,7 @@ let sessionId = 0;
 const noOp = () => {};
 
 /** One physical session. It never reconnects or hands its state to a replacement transport. */
-class PhysicalConnection implements Connection {
+export class PhysicalConnection {
   readonly #config: Configuration;
   readonly #id = ++sessionId;
   readonly #decoder: FrameDecoder;
@@ -81,7 +83,15 @@ class PhysicalConnection implements Connection {
   #requestedClose = false;
   #terminationSent = false;
   #ready = false;
+  #dispatches = 0;
   #backendPid = 0;
+  #backendSecret: number | undefined;
+  #interruption: Error | undefined;
+  #cancelTask: Promise<void> | undefined;
+  #cancelController: AbortController | undefined;
+  #cancelError: unknown;
+  #disposed = Promise.withResolvers<void>();
+  #lost = new Set<() => void>();
   #info: SessionInfo | undefined;
   #parameters = new Map<string, string>();
   #status: TransactionStatus = 'idle';
@@ -91,8 +101,8 @@ class PhysicalConnection implements Connection {
   #active: Operation | undefined;
   #stopStartup = noOp;
   #stopClose = noOp;
+  #stopCancel = noOp;
   #closePromise: Promise<void> | undefined;
-  #closed = Promise.withResolvers<void>();
   #started = Promise.withResolvers<void>();
 
   constructor(config: Configuration) {
@@ -106,7 +116,7 @@ class PhysicalConnection implements Connection {
     });
   }
 
-  async open(options: OperationOptions): Promise<Connection> {
+  async open(options: OperationOptions): Promise<PhysicalConnection> {
     this.#stopStartup = watchOperation(
       options,
       (error) => this.#fail(error),
@@ -117,8 +127,40 @@ class PhysicalConnection implements Connection {
       await this.#started.promise;
       return this;
     } catch (error) {
-      await this.#closed.promise;
+      await this.#disposed.promise;
       throw error;
+    }
+  }
+
+  onLost(listener: () => void): () => void {
+    if (this.#dead) queueMicrotask(listener);
+    else this.#lost.add(listener);
+    return () => {
+      this.#lost.delete(listener);
+    };
+  }
+  commit(options: OperationOptions): Promise<QueryResult<object>> {
+    return this.#execute('query', () => encodeQuery('COMMIT'), options, result, true);
+  }
+  get dispatchCount(): number {
+    return this.#dispatches;
+  }
+  get usable(): boolean {
+    return !this.#dead && !this.#closing;
+  }
+  get closed(): Promise<void> {
+    return this.#disposed.promise;
+  }
+  dispose(): void {
+    this.#requestedClose = true;
+    this.#fail(new DriverError('PGCLEAR_CLOSED', 'Connection disposed.'));
+  }
+  interrupt(error: Error): void {
+    if (this.#dead || this.#interruption) return;
+    if (this.#active) this.#interrupt(this.#active, error);
+    else {
+      this.#requestedClose = true;
+      this.#fail(error);
     }
   }
 
@@ -142,7 +184,7 @@ class PhysicalConnection implements Connection {
   #socketClosed = (): void => {
     if (!this.#dead)
       this.#fail(new DriverError('PGCLEAR_CONNECTION_LOST', 'PostgreSQL connection closed.'));
-    this.#closed.resolve();
+    void (this.#cancelTask ?? Promise.resolve()).then(() => this.#disposed.resolve());
   };
 
   #data = (chunk: Buffer): void => {
@@ -254,7 +296,7 @@ class PhysicalConnection implements Connection {
     if (message.type === 'key') {
       if (this.#ready) throw protocolError('Unexpected backend key.');
       this.#backendPid = message.pid;
-      // Protocol cancellation is M3. Do not retain or expose unused cancellation secrets.
+      this.#backendSecret = message.secret;
       return;
     }
     if (message.type === 'notification') return;
@@ -279,8 +321,24 @@ class PhysicalConnection implements Connection {
             !(operation.kind === 'script' && operation.phase === 'script'))
         )
           throw protocolError('Unexpected ReadyForQuery.');
+        if (this.#interruption) await this.#cancelTask;
+        if (this.#dead) return;
         this.#active = undefined;
-        this.#settle(operation, operation.error, 'confirmed');
+        let error = operation.error;
+        if (this.#interruption) {
+          error =
+            this.#interruption instanceof DriverError
+              ? new DriverError(this.#interruption.code, this.#interruption.message, 'confirmed', {
+                  cause: error ?? this.#interruption,
+                })
+              : this.#interruption;
+          if (this.#cancelError)
+            error = new AggregateError(
+              [error, this.#cancelError],
+              'Operation interruption and cancellation cleanup failed.',
+            );
+        }
+        this.#settle(operation, error, 'confirmed');
         this.#pump();
       }
       return;
@@ -431,6 +489,7 @@ class PhysicalConnection implements Connection {
     encode: () => Buffer,
     options: QueryOptions | ArrayQueryOptions,
     read: (operation: Operation) => T,
+    commit = false,
   ): Promise<T> {
     const started = performance.now();
     return new Promise((resolve, reject) => {
@@ -452,6 +511,7 @@ class PhysicalConnection implements Connection {
           throw new DriverError('PGCLEAR_QUEUE_FULL', 'The connection queue is full.');
         operation = {
           kind,
+          commit,
           wire: undefined,
           arrayMode: kind === 'query' && options.rowMode === 'array',
           complete: (op) => {
@@ -514,7 +574,30 @@ class PhysicalConnection implements Connection {
   #interrupt(operation: Operation, error: Error): void {
     if (operation.phase === 'settled') return;
     if (operation.phase !== 'queued' && operation.phase !== 'encoding') {
-      this.#fail(error);
+      if (this.#interruption) return;
+      this.#interruption = error;
+      this.#closing = this.#requestedClose = true;
+      for (const queued of this.#queue.splice(0))
+        this.#settle(
+          queued,
+          new DriverError('PGCLEAR_CLOSED', 'Connection retired before dispatch.'),
+          'not-sent',
+        );
+      if (this.#backendSecret === undefined) {
+        this.#fail(error);
+        return;
+      }
+      this.#stopCancel = deadline(5000, () => this.#fail(error));
+      this.#cancelController = new AbortController();
+      this.#cancelTask = cancel(
+        this.#config,
+        this.#backendPid,
+        this.#backendSecret,
+        this.#cancelController.signal,
+      ).catch((cause) => {
+        this.#cancelError = cause;
+        this.#fail(error);
+      });
       return;
     }
     const index = this.#queue.indexOf(operation);
@@ -536,6 +619,7 @@ class PhysicalConnection implements Connection {
     }
     this.#active = operation;
     operation.phase = operation.kind === 'script' ? 'script' : 'parse';
+    this.#dispatches++;
     this.#write(operation.wire!);
   }
 
@@ -564,12 +648,30 @@ class PhysicalConnection implements Connection {
     this.#dead = this.#closing = true;
     this.#stopStartup();
     this.#stopClose();
+    this.#stopCancel();
+    this.#cancelController?.abort();
     this.#started.reject(error);
     const active = this.#active;
     this.#active = undefined;
     if (active) {
-      const failure = active.error ?? error;
-      this.#settle(active, failure, active.confirmed ? 'confirmed' : 'unknown');
+      const knownCommit =
+        active.commit &&
+        active.command?.commandTag === 'COMMIT' &&
+        !active.error &&
+        !this.#interruption;
+      let failure = this.#interruption ?? active.error ?? error;
+      if (active.commit && !active.confirmed)
+        failure = new DriverError(
+          'PGCLEAR_COMMIT_UNKNOWN',
+          'COMMIT was dispatched without a definitive response.',
+          'unknown',
+          { cause: failure },
+        );
+      this.#settle(
+        active,
+        knownCommit ? undefined : failure,
+        active.confirmed ? 'confirmed' : 'unknown',
+      );
     }
     for (const operation of this.#queue.splice(0)) {
       this.#settle(
@@ -583,7 +685,10 @@ class PhysicalConnection implements Connection {
     this.#messages = [];
     this.#auth = undefined;
     this.#parameters.clear();
+    this.#backendSecret = undefined;
     this.#transport.destroy();
+    for (const listener of this.#lost) listener();
+    this.#lost.clear();
     if (this.#info)
       this.#emit({ type: 'disconnect', session: this.#info, expected: this.#requestedClose });
   }
@@ -597,7 +702,10 @@ class PhysicalConnection implements Connection {
       const timeout = integer(options.timeoutMs ?? 5000, 'timeoutMs', 0);
       this.#requestedClose = true;
       this.#closing = true;
-      this.#closePromise = this.#closed.promise;
+      this.#closePromise = this.#disposed.promise.then(() => {
+        if (this.#cancelError)
+          throw new AggregateError([this.#cancelError], 'Cancellation cleanup failed.');
+      });
       if (!this.#dead) {
         if (timeout === 0)
           this.#fail(new DriverError('PGCLEAR_CLOSED', 'Connection closed at its deadline.'));
@@ -615,15 +723,20 @@ class PhysicalConnection implements Connection {
   }
 }
 
-export async function connect(
-  options: string | ConnectionOptions,
+export async function openConnection(
+  config: Configuration,
   operation: OperationOptions = {},
-): Promise<Connection> {
-  const config = normalizeConfiguration(options);
+): Promise<PhysicalConnection> {
   validateOperation(operation);
   if (operation.signal?.aborted)
     throw new DriverError('PGCLEAR_ABORTED', 'Connection startup aborted.');
   if (operation.timeoutMs === 0 || config.connectTimeoutMs === 0)
     throw new DriverError('PGCLEAR_TIMEOUT', 'Connection startup deadline expired.');
   return new PhysicalConnection(config).open(operation);
+}
+export async function connect(
+  options: string | ConnectionOptions,
+  operation: OperationOptions = {},
+): Promise<import('../types.js').Connection> {
+  return new ConnectionHandle(await openConnection(normalizeConfiguration(options), operation));
 }

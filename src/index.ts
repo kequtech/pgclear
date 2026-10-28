@@ -1,3 +1,4 @@
+export { createPool } from './pool/index.js';
 export { connect } from './connection/index.js';
 export { DriverError, DatabaseError } from './errors.js';
 export { defaultCodecs, builtin } from './codecs/index.js';
@@ -9,6 +10,12 @@ export type {
   CommandResult,
   Connection,
   ConnectionOptions,
+  Pool,
+  PoolOptions,
+  Lease,
+  Session,
+  Transaction,
+  TransactionOptions,
   Executor,
   DatabaseNotice,
   DriverEvent,

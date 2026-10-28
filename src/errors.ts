@@ -12,7 +12,11 @@ export type DriverErrorCode =
   | 'PGCLEAR_DECODE'
   | 'PGCLEAR_PROTOCOL'
   | 'PGCLEAR_RESULT_LIMIT'
-  | 'PGCLEAR_COMMIT_UNKNOWN';
+  | 'PGCLEAR_COMMIT_UNKNOWN'
+  | 'PGCLEAR_EXPIRED'
+  | 'PGCLEAR_BUSY'
+  | 'PGCLEAR_SESSION_STATE'
+  | 'PGCLEAR_TRANSACTION_STATE';
 
 export class DriverError extends Error {
   override readonly name = 'DriverError';

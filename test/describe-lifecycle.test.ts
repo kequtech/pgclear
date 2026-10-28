@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { fakeServer, i32, packet, ready, startupReady, z } from './helpers/server.js';
+import { type Peer, fakeServer, i32, packet, ready, startupReady, z } from './helpers/server.js';
 
 const run = promisify(execFile);
 test(
@@ -12,8 +12,20 @@ test(
   { timeout: 15000 },
   async () => {
     for (const scenario of ['success', 'server-error', 'timeout', 'abort'] as const) {
+      let primary: Peer | undefined;
       const server = await fakeServer(async (peer) => {
-        await peer.startup();
+        const length = (await peer.bytes(4)).readUInt32BE();
+        const body = await peer.bytes(length - 4);
+        if (body.readUInt32BE() === 80877102) {
+          assert.equal(length, 16);
+          assert.equal(body.readUInt32BE(4), 123);
+          assert.equal(body.readUInt32BE(8), 456);
+          peer.socket.end();
+          primary!.socket.end();
+          return;
+        }
+        assert.equal(body.readUInt32BE(), 196608);
+        primary = peer;
         peer.socket.write(startupReady);
         assert.equal((await peer.message()).type, 'P');
         assert.equal((await peer.message()).type, 'D');
@@ -79,8 +91,20 @@ test(
   { timeout: 5000 },
   async () => {
     const { connect } = await import('../src/index.js');
+    let primary: Peer | undefined;
     const server = await fakeServer(async (peer) => {
-      await peer.startup();
+      const length = (await peer.bytes(4)).readUInt32BE();
+      const body = await peer.bytes(length - 4);
+      if (body.readUInt32BE() === 80877102) {
+        assert.equal(length, 16);
+        assert.equal(body.readUInt32BE(4), 123);
+        assert.equal(body.readUInt32BE(8), 456);
+        peer.socket.end();
+        primary!.socket.end();
+        return;
+      }
+      assert.equal(body.readUInt32BE(), 196608);
+      primary = peer;
       peer.socket.write(startupReady);
       await peer.message();
       await peer.message();
