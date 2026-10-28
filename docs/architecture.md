@@ -28,6 +28,11 @@ Layer communication is ordinary functions, discriminated unions and small respon
 interfaces. Avoid a plugin framework, generic event bus, dependency injection container, or public
 raw-protocol escape hatch. Add an internal adapter only where a real boundary benefits testing.
 
+`identity.ts` shares versioned weak maps across package installations in one realm for parameters,
+registries, decoder representations, executor scopes and errors. They retain no keys strongly and
+do not share connection schedulers or change ownership. Foreign handles still execute through the
+creating copy's scope and methods. Incompatible internal identity contracts require new keys.
+
 M1–M6 implement these boundaries. Transport owns socket/TLS lifetime; the connection owns
 authentication and protocol/request state. Cancellation reuses that transport boundary for a separate
 verified connection without startup/authentication. Codecs own value conversion;

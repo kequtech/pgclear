@@ -18,6 +18,7 @@ See [development](development.md) for evidence and [D33](decisions.md#d33--defer
 | [M5 handoff](m5-handoff.md)                                           | Historical starting brief for the prepared-statement slice   |
 | [Tenon integration](tenon-integration.md)                             | First-consumer requirements and migration gate               |
 | [Development](development.md)                                         | Actual setup, verification, and contributor commands         |
+| [SASLprep evaluation](saslprep-evaluation.md)                         | Dependency purpose, compatibility gap and removal plan       |
 | [Tenon trial](tenon-trial.md)                                         | Pinned consumer trial, evidence and adoption limits          |
 | [Benchmarks](../benchmarks/README.md)                                 | Reproduction, comparison settings, measurements and limits   |
 | [Tenon migration report](references/tenon-driver-migration-report.md) | Preserved first-consumer evidence and recommendations        |

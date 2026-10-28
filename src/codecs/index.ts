@@ -2,6 +2,7 @@ import { DriverError } from '../errors.js';
 import type { Codec, CodecRegistry, Field } from '../types.js';
 import { arrayElements, parseArray } from './arrays.js';
 import { builtin, oidCodec } from './builtin.js';
+import { sharedWeakMap } from '../identity.js';
 
 export function snapshotCodec<T>(codec: Codec<T>): Codec<T> {
   const invalid = (): never => {
@@ -55,9 +56,8 @@ const scalarTypes = [
 const scalars: ReadonlyMap<number, Decoder> = new Map(
   scalarTypes.map(([codec]) => [codec.oid, codec.text!.decode]),
 );
-const knownTypes = new Map<NonNullable<Decoder>, string>(
-  scalarTypes.map(([codec, type]) => [codec.text!.decode, type]),
-);
+const knownTypes = sharedWeakMap<NonNullable<Decoder>, string>('decoder-types');
+for (const [codec, type] of scalarTypes) knownTypes.set(codec.text!.decode, type);
 for (const codec of Object.values(builtin)) {
   const element = arrayElements.get(codec.oid);
   if (element !== undefined && codec.text) {
@@ -67,11 +67,13 @@ for (const codec of Object.values(builtin)) {
 }
 // PostgreSQL field bytes are data, not a BOM-prefixed document.
 const utf8 = new TextDecoder('utf8', { fatal: true, ignoreBOM: true });
+const registries = sharedWeakMap<CodecRegistry, Registry>('registries');
 
 class Registry implements CodecRegistry {
   readonly #overrides: ReadonlyMap<number, Decoder>;
   constructor(overrides: ReadonlyMap<number, Decoder> = new Map()) {
     this.#overrides = overrides;
+    registries.set(this, this);
     Object.freeze(this);
   }
   with<T>(codec: Codec<T>): CodecRegistry {
@@ -82,6 +84,8 @@ class Registry implements CodecRegistry {
   }
   /** Custom decoder functions have erased return types; generation must not guess. */
   typescript(oid: number): string | undefined {
+    if (!Number.isInteger(oid) || oid < 1 || oid > 0xffffffff)
+      throw new DriverError('PGCLEAR_CONFIGURATION', 'Expected a PostgreSQL type OID.');
     if (this.#overrides.has(oid)) {
       const decode = this.#overrides.get(oid);
       return decode ? knownTypes.get(decode) : 'string';
@@ -121,11 +125,12 @@ class Registry implements CodecRegistry {
 }
 export const defaultCodecs: CodecRegistry = new Registry();
 export function registry(value: CodecRegistry): Registry {
-  if (!(value instanceof Registry))
+  const selected = registries.get(value);
+  if (!selected)
     throw new DriverError(
       'PGCLEAR_CONFIGURATION',
       'Use defaultCodecs.with() to construct a codec registry.',
     );
-  return value;
+  return selected;
 }
 export { builtin } from './builtin.js';

@@ -26,6 +26,8 @@ export interface Codec<T> {
 }
 export interface CodecRegistry {
   with<T>(codec: Codec<T>): CodecRegistry;
+  /** Known non-NULL text-result type; undefined means an unrecognized custom decoder. */
+  typescript(oid: Oid): string | undefined;
 }
 
 export interface Field {

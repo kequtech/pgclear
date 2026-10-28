@@ -260,6 +260,19 @@ test(
       );
       assert.equal(described.columns[0].source.column, 'id');
       assert.equal(described.context.readMappings, clear ? 'pgclear' : 'pg');
+      if (clear) {
+        const nativeTypes = await describeQuery({
+          connection: url,
+          query: `
+          SELECT 1::bigint AS exact, ARRAY[1::bigint,NULL] AS items,
+            1.5::numeric AS decimal, '{}'::jsonb AS document, ''::bytea AS bytes,
+            '2026-10-29'::date AS date`,
+        });
+        for (const column of nativeTypes.columns)
+          assert.equal(column.readType, defaultCodecs.typescript(column.oid));
+        assert.equal(nativeTypes.columns[0].readType, 'bigint');
+        assert.equal(nativeTypes.columns[1].readType, 'PgArray<bigint>');
+      }
       await describeQuery({ connection: url, query: `SELECT nextval('"${name}".untouched')` });
       assert.equal(
         (await admin.query(`SELECT is_called FROM "${name}".untouched`)).rows[0].is_called,

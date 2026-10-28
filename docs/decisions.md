@@ -107,6 +107,10 @@ certificate's signature hash (including SHA384), rather than assuming every cert
 This is a concrete exception to the initial zero-runtime-dependency preference, supported by the
 authentication correctness requirement.
 
+The [2026-10-29 evaluation](saslprep-evaluation.md) records a confirmed unassigned-character
+compatibility gap and a focused plan to replace the helper with fixed tables and native NFKC.
+D12 remains the implementation choice until the PostgreSQL/libpq differential checks pass.
+
 ## D13 — Buffered result limits charge framing and metadata
 
 `maxResultBytes` counts complete DataRow wire bytes, including the row header and each field's length
@@ -209,7 +213,7 @@ while correctness and applicable M4 adoption gates are addressed.
 ## D22 — Describe and decoder contracts support external type generation
 
 Historical discussion: D25 narrowed tooling ownership, and D34 later moved schema generation into
-pgclear. A public codec-description API remains unimplemented and needs a concrete consumer need.
+pgclear. D35 implements a minimal TypeScript representation API for Tenon's concrete inspection need.
 
 The generator-first workflow below is superseded as the preferred path by D23. Its Describe and
 selected-codec requirements remain applicable; generation remains a possible separate consumer.
@@ -222,9 +226,8 @@ generation CLI to support them. This refines the suggested generator alongside p
 consumer-owned workflow with reusable driver metadata.
 
 Accept the requirement for public introspection of the selected decoder's read representation.
-There is no such API today; choose its exact signature and descriptor shape through a small consumer
-trial before implementation. Prefer language-neutral scalar/recursive-array descriptors and an
-explicit unresolved custom contract over TypeScript source strings in the driver. Resolution must
+D35 implements this requirement by exposing the existing generation mapping. This replaces the
+earlier preference for a separate language-neutral descriptor tree. Resolution must
 agree with actual decoding: explicit array overrides win, scalar overrides affect derived built-in
 arrays, raw and parsed JSON differ, and unknown text OIDs remain strings. Account for nullable array
 elements and unknown dimensions. Catalog labels alone cannot establish the selected JS output.
@@ -567,15 +570,37 @@ aliases and outer-join nullability still need appropriate query types and checki
 returns TypeScript source for later compilation/import; it cannot infer a new compile-time type
 from a live database during an application's execution.
 
-Tenon's current query inspection still has representation tables of its own. That is a remaining
-integration concern: checking should reuse generated model types or a small shared conversion
-description where needed, rather than let independent mappings drift. It does not require moving
-the checker into pgclear or expanding generation into project-wide tooling.
+D35 removes duplicate representation tables from the isolated Tenon candidate's query inspection
+by using the public registry mapping. Its active checkout remains unchanged. Checking can reuse
+generated model types and the same conversion descriptions without moving the checker into pgclear
+or expanding generation into project-wide tooling.
 
 Insert/update shapes describe schema writability, defaults and nullability. Optional properties
 represent omission by an SQL authoring tool, not permission to bind undefined. Arrays and JSON use
 explicit `Parameter` values or authored wire text; other columns use canonical native values or
 explicit parameters. There is no runtime validation of generated declarations.
+
+## D35 — Package identity and minimal decoder representations
+
+The Tenon review reproduced failures when identical pgclear installations exchanged JSON/typed
+parameters, registries and borrowed pools for generation. Share versioned weak identity tables in
+one JavaScript realm instead of requiring npm deduplication or replacing lifetime checks with duck
+typing. The tables hold parameter encoders, selected registries, known decoder types and executor
+scopes; the creating objects retain ownership. Error identity also crosses copies, preserving
+timeout classification and ordinary instanceof checks, including conventional subclass behavior.
+Only identical releases are supported; internal protocol changes must change the shared keys.
+
+Expose the existing `CodecRegistry.typescript(oid): string | undefined` mapping, already used by
+schema generation. Tenon's concrete consumer need is TypeScript inspection, and D34 already makes
+TypeScript generation a driver responsibility. Reusing the mapping is smaller than introducing a
+parallel language-neutral descriptor tree. Known JSON returns `'unknown'`; an unrecognized custom
+decoder returns `undefined`. Preserve scalar/derived-array overrides and unknown-OID wire text.
+Field nullability, domain/enum catalog interpretation, custom type declarations and query checking
+remain consumer responsibilities. No decoder is executed to discover a type.
+
+Execution now shares Describe/script's strict SQL text validator. Unpaired surrogates and NUL must
+reject with `PGCLEAR_ENCODE` and `not-sent`, rather than silently changing SQL during UTF-8 encoding.
+Packed two-installation workflows and malformed-text admission regressions cover these contracts.
 
 Generation uses the existing ownership/lifetime machinery and a repeatable-read, read-only
 transaction. Supplied pools/sessions are borrowed; connection configuration creates a short-lived

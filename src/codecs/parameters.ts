@@ -2,13 +2,14 @@ import { DriverError } from '../errors.js';
 import type { Codec, Parameter, WireFormat } from '../types.js';
 import { builtin, stringifyJson, textValue } from './builtin.js';
 import { snapshotCodec } from './index.js';
+import { sharedWeakMap } from '../identity.js';
 
 interface EncodedParameter {
   readonly oid: number;
   readonly format: number;
   readonly bytes: Buffer | null;
 }
-const descriptions = new WeakMap<Parameter, () => EncodedParameter>();
+const descriptions = sharedWeakMap<Parameter, () => EncodedParameter>('parameters');
 function description(encode: () => EncodedParameter): Parameter {
   const value = Object.freeze({}) as Parameter;
   descriptions.set(value, encode);

@@ -1,11 +1,10 @@
-import { defaultCodecs, registry } from '../codecs/index.js';
+import { defaultCodecs } from '../codecs/index.js';
+import type { CodecRegistry } from '../types.js';
 import type { ColumnRow, TableRow } from './catalog.js';
-
-type Registry = ReturnType<typeof registry>;
 
 function columnTypes(
   column: ColumnRow,
-  codecs: Registry,
+  codecs: CodecRegistry,
   path: string,
   warn: (message: string) => void,
 ) {
@@ -19,7 +18,7 @@ function columnTypes(
   }
   const choices = column.choices?.map((choice) => JSON.stringify(choice)).join(' | ') || 'never';
   if (column.typeKind === 'e' && read === 'string') read = choices;
-  let write = registry(defaultCodecs).typescript(oid)!;
+  let write = defaultCodecs.typescript(oid)!;
   if (column.typeKind === 'e') write = choices;
   if (write === 'unknown' || write.startsWith('PgArray<')) write = 'string';
   // Explicit parameters handle arrays, JSON and application-owned codecs without accepting
@@ -34,7 +33,7 @@ function columnTypes(
 export function renderDatabase(
   tables: readonly TableRow[],
   namespace: string,
-  codecs: Registry,
+  codecs: CodecRegistry,
   warn: (message: string) => void,
 ): string {
   let arrays = false,

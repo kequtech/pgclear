@@ -10,6 +10,7 @@ import { validateOperation, validateClose } from '../config/index.js';
 import { DriverError } from '../errors.js';
 import { OutputStream, PortalStream } from '../connection/stream.js';
 import { PreparedHandle } from './prepared.js';
+import { sharedWeakMap } from '../identity.js';
 import type {
   ArrayQueryOptions,
   CloseOptions,
@@ -159,14 +160,17 @@ export class Scope {
 }
 
 /** Internal catalog readers retain the same scope admission and operation ownership. */
+const scopes = sharedWeakMap<Executor, Scope>('executors');
 export function executorScope(executor: Executor): Scope {
-  if (!(executor instanceof ExecutorHandle))
-    throw new DriverError('PGCLEAR_CONFIGURATION', 'Expected a pgclear executor.');
-  return executor.scope;
+  const scope = scopes.get(executor);
+  if (!scope) throw new DriverError('PGCLEAR_CONFIGURATION', 'Expected a pgclear executor.');
+  return scope;
 }
 
 class ExecutorHandle {
-  constructor(readonly scope: Scope) {}
+  constructor(readonly scope: Scope) {
+    scopes.set(this, scope);
+  }
   get info() {
     return this.scope.connection.info;
   }

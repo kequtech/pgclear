@@ -1,4 +1,8 @@
 import type { Outcome } from './types.js';
+import { sharedWeakMap } from './identity.js';
+
+const driverErrors = sharedWeakMap<object, true>('driver-errors');
+const databaseErrors = sharedWeakMap<object, true>('database-errors');
 
 export type DriverErrorCode =
   | 'PGCLEAR_CONFIGURATION'
@@ -20,6 +24,11 @@ export type DriverErrorCode =
   | 'PGCLEAR_TRANSACTION_STATE';
 
 export class DriverError extends Error {
+  static [Symbol.hasInstance](value: unknown): boolean {
+    return this === DriverError
+      ? driverErrors.has(value as object)
+      : Function.prototype[Symbol.hasInstance].call(this, value);
+  }
   override readonly name = 'DriverError';
   constructor(
     readonly code: DriverErrorCode,
@@ -28,10 +37,16 @@ export class DriverError extends Error {
     options?: ErrorOptions,
   ) {
     super(message, options);
+    driverErrors.set(this, true);
   }
 }
 
 export class DatabaseError extends Error {
+  static [Symbol.hasInstance](value: unknown): boolean {
+    return this === DatabaseError
+      ? databaseErrors.has(value as object)
+      : Function.prototype[Symbol.hasInstance].call(this, value);
+  }
   override readonly name = 'DatabaseError';
   readonly code: string;
   readonly severity: string;
@@ -47,6 +62,7 @@ export class DatabaseError extends Error {
 
   constructor(fields: ReadonlyMap<string, string>) {
     super(fields.get('M') ?? 'PostgreSQL error');
+    databaseErrors.set(this, true);
     this.code = fields.get('C') ?? 'XX000';
     this.severity = fields.get('V') ?? fields.get('S') ?? 'ERROR';
     const attributes = {

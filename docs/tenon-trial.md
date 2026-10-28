@@ -4,6 +4,13 @@ Status: refreshed local PostgreSQL 16.15 consumer trial passes 20 candidate cont
 Tenon adoption gate remains open. Nothing was published and Tenon's active checkout was not modified.
 M6's driver and deployment checks separately pass PostgreSQL 16/18 CI.
 
+The D35 refresh passes at `.trial-dist/tenon-m4-PdEsod/report.json` on PostgreSQL 16.15. Candidate
+inspection uses `defaultCodecs.typescript(oid)` instead of its own conversion tables; the shared
+fixture compares bigint, array, numeric, JSON, bytea and temporal descriptions with that public API.
+The original pg baseline still passes 180 tests separately, and all 20 candidate contract cases pass.
+This adds evidence for the representation API, not full adapted-consumer or current PostgreSQL 18
+coverage. Tenon's active checkout remains unchanged.
+
 This trial is a consumer regression check, not pgclear's API specification or a pg compatibility
 target. Preserve independently useful PostgreSQL/driver invariants, and adapt Tenon's tests and
 contracts to intentional pgclear behavior. Do not recreate pg/Postgres.js quirks, private hooks or

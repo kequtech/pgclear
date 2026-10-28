@@ -313,6 +313,21 @@ shares native codec registrations and read-only transaction ownership. The isola
 delegates to the packed export, keeping migration locks and checking/file workflows in Tenon.
 This changes generation ownership, not the remaining full consumer-adoption or 16/18 gates.
 
+D35 resolves same-version package-copy interoperability and exposes the existing selected-codec
+TypeScript mapping. A packed regression exchanges real parameters, registries, generation scopes
+and errors in both directions and compiles consumer declarations. Strict SQL admission is shared
+across entrypoints. The separate [SASLprep evaluation](saslprep-evaluation.md) records its remaining
+authentication edge case and proposed dependency removal.
+
+Judge adoption by reduced consumer responsibility: Tenon should delete duplicate transaction-loss
+supervision, driver-internal shutdown/Describe access and default conversion tables as their
+behavioral regressions pass. Preserve cardinality, guarded-write, migration and query-checking
+policies in Tenon. Record the actual removed responsibilities alongside the full consumer results.
+Failure tests must continue to demonstrate expiry, cleanup, cancellation isolation and accurate
+write evidence. Runtime/generated types must agree under overrides, ordinary installation layouts
+must work, and representative latency/CPU/memory costs must remain acceptable. Benchmark wins or
+feature breadth alone do not establish these guarantees or superiority over other drivers.
+
 Remaining work, in order:
 
 1. Finish the applicable Tenon behavioral regression and public type-example port in the isolated
@@ -322,8 +337,8 @@ Remaining work, in order:
    candidate adoption. Preserve deliberate pgclear representations and update consumer documentation.
 2. Validate the full adapted consumer and current driver on PostgreSQL 16/18, including native
    TLS/Unix/PgBouncer profiles. Existing CI success at `0d31732` does not verify the newer runtime
-   `990ac77`; its 219-test check, compatibility suite and consumer trial are local PostgreSQL 16.15
-   evidence. Keep those gates distinct.
+   performance, generation and D35 interoperability changes; their checks, compatibility suites and
+   consumer trials are local PostgreSQL 16.15 evidence. Keep those gates distinct.
 3. Finish package/documentation consistency and attribution review, record supported/deferred
    behavior, then review 0.1.0 readiness. Keep `private: true` and version 0.0.0 during readiness;
    continue the consumer port in the isolated fixture while preserving Tenon's active checkout.

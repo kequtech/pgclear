@@ -17,6 +17,43 @@ const field = (oid: number): Field => ({
 const decode = (oid: number, text: string, codecs = defaultCodecs) =>
   registry(codecs).decode(Buffer.from(text), field(oid));
 
+test('public TypeScript representations follow the selected text decoders', () => {
+  for (const [oid, expected] of [
+    [16, 'boolean'],
+    [23, 'number'],
+    [20, 'bigint'],
+    [1700, 'string'],
+    [17, 'globalThis.Uint8Array'],
+    [1082, 'string'],
+    [1114, 'string'],
+    [1184, 'string'],
+    [114, 'unknown'],
+    [3802, 'unknown'],
+    [1007, 'PgArray<number>'],
+    [1016, 'PgArray<bigint>'],
+    [1231, 'PgArray<string>'],
+    [987654, 'string'],
+  ] as const)
+    assert.equal(defaultCodecs.typescript(oid), expected);
+  const custom = defaultCodecs.with({
+    oid: 23,
+    text: { encode: String, decode: (value) => ({ value }) },
+  });
+  assert.equal(custom.typescript(23), undefined);
+  assert.equal(custom.typescript(1007), undefined);
+  assert.equal(custom.with(builtin.int4Array).typescript(1007), 'PgArray<number>');
+  assert.equal(custom.with(builtin.int4).typescript(23), 'number');
+  assert.equal(defaultCodecs.with(builtin.jsonbText).typescript(3802), 'string');
+  const binaryOnly = defaultCodecs.with({
+    oid: 23,
+    binary: { encode: () => new Uint8Array(), decode: () => 0 },
+  });
+  assert.equal(binaryOnly.typescript(23), 'string');
+  assert.equal(binaryOnly.typescript(1007), 'PgArray<string>');
+  for (const oid of [0, -1, 1.5, NaN, Infinity, 0x100000000])
+    assert.throws(() => defaultCodecs.typescript(oid), { code: 'PGCLEAR_CONFIGURATION' });
+});
+
 test('array grammar preserves quoted NULL, escapes, nesting, dimensions, whitespace and delimiters', () => {
   const cases: [string, unknown[]][] = [
     ['{}', []],

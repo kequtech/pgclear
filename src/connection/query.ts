@@ -34,8 +34,7 @@ export function encodeQuery(
         : (input as Statement);
   if (Object.keys(statement).some((key) => !['text', 'values', 'parameterTypes'].includes(key)))
     invalid('Unknown statement option.');
-  if (typeof statement.text !== 'string' || statement.text.includes('\0'))
-    invalid('SQL text must be a string without NUL.');
+  const text = textValue(statement.text);
   const values = statement.values === undefined ? [] : statement.values;
   if (!Array.isArray(values) || values.length > 65535) invalid('Invalid parameter count.');
   const hints = statement.parameterTypes;
@@ -45,12 +44,7 @@ export function encodeQuery(
   return Buffer.concat([
     frame(
       'P',
-      Buffer.concat([
-        cstring(''),
-        cstring(statement.text),
-        int16(oids.length),
-        ...oids.map(uint32),
-      ]),
+      Buffer.concat([cstring(''), cstring(text), int16(oids.length), ...oids.map(uint32)]),
     ),
     bind('', values.length, formats, parameters),
     frame('D', Buffer.from('P'), cstring('')),

@@ -4,6 +4,50 @@ import { builtin, createPool, json, param, sql, type QueryTuple } from '../../sr
 import { databaseUrl, ownedName, testConnection } from '../helpers/database.js';
 
 test(
+  'all SQL entrypoints reject malformed text before dispatch and retain the session',
+  { timeout: 10000 },
+  async () => {
+    const { client } = await testConnection();
+    try {
+      for (const bad of ['\ud800', '\udc00', '\0']) {
+        const text = `SELECT '${bad}' AS value`;
+        for (const run of [
+          () => client.query(text),
+          () => client.query([text, []]),
+          () => client.query({ text }),
+          () => client.queryClassic(text, []),
+          () => client.describe(text),
+          () => client.prepare(text),
+          () => client.script(text),
+        ])
+          await assert.rejects(run(), { code: 'PGCLEAR_ENCODE', outcome: 'not-sent' });
+        const stream = client.stream(text);
+        await Promise.all([
+          assert.rejects(stream.fields, { code: 'PGCLEAR_ENCODE', outcome: 'not-sent' }),
+          assert.rejects(stream.completion, { code: 'PGCLEAR_ENCODE', outcome: 'not-sent' }),
+        ]);
+        const copy = client.copyTo(text);
+        await assert.rejects(copy.completion, { code: 'PGCLEAR_ENCODE', outcome: 'not-sent' });
+        let pulls = 0;
+        await assert.rejects(
+          client.copyFrom(text, {
+            async *[Symbol.asyncIterator]() {
+              pulls++;
+              yield new Uint8Array([1]);
+            },
+          }),
+          { code: 'PGCLEAR_ENCODE', outcome: 'not-sent' },
+        );
+        assert.equal(pulls, 0);
+      }
+      assert.deepEqual((await client.query("SELECT '𐀀😀é' AS value")).rows, [{ value: '𐀀😀é' }]);
+    } finally {
+      await client.close();
+    }
+  },
+);
+
+test(
   'tagged, classic, tuple and object queries share values, codecs and result metadata',
   { timeout: 10000 },
   async () => {

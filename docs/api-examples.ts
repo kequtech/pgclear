@@ -16,6 +16,10 @@ import {
   type Session,
 } from './api-contract.js';
 
+export function decoderRepresentation(oid: number): string | undefined {
+  return defaultCodecs.typescript(oid);
+}
+
 export async function schemaTypes(connection: Pool | Session): Promise<string> {
   const options: GenerateOptions = { connection, namespace: 'public', timeoutMs: 5000 };
   const source: string = await generateDefinitions(options);

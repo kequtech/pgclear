@@ -131,7 +131,9 @@ these forms. The two named entrypoints use one encoder and the same ownership/op
 This applies to connections, pools, leases, sessions and transactions, including array row mode.
 
 All forms use the extended protocol even without parameters. Exactly one statement is accepted;
-an empty statement has an empty result and command tag. No SQL composition, identifier helpers,
+an empty statement has an empty result and command tag. SQL text must be well-formed Unicode
+without NUL, consistently across execution, Describe, preparation, scripts, streams and COPY.
+Invalid text rejects locally before dispatch. No SQL composition, identifier helpers,
 query builder or check command is included. Schema types are generated explicitly through
 `generateDefinitions`, described below. `script(text)`
 is the deliberate simple-protocol, multi-statement path, available only on an owned session.
@@ -151,6 +153,8 @@ Results contain `rows`, ordered `fields`, parsed `command`, raw `commandTag`, an
 command tag, not always rows returned. Object mode rejects duplicate column names before returning
 ambiguous rows; use aliases or `rowMode: 'array'` to retain duplicate fields. Object fields are own
 data properties, including names such as `__proto__`. Array mode preserves ordinal order.
+Because counts are bigint, `JSON.stringify(result)` requires an explicit application serialization
+policy even when every returned column is JSON-compatible. The driver does not coerce exact counts.
 
 `sql<MyRow>`, `queryClassic<MyRow>` and existing `query<MyRow>` are caller assertions; they perform
 no runtime result validation or schema inference. Without a row type, values are `unknown`.
@@ -236,6 +240,32 @@ decoder, independent of registry construction order. An explicit array-OID codec
 derivation and need not change the scalar. Defaults preserve int8 as bigint and numeric as string
 inside arrays, including `9007199254740993.25`; `builtin.numericArray` accepts string elements.
 Typed input parameters still carry their chosen encoder rather than borrowing a result decoder.
+
+`codecs.typescript(oid)` returns the known TypeScript representation of a non-NULL text result
+using that registry. It shares the mapping used by schema generation:
+
+```ts
+defaultCodecs.typescript(20); // 'bigint'
+defaultCodecs.typescript(1007); // 'PgArray<number>'
+defaultCodecs.with(builtin.jsonbText).typescript(3802); // 'string'
+```
+
+Built-in JSON returns the string `'unknown'`, a known representation. An unrecognized custom
+decoder returns `undefined`, including a built-in array derived from that decoder. Tooling must
+request an application declaration or report that unresolved contract. Explicit built-in array
+overrides retain their selected element type; binary-only overrides and unknown text OIDs return
+`'string'`, matching actual reads. Invalid OIDs reject with `PGCLEAR_CONFIGURATION`.
+
+The returned strings use `globalThis.Uint8Array` and pgclear's exported `PgArray<T>` where needed.
+SQL NULL is separate; this API does not infer field nullability, catalog enum labels, domain base
+types, JSON object shapes or encoder input types. Use the same selected registry as the connection
+and a described field's `dataTypeOid`; no database access or decoder execution is performed.
+
+Separate installations of the same pgclear version in one JavaScript realm can exchange parameters,
+registries, borrowed pools/sessions and error instances. Internal versioned weak identity tables
+preserve the creating copy's encoders, scope ownership and decoder representations. Deduplication
+is unnecessary. This does not promise interoperability between different releases, across workers,
+or through serialization. These objects remain in-process capabilities.
 
 ## Description and preparation
 

@@ -36,6 +36,8 @@ consistent read-only snapshot. It exports `Database['users']['row']`,
 comments. Values follow pgclear's codecs: bigint, exact numeric/temporal strings, Uint8Array and
 recursive arrays. JSON and array writes use explicit parameters or authored wire text. The caller
 owns file output and checking; supplied pools/sessions retain their ownership.
+`codecs.typescript(oid)` exposes the selected decoder's known representation for query tooling;
+unrecognized custom decoders return `undefined` and need application declarations.
 
 `prepare` is available on held sessions and transaction/savepoint callbacks. Its handle exposes
 `description`, `query(values, options)` and idempotent `close()`. Handles expire with the exact

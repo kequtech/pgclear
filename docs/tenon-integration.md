@@ -69,8 +69,9 @@ The M4 trial selects the driver's native representations. It changes Tenon's cou
 bigint, temporal reads/writes to text and numeric-array reads to exact strings. Generated definitions
 are compiled under TypeScript 6 and 7. The candidate now delegates generation to pgclear and uses
 `Database[table]['row' | 'insert' | 'update']`. Generation reflects known selected codecs; custom
-decoder return types without known metadata become unknown with warnings. Tenon's inspection
-still describes its explicit default mapping; it cannot infer arbitrary custom JS decoder types.
+decoder return types without known metadata become unknown with warnings. Tenon's candidate
+inspection uses the public registry mapping for its separate default-codec connection; it cannot
+infer arbitrary custom JS decoder types.
 Borrowed custom registries remain untouched, and their type contracts remain the caller's responsibility.
 
 Tenon's compiler accepts unknown bind values, so the candidate passes them unchanged to pgclear's
@@ -94,8 +95,9 @@ table exclusion, file writing and freshness checks. Relationships and indexes ar
 shapes contain actual columns. No compiler integration, checker command or result validation moves.
 
 Tenon's `describeQuery()` and generated definitions must describe the actual selected codecs.
-`CodecRegistry` still has no public representation-introspection API. Generation shares internal
-codec registrations and uses default catalog decoding independently of application overrides.
+`CodecRegistry.typescript(oid)` exposes the known non-NULL read representation used by generation;
+unrecognized custom decoders return `undefined` and need application declarations. Generation uses
+default catalog decoding independently of application overrides.
 Ordinary queries do not fetch catalogs. Do not silently assume default mappings for custom decoders or recover
 arbitrary TypeScript types from erased codec generics. Input encoder policies remain separate from
 result mappings. Type interpretation and unknown/nullability diagnostics belong in Tenon's tooling.

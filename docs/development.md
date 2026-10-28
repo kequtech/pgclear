@@ -41,6 +41,21 @@ See [M8](implementation-plan.md#m8--initial-release-gate) for the remaining cons
 
 ## Current verification and limits
 
+D35's package-identity and representation changes pass `npm run check`: **231 tests** (123
+database-independent, 108 integration) on local PostgreSQL 16.15, plus three native compatibility
+workflows. The packed two-installation regression exchanges parameters, registries, borrowed
+generation scopes and errors in both directions; it checks expiry/deadlines, actual decoder values,
+unknown custom representations and compiled consumer declarations. Malformed SQL is rejected
+before dispatch through query/classic/tuple/object, Describe, preparation, script, stream and COPY.
+
+The refreshed packed trial `.trial-dist/tenon-m4-PdEsod/report.json` passes the original pg baseline's
+180 tests, 15 baseline contract cases (five skips), and all 20 candidate cases, including generated
+types under TypeScript 6/7. Candidate query inspection now uses `defaultCodecs.typescript(oid)` and
+deletes its duplicate conversion-table module. Its separate inspection connection uses defaults;
+this does not describe arbitrary borrowed custom registries. No full adapted Tenon suite or current
+PostgreSQL 18 run is claimed. The [SASLprep evaluation](saslprep-evaluation.md) records a separately
+confirmed Unicode password limitation and dependency-removal plan.
+
 D34's schema-generation export passes `npm run check`: **228 tests** (122 database-independent,
 106 integration) on local PostgreSQL 16.15. The separate native compatibility suite passes three
 tests. Generated `Database[table]` row/insert/update consumers compile against actual native values;

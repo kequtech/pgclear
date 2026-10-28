@@ -276,66 +276,64 @@ index 0000000..2037000
 +  }
 +}
 diff --git a/src/driver/types.ts b/src/driver/types.ts
-index 2d02c53..381ce7c 100644
 --- a/src/driver/types.ts
-+++ b/src/driver/types.ts
-@@ -1,27 +1,27 @@
++++ /dev/null
+@@ -1,55 +0,0 @@
 -/** pg default representations, shared by generation and query inspection. */
-+/** pgclear default representations, used by query inspection. */
- export type ValueTypes = Readonly<{ read: string; write: string }>;
- type TypeMapping = string | ValueTypes;
- 
- // Arrays use verified built-in OIDs: their parsers can differ from scalar parsers.
- export const arrayTypes: Readonly<Record<string, TypeMapping>> = {
-   '1000': 'boolean',
+-export type ValueTypes = Readonly<{ read: string; write: string }>;
+-type TypeMapping = string | ValueTypes;
+-
+-// Arrays use verified built-in OIDs: their parsers can differ from scalar parsers.
+-export const arrayTypes: Readonly<Record<string, TypeMapping>> = {
+-  '1000': 'boolean',
 -  '1001': 'import("node:buffer").Buffer',
-+  '1001': 'Uint8Array',
-   '1005': 'number',
-   '1007': 'number',
-   '1021': 'number',
-   '1022': 'number',
-   '1028': 'number',
+-  '1005': 'number',
+-  '1007': 'number',
+-  '1021': 'number',
+-  '1022': 'number',
+-  '1028': 'number',
 -  '1016': { read: 'string', write: 'string | bigint' },
 -  '1231': { read: 'number', write: 'string | number' },
-+  '1016': { read: 'bigint', write: 'string | bigint' },
-+  '1231': { read: 'string', write: 'string | number' },
-   '1009': 'string',
-   '1014': 'string',
-   '1015': 'string',
-   '1183': 'string',
-   '1270': 'string',
-   '2951': 'string',
+-  '1009': 'string',
+-  '1014': 'string',
+-  '1015': 'string',
+-  '1183': 'string',
+-  '1270': 'string',
+-  '2951': 'string',
 -  '1182': { read: 'globalThis.Date | number', write: 'globalThis.Date | string' },
 -  '1115': { read: 'globalThis.Date | number', write: 'globalThis.Date | string' },
 -  '1185': { read: 'globalThis.Date | number', write: 'globalThis.Date | string' },
-+  '1182': { read: 'string', write: 'string' },
-+  '1115': { read: 'string', write: 'string' },
-+  '1185': { read: 'string', write: 'string' },
-   '199': { read: 'unknown', write: 'string' },
-   '3807': { read: 'unknown', write: 'string' },
- };
-@@ -40,14 +40,14 @@ export const scalarTypes: Readonly<Record<string, TypeMapping>> = {
-   time: 'string',
-   timetz: 'string',
-   uuid: 'string',
+-  '199': { read: 'unknown', write: 'string' },
+-  '3807': { read: 'unknown', write: 'string' },
+-};
+-
+-export const scalarTypes: Readonly<Record<string, TypeMapping>> = {
+-  int2: 'number',
+-  int4: 'number',
+-  oid: 'number',
+-  float4: 'number',
+-  float8: 'number',
+-  bool: 'boolean',
+-  text: 'string',
+-  name: 'string',
+-  varchar: 'string',
+-  bpchar: 'string',
+-  time: 'string',
+-  timetz: 'string',
+-  uuid: 'string',
 -  date: { read: 'globalThis.Date | number', write: 'globalThis.Date | string' },
 -  timestamp: { read: 'globalThis.Date | number', write: 'globalThis.Date | string' },
 -  timestamptz: { read: 'globalThis.Date | number', write: 'globalThis.Date | string' },
 -  int8: { read: 'string', write: 'string | bigint' },
-+  date: { read: 'string', write: 'string' },
-+  timestamp: { read: 'string', write: 'string' },
-+  timestamptz: { read: 'string', write: 'string' },
-+  int8: { read: 'bigint', write: 'string | bigint' },
-   numeric: { read: 'string', write: 'string | number' },
+-  numeric: { read: 'string', write: 'string | number' },
 -  json: { read: 'unknown', write: 'string' },
 -  jsonb: { read: 'unknown', write: 'string' },
 -  bytea: 'import("node:buffer").Buffer',
-+  json: { read: 'unknown', write: 'string | import("@kequtech/pgclear").Parameter' },
-+  jsonb: { read: 'unknown', write: 'string | import("@kequtech/pgclear").Parameter' },
-+  bytea: 'Uint8Array',
- };
- 
- export function valueTypes(mapping: TypeMapping): ValueTypes {
+-};
+-
+-export function valueTypes(mapping: TypeMapping): ValueTypes {
+-  return typeof mapping === 'string' ? { read: mapping, write: mapping } : mapping;
+-}
 diff --git a/src/errors.ts b/src/errors.ts
 index 03d242b..4431646 100644
 --- a/src/errors.ts
@@ -972,25 +970,43 @@ index 32c882c..aaffba7 100644
 +  return client.describe(text);
  }
 diff --git a/src/inspection/result.ts b/src/inspection/result.ts
-index 287d8f2..8e5f193 100644
 --- a/src/inspection/result.ts
 +++ b/src/inspection/result.ts
-@@ -28,12 +28,12 @@ export function queryDescription(
-     } else if (type.schema === 'pg_catalog' && Object.hasOwn(scalarTypes, type.name)) {
-       readType = valueTypes(scalarTypes[type.name]!).read;
+@@ -1,4 +1,4 @@
+-import { arrayTypes, scalarTypes, valueTypes } from '../driver/types.js';
++import { defaultCodecs } from '@kequtech/pgclear';
+ import type { StatementMetadata } from './catalog.js';
+ import type {
+   DescribedColumn,
+@@ -23,18 +23,16 @@
+       readType = describeType(type.base).readType;
+     } else if (type.kind === 'e') {
+       readType = type.choices?.map((v) => JSON.stringify(v)).join(' | ') || 'never';
+-    } else if (Object.hasOwn(arrayTypes, String(oid))) {
+-      readType = `PgArray<${valueTypes(arrayTypes[String(oid)]!).read}>`;
+-    } else if (type.schema === 'pg_catalog' && Object.hasOwn(scalarTypes, type.name)) {
+-      readType = valueTypes(scalarTypes[type.name]!).read;
      } else {
 -      readType = 'unknown';
-+      readType = 'string';
-       issues.set(`type:${oid}`, {
-         code: 'unmapped-type',
-         oid,
-         postgres: `${type.schema}.${type.name}`,
+-      issues.set(`type:${oid}`, {
+-        code: 'unmapped-type',
+-        oid,
+-        postgres: `${type.schema}.${type.name}`,
 -        message: `No verified pg mapping for ${type.schema}.${type.name} (OID ${oid}).`,
-+        message: `Default pgclear wire text for ${type.schema}.${type.name} (OID ${oid}).`,
-       });
+-      });
++      readType = defaultCodecs.typescript(oid) ?? 'unknown';
++      if (type.schema !== 'pg_catalog') {
++        issues.set(`type:${oid}`, {
++          code: 'unmapped-type',
++          oid,
++          postgres: `${type.schema}.${type.name}`,
++          message: `Default pgclear wire text for ${type.schema}.${type.name} (OID ${oid}).`,
++        });
++      }
      }
      return { oid, postgres: `${type.schema}.${type.name}`, readType };
-@@ -45,14 +45,14 @@ export function queryDescription(
+   }
+@@ -45,14 +43,14 @@
        issues.set(`column:${column.name}`, {
          code: 'duplicate-column',
          column: column.name,
@@ -1008,7 +1024,7 @@ index 287d8f2..8e5f193 100644
        nullability: 'unknown',
        source: source
          ? {
-@@ -64,7 +64,7 @@ export function queryDescription(
+@@ -64,7 +62,7 @@
          : null,
      };
    });
