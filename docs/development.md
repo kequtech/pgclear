@@ -33,6 +33,15 @@ and `json`.
 
 ## Current verification and limits
 
+The D25 driver API pass on 2026-10-28 passed `npm run check`: **106 tests**
+(56 database-independent, 50 integration) against PostgreSQL 16.15. Tagged and classic queries,
+readonly tuples and existing statement objects use the same encoding/ownership path. Added cases
+cover bound Unicode/injection-like text, explicit JSON/arrays, malformed tuples, invalid binds,
+array row mode, pool/session/transaction/savepoint use, and expired handles. Packed consumers verify
+row inference from `sql<Row>`, `queryClassic<Row>` and `Pick`, including that unannotated tags stay
+unknown rather than taking an expected type from the surrounding assignment. Generation and query
+checking remain Tenon responsibilities. No new PostgreSQL 18 or CI result is claimed.
+
 The post-M4 Unicode correctness pass on 2026-10-28 passed `npm run check`: **100 tests**
 (53 database-independent, 47 integration) on PostgreSQL 16.15. The Tenon review's leading-U+FEFF and
 Unicode-array-space reproductions failed before the fixes and pass afterward. Coverage includes

@@ -171,7 +171,15 @@ logic, migration policy and affected-row checks in Tenon. Package publication re
 
 This milestone is the first decision point for whether the driver is reducing total maintenance.
 If it simply recreates helper complexity at the consumer boundary, fix the missing driver contract
-before extending breadth.
+before extending breadth. A need for intentional consumer/API migration is not itself a missing
+driver contract: prefer the simpler standalone design and adapt or retire compatibility-specific
+tests instead of recreating pg/Postgres.js machinery merely to satisfy the baseline.
+
+The final scope decision D25 leaves generation, checking and SQL composition tooling in Tenon.
+pgclear adds only a value-binding tag and a classic text/values entrypoint through the existing
+execution path. No compiler integration, generator, checker, fragments, expansion or chooser is
+part of this driver plan. A future minimal codec-description contract requires a demonstrated need;
+this decision does not begin M5 or close the outstanding M4 adoption gates.
 
 ## M5 — Explicit preparation, portals and COPY
 

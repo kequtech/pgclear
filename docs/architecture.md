@@ -14,6 +14,7 @@ do not embed pg, fork Postgres.js, or publish separate internal packages.
 | `auth/`                  | SCRAM/MD5/password exchanges, proof and channel-binding validation | pooling or reconnect supervision                        |
 | `transport/`             | socket/TLS lifecycle, backpressure, cancellation transport         | request-to-result ownership                             |
 | `codecs/`                | text/binary conversions, immutable registry, typed parameters      | catalog fetching or network I/O                         |
+| `query.ts`               | value-only SQL tag and immutable text/values tuples                | SQL composition, generation or checking                 |
 | `connection/`            | physical session, operation queue, protocol state, metadata        | automatic session resurrection                          |
 | `session/`               | expiring capabilities, preparation, transaction/savepoint scopes   | replacing physical connections                          |
 | `pool/`                  | FIFO acquisition, capacity, leases, retirement and close           | SQL rewriting or write retries                          |

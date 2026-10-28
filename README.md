@@ -12,19 +12,22 @@ its evidence and remaining adoption work are recorded in [docs/tenon-trial.md](d
 `private: true` prevents accidental publication until the implementation and release gates are ready.
 
 ```ts
-import { connect } from '@kequtech/pgclear';
+import { connect, sql } from '@kequtech/pgclear';
 
 const connection = await connect({ connectionString: process.env.DATABASE_URL! });
 try {
-  const result = await connection.query<{ value: number }>({
-    text: 'SELECT $1::integer AS value',
-    values: [42],
-  });
+  const result = await connection.query(sql<{ value: number }>`SELECT ${42}::integer AS value`);
+  // Classic callers use the same execution and conversion path.
+  await connection.queryClassic<{ value: number }>('SELECT $1::integer AS value', [42]);
   console.log(result.rows[0]?.value);
 } finally {
   await connection.close();
 }
 ```
+
+`sql` binds values only; it returns an immutable `[text, values]` tuple. `query` also accepts that
+classic tuple or the existing `{ text, values, parameterTypes }` statement form. Row annotations
+are trusted TypeScript assertions. Type generation and query checking belong in Tenon.
 
 The connection supports TCP/Unix sockets, verified TLS, trust/password/MD5/SCRAM authentication,
 SCRAM channel binding, sequential extended queries, scalar results, field metadata, and bounded

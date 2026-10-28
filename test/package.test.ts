@@ -72,7 +72,8 @@ test(
         `
       import assert from 'node:assert/strict';
       import * as driver from '@kequtech/pgclear';
-      assert.deepEqual(Object.keys(driver).sort(), ['DatabaseError', 'DriverError', 'builtin', 'connect', 'createPool', 'defaultCodecs', 'json', 'param']);
+      assert.deepEqual(Object.keys(driver).sort(), ['DatabaseError', 'DriverError', 'builtin', 'connect', 'createPool', 'defaultCodecs', 'json', 'param', 'sql']);
+      assert.deepEqual(driver.sql\`SELECT \${42}::integer AS value\`, ['SELECT $1::integer AS value', [42]]);
       const client = await driver.connect({host: '127.0.0.1', port: ${server.port}});
       assert.equal(client.info.backendPid, 123);
       assert.deepEqual(await client.describe('BEGIN'), {parameterTypes: [], fields: []});
@@ -89,7 +90,7 @@ test(
       await writeFile(
         join(directory, 'index.ts'),
         `
-      import { connect, createPool, builtin, defaultCodecs, json, param, type Connection, type QueryResult, type PgArray } from '@kequtech/pgclear';
+      import { connect, createPool, builtin, defaultCodecs, json, param, sql, type Connection, type QueryResult, type PgArray } from '@kequtech/pgclear';
       async function example(connection: Connection) {
         const nested: PgArray<number> = [[1,null],[2,3]];
         await connection.query({text:'SELECT $1, $2',values:[param(nested,builtin.int4Array),json(null)]});
@@ -98,6 +99,29 @@ test(
         param([[1.25]], builtin.numericArray);
         const result: QueryResult<{value: number}> = await connection.query<{value: number}>('SELECT 42 AS value');
         const count: bigint | null = result.rowCount;
+        type Database = {user: {id:number; name:string; secret:string}};
+        type Selected = Pick<Database['user'], 'id' | 'name'>;
+        const tagged: QueryResult<Selected> = await connection.query(sql<Selected>\`SELECT id,name FROM users WHERE id=\${42}\`);
+        const classic: QueryResult<Selected> = await connection.queryClassic<Selected>('SELECT id,name FROM users WHERE id=$1', [42]);
+        const name: string | undefined = tagged.rows[0]?.name;
+        // @ts-expect-error The tagged row type does not include secret.
+        tagged.rows[0]?.secret;
+        // @ts-expect-error Bare objects are not tag bind values.
+        sql\`SELECT \${{name:'Ada'}}\`;
+        // @ts-expect-error Undefined is not a classic bind value.
+        connection.queryClassic('SELECT $1', [undefined]);
+        const untyped = await connection.query(sql\`SELECT 1 AS value\`);
+        const unknownValue: unknown = untyped.rows[0]!.value;
+        // @ts-expect-error An unannotated tag leaves values unknown.
+        const number: number = untyped.rows[0]!.value;
+        // @ts-expect-error Assignment context cannot supply a row assertion missing from the tag.
+        const contextual: QueryResult<Selected> = await connection.query(sql\`SELECT id,name FROM users\`);
+        const array: QueryResult<readonly [number]> = await connection.queryClassic<readonly [number]>('SELECT $1::integer', [1], {rowMode:'array'});
+        const tagArray: QueryResult<readonly [number]> = await connection.query(sql<readonly [number]>\`SELECT \${1}::integer\`, {rowMode:'array'});
+        const untypedArray: QueryResult<readonly unknown[]> = await connection.query(sql\`SELECT \${1}::integer\`, {rowMode:'array'});
+        // @ts-expect-error Untyped array-row values remain unknown.
+        const untypedElement: number = untypedArray.rows[0]![0];
+        void classic; void name; void array; void tagArray; void untypedArray; void unknownValue;
         const description = await connection.describe('SELECT $1::integer');
         const oid: number | undefined = description.parameterTypes[0];
         const script = await connection.script('SELECT 1; SELECT 2');

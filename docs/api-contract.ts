@@ -32,6 +32,7 @@ import type {
   CodecRegistry,
   Parameter,
   Statement,
+  QueryInput,
   DescribeStatement,
   Description,
   Executor,
@@ -62,6 +63,9 @@ export type {
   Parameter,
   PgArray,
   Statement,
+  QueryTuple,
+  SqlQuery,
+  QueryInput,
   DescribeStatement,
   Description,
   Executor,
@@ -75,7 +79,7 @@ export type {
   TransactionOptions,
 } from '../src/index.js';
 
-export { param, json, defaultCodecs, builtin } from '../src/index.js';
+export { param, json, sql, defaultCodecs, builtin } from '../src/index.js';
 
 export type StreamCompletion =
   { readonly status: 'complete'; readonly result: CommandResult } | { readonly status: 'closed' };
@@ -90,11 +94,11 @@ export interface CopyStream extends AsyncIterable<Uint8Array> {
 }
 export interface StreamingExecutor extends Executor {
   stream<T extends object = Row>(
-    statement: string | Statement,
+    statement: QueryInput<T>,
     options?: QueryOptions & { readonly batchSize?: number },
   ): RowStream<T>;
   stream<T extends readonly unknown[] = readonly unknown[]>(
-    statement: string | Statement,
+    statement: QueryInput<T>,
     options: ArrayQueryOptions & { readonly batchSize?: number },
   ): RowStream<T>;
   copyFrom(

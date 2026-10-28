@@ -3,6 +3,12 @@
 Status: local consumer trial; the full Tenon adoption gate remains open. Nothing was published and
 Tenon's active checkout was not modified. M3 was pushed as `a91a83b`; CI was not polled or awaited.
 
+This trial is a consumer regression check, not pgclear's API specification or a pg compatibility
+target. Preserve independently useful PostgreSQL/driver invariants, and adapt Tenon's tests and
+contracts to intentional pgclear behavior. Do not recreate pg/Postgres.js quirks, private hooks or
+native facades merely to make a baseline test pass. Any new driver mechanism must have its own
+standalone justification; a consumer expectation alone does not supply one (D16/D20/D25).
+
 ## Reproduce
 
 From a pgclear checkout with dependencies installed:
@@ -57,6 +63,12 @@ npm link. See [npm install](https://docs.npmjs.com/cli/v11/commands/npm-install/
 remains a separate release decision after the applicable gates.
 
 ## Selected contracts
+
+The D25 tag/classic-entrypoint changes were rerun through this trial on 2026-10-28 against
+PostgreSQL 16.15: **180 baseline tests passed**, and **17 candidate contract cases passed**.
+The baseline shared fixture passed 15 cases with two candidate-only skips. Local evidence is
+`.trial-dist/tenon-m4-Cz6j5D/report.json`; no new PostgreSQL 18, CI or complete-adoption result is
+claimed. This run required no changes to the adapter patch or pgclear compatibility behavior.
 
 The maintainer explicitly prioritized pgclear's standalone design over preserving Tenon's existing
 promises. The candidate therefore adopts:

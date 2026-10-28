@@ -23,7 +23,8 @@ import type {
   QueryResult,
   Row,
   Session,
-  Statement,
+  InputValue,
+  QueryInput,
   Transaction,
   TransactionOptions,
 } from '../types.js';
@@ -311,15 +312,19 @@ class ConnectionPool implements Pool {
   }
 
   query<T extends object = Row>(
-    statement: string | Statement,
+    statement: QueryInput<T>,
     options?: QueryOptions,
   ): Promise<QueryResult<T>>;
   query<T extends readonly unknown[] = readonly unknown[]>(
-    statement: string | Statement,
+    statement: QueryInput<T>,
     options: ArrayQueryOptions,
   ): Promise<QueryResult<T>>;
   query(
-    statement: string | Statement,
+    statement: QueryInput<object>,
+    options: ArrayQueryOptions,
+  ): Promise<QueryResult<readonly unknown[]>>;
+  query(
+    statement: QueryInput<object>,
     options: QueryOptions | ArrayQueryOptions = {},
   ): Promise<QueryResult<object>> {
     return this.#operation(options, ['rowMode'], async (lease, life) => {
@@ -341,6 +346,26 @@ class ConnectionPool implements Pool {
       return result;
     });
   }
+  queryClassic<T extends object = Row>(
+    text: string,
+    values: readonly InputValue[],
+    options?: QueryOptions,
+  ): Promise<QueryResult<T>>;
+  queryClassic<T extends readonly unknown[] = readonly unknown[]>(
+    text: string,
+    values: readonly InputValue[],
+    options: ArrayQueryOptions,
+  ): Promise<QueryResult<T>>;
+  queryClassic(
+    text: string,
+    values: readonly InputValue[],
+    options: QueryOptions | ArrayQueryOptions = {},
+  ): Promise<QueryResult<object>> {
+    return options?.rowMode === 'array'
+      ? this.query([text, values], options)
+      : this.query([text, values], options);
+  }
+
   describe(
     statement: string | DescribeStatement,
     options: OperationOptions = {},

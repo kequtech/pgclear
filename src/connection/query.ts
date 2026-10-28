@@ -1,6 +1,7 @@
 import { DriverError } from '../errors.js';
 import type {
   InputValue,
+  QueryInput,
   Statement,
   CommandResult,
   DescribeStatement,
@@ -14,10 +15,20 @@ function invalid(message: string): never {
   throw new DriverError('PGCLEAR_ENCODE', message);
 }
 
-export function encodeQuery(input: string | Statement): Buffer {
-  if (typeof input !== 'string' && (!input || typeof input !== 'object' || Array.isArray(input)))
-    invalid('Expected SQL text or a statement.');
-  const statement = typeof input === 'string' ? { text: input } : input;
+export function encodeQuery(input: QueryInput<object>): Buffer {
+  if (typeof input !== 'string' && (!input || typeof input !== 'object'))
+    invalid('Expected SQL text, a query tuple or a statement.');
+  if (
+    Array.isArray(input) &&
+    (input.length !== 2 || typeof input[0] !== 'string' || !Array.isArray(input[1]))
+  )
+    invalid('Expected a [text, values] query tuple.');
+  const statement: Statement =
+    typeof input === 'string'
+      ? { text: input }
+      : Array.isArray(input)
+        ? { text: input[0] as string, values: input[1] as readonly InputValue[] }
+        : (input as Statement);
   if (Object.keys(statement).some((key) => !['text', 'values', 'parameterTypes'].includes(key)))
     invalid('Unknown statement option.');
   if (typeof statement.text !== 'string' || statement.text.includes('\0'))

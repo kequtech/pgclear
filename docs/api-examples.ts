@@ -7,6 +7,7 @@ import {
   listen,
   json,
   param,
+  sql,
   type Codec,
   type ConnectionOptions,
   type Pool,
@@ -44,6 +45,32 @@ export async function poolUsage(connectionString: string) {
   } finally {
     await pool.close({ timeoutMs: 5000 });
   }
+}
+
+export async function queryEntryPoints(session: Session) {
+  type Database = { user: { id: number; name: string; secret: string } };
+  type Selected = Pick<Database['user'], 'id' | 'name'>;
+  const tagged = await session.query(sql<Selected>`SELECT id, name FROM users WHERE id = ${42}`);
+  const classic = await session.queryClassic<Selected>(
+    'SELECT id, name FROM users WHERE id = $1',
+    [42],
+  );
+  const tuple = await session.query(sql<readonly [number]>`SELECT ${42}::integer`, {
+    rowMode: 'array',
+  });
+  const tupleValue: number | undefined = tuple.rows[0]?.[0];
+  const untypedArray = await session.query(sql`SELECT ${42}::integer`, { rowMode: 'array' });
+  // @ts-expect-error Untyped array-row values remain unknown.
+  const untypedNumber: number = untypedArray.rows[0]![0];
+  void tupleValue;
+  const name: string | undefined = tagged.rows[0]?.name;
+  // @ts-expect-error The tag's row type excludes secret.
+  tagged.rows[0]?.secret;
+  // @ts-expect-error A nested query cannot splice SQL into a value-only tag.
+  sql`SELECT ${sql`1`}`;
+  // @ts-expect-error query's second argument is options, not values.
+  session.query('SELECT $1', [42]);
+  return { tagged, classic, name };
 }
 
 export async function descriptionAndPreparation(session: PlannedSession) {

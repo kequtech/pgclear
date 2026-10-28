@@ -2,8 +2,12 @@
 
 pgclear is a PostgreSQL network driver for TypeScript and JavaScript. It owns transport,
 authentication, protocol scheduling, sessions, pooling, value conversion, and database diagnostics.
-It accepts finished SQL and separate values. Tenon owns SQL composition, schema inference, migrations,
+It accepts finished SQL and separate values, with a small value-binding template tag. Tenon owns SQL composition, schema inference, migrations,
 affected-row policy, and its application-facing API.
+
+Type generation and intentional query checking also belong in Tenon (D25). pgclear owns actual
+conversion and faithful PostgreSQL metadata, without a compiler integration, runtime result schema,
+fragment/expansion/chooser API or automatic catalog discovery.
 
 ## Initial support
 

@@ -1,6 +1,7 @@
 # Design decisions
 
-Accepted on 2026-10-28. These are implementation constraints; only the M1 subset is implemented.
+Accepted on 2026-10-28. These are implementation constraints; see [development](development.md)
+for the implemented subset. Superseded entries preserve historical design discussion.
 Amend details in place while the initial design is unimplemented; record a superseding decision for
 a meaningful reversal. The engineer maintaining the project owns these decisions; no review board
 or separate approval workflow is required.
@@ -204,6 +205,118 @@ whitespace-only elements, nesting/bounds, invalid UTF-8 and escaped ASCII contro
 compare arrays with independent JSON output and compare parser input with PostgreSQL's own parser.
 The packed Tenon fixture runs the same Unicode cases against pg and pgclear. M5 remains on hold
 while correctness and applicable M4 adoption gates are addressed.
+
+## D22 — Describe and decoder contracts support external type generation
+
+Historical discussion: final tooling ownership is decided by D25. A codec-description API remains
+unimplemented and must be justified by a concrete driver-consumer need.
+
+The generator-first workflow below is superseded as the preferred path by D23. Its Describe and
+selected-codec requirements remain applicable; generation remains a possible separate consumer.
+
+The maintainer supplied a [deeper Tenon review](references/tenon-typed-query-review.md) after the
+Unicode fixes. Retain public Describe as the authoritative statement metadata source. SQL discovery,
+query registration, catalog interpretation, TypeScript rendering, generated wrappers and optional
+nullability analysis belong in Tenon or separate tooling. pgclear does not need a SQL parser or a
+generation CLI to support them. This refines the suggested generator alongside pgclear into a
+consumer-owned workflow with reusable driver metadata.
+
+Accept the requirement for public introspection of the selected decoder's read representation.
+There is no such API today; choose its exact signature and descriptor shape through a small consumer
+trial before implementation. Prefer language-neutral scalar/recursive-array descriptors and an
+explicit unresolved custom contract over TypeScript source strings in the driver. Resolution must
+agree with actual decoding: explicit array overrides win, scalar overrides affect derived built-in
+arrays, raw and parsed JSON differ, and unknown text OIDs remain strings. Account for nullable array
+elements and unknown dimensions. Catalog labels alone cannot establish the selected JS output.
+
+A custom decoder's erased generic or function body cannot recover its TypeScript return type.
+Tooling needs an explicit application mapping for such decoders; missing mappings must produce a
+diagnostic rather than silently use default types. Keep parameter binding policy separate from read
+representation. Metadata describes a codec contract, not runtime validation of decoder output.
+
+An initial consumer workflow can describe authored SQL files after migrations in the intended
+role/search path, then emit wrappers embedding the exact SQL and check generated output in CI.
+Keep output nullability conservative, JSON shapes unknown and duplicate object-column names errors
+unless an explicit policy resolves them. Regeneration detects changes represented in its inputs and
+metadata; it cannot prove all schema behavior or every dynamic SQL variant unchanged. Do not persist
+database-local extension OIDs as portable runtime type identities.
+
+Saved SQL files are application source. They need not become database objects. PostgreSQL views or
+SQL functions can be legitimate authored query sources; session-scoped prepared statements concern
+execution reuse. None replaces decoder mapping or supplies complete TypeScript/nullability contracts.
+Named preparation remains M5 work and is not a prerequisite for generation. M5 stays on hold.
+
+## D23 — Check ordinary TypeScript query types intentionally
+
+Superseded by D25: generation and checking are Tenon responsibilities. The value-only tag remains.
+
+The maintainer rejected separately authored runtime contracts: existing TypeScript types, including
+`Pick<Database['user'], 'id' | 'name'>`, should express expected results. Prefer an optional command
+an engineer or coding agent can target at a project, file or line range, checking both input and
+result compatibility against PostgreSQL and configured conversion contracts. Ordinary execution
+trusts declared types. Default runtime schema checking and generated validation are not adopted.
+
+This supersedes D22's SQL-file/generated-wrapper workflow as the first typing tool to explore. Keep
+SQL files and generation available to separate consumers, without requiring them for this workflow.
+Report definite contradictions separately from unproven nullability/JSON shape and undiscovered or
+unsupported query sites. Inspect source without running application code or parameter expressions.
+
+A minimal value-only `sql<Row>` tag is a proposed driver-level convenience: produce SQL text/binds
+and preserve a type-only result association. It would make interpolation types directly available
+to the checker without introducing identifiers, fragments, object expansion or SQL composition
+policy. It is not implemented or added to the public signature contract yet. Preserve text/values
+queries. See [query checking](references/query-tooling-exploration.md) for the candidate workflow and small trial; no new
+runtime API or feature milestone starts with this decision.
+
+## D24 — Keep conversion knowledge upstream; bound checkable composition
+
+Superseded by D25: pgclear does not own the proposed generation/checking or composition helpers.
+
+The maintainer's follow-up discussion places canonical conversion/type descriptions with the driver
+that performs conversion. pgclear-owned optional generation and checking can share that model;
+Tenon must not maintain a second interpretation of pgclear's codecs. The CLI/compiler dependencies
+need not load during normal driver execution. This is a design direction, not an implemented type
+generator, new runtime API or first-release tooling commitment.
+
+The proposed authoring ceiling is shaped expansion, statically recoverable fixed fragments and a
+finite `sql.choose`-style operation. This extends D23's minimal tag candidate without adding arbitrary
+SQL composition or a fragment typing language. Expansion types are trusted declarations, with
+explicit limits around structural extra keys, optional properties and runtime type erasure.
+
+A choice declares all SQL alternatives independently of an arbitrary runtime selector. Check all
+recoverable complete variants without invoking the selector, and enforce runtime selection from
+the declared keys before dispatch. Multiple choices can multiply variants; bound analysis and report
+incomplete coverage rather than silently sample. A merely `const` variable does not establish fixed
+fragment structure. Unknown fragments permit independent checks to continue, but an incomplete SQL
+statement cannot yield trustworthy PostgreSQL parameter/result metadata by substituting fake SQL.
+
+See [bounded composition](references/query-tooling-exploration.md#bounded-expansion-fragments-and-choices) for the candidate
+semantics and unresolved API details. Prove the small value-only checker first; bounded extensions
+are later experiments. M5 remains on hold and neither Tenon's checkout nor its public API changes.
+
+## D25 — Driver only; value-bound tags and classic query execution
+
+The maintainer made the final boundary explicit: pgclear does not own type generation or a check
+operation. Tenon owns those tools and may develop its own SQL authoring/composition policies.
+The D22–D24 exploration is preserved as historical context, not a pgclear implementation commitment.
+No fragment, expansion, chooser, runtime result schema, TypeScript compiler integration or automatic
+catalog discovery is added to the driver. pgclear remains the authority on actual value conversion
+and exposes faithful PostgreSQL metadata; any future codec-description API must address a concrete
+consumer need without becoming a generation/checking framework.
+
+Expose a value-only `sql<Row>` tag consumed by `query`, with row inference from the tag, and a
+separately named `queryClassic<Row>(text, values, options?)` for classic callers. An unannotated tag
+leaves result values unknown. Types remain caller assertions, with no runtime result validation.
+The tag produces a readonly `[text, values]` tuple and binds every interpolation; it cannot splice
+identifiers or SQL. Classic tuples and existing text/statement-object forms remain accepted by
+`query` so existing consumers need no facade. Existing explicit `query<Row>` calls remain supported;
+new tagged examples put the type on `sql<Row>`.
+
+Both entrypoints share the same operation ownership, strict parameter validation, codec selection,
+encoding, cancellation and result path on connections, pools, leases and transaction scopes. Keep
+JSON/arrays explicit through `json`/`param`. Do not evaluate codecs or execute SQL when constructing
+a tag. Freeze tuple/values structure and retain the existing rule that mutable bound data must stay
+unchanged until settlement. This is driver API work; M5 remains on hold pending its existing gates.
 
 ## Deferred decisions
 

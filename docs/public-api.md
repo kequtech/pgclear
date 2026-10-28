@@ -103,9 +103,36 @@ limit is not a JavaScript heap bound; streaming is the large-result API.
 
 ## Query execution and results
 
-`query(text | { text, values, parameterTypes }, options)` uses the extended protocol even without
-parameters. Exactly one statement is accepted; an empty statement has an empty result and command
-tag. No SQL rewriting, interpolating, identifier helpers, or query builder is included. `script(text)`
+Use `query` with a `sql<Row>` tag, or `queryClassic<Row>(text, values, options)` with an optional
+row type on the method:
+
+```ts
+import { sql } from '@kequtech/pgclear';
+
+const tagged = await connection.query(sql<{ value: number }>`SELECT ${42}::integer AS value`);
+const classic = await connection.queryClassic<{ value: number }>(
+  'SELECT $1::integer AS value',
+  [42],
+);
+```
+
+`sql` synchronously returns a readonly `[text, values]` tuple. The tuple and its values array are
+frozen; mutable bound data retains the usual immutability-until-settlement requirement. Every
+interpolation produces one numbered placeholder and one bound value, without stringifying values
+or invoking codecs. Interpolations must appear where PostgreSQL accepts a parameter, outside SQL
+quotes/comments. Use classic text for manually numbered placeholders instead of mixing them with
+tag-generated numbering. The tag supports no identifier interpolation, fragments, expansion or
+chooser. JSON and arrays still require `json(...)` or `param(...)`.
+
+`query` also accepts a classic `[text, values]` tuple, plain text, and the existing
+`{ text, values, parameterTypes }` form. Existing `query<Row>` assertions remain supported for
+these forms. The two named entrypoints use one encoder and the same ownership/options/result path;
+`query`'s second argument is options, while `queryClassic`'s second argument is always values.
+This applies to connections, pools, leases, sessions and transactions, including array row mode.
+
+All forms use the extended protocol even without parameters. Exactly one statement is accepted;
+an empty statement has an empty result and command tag. No SQL composition, identifier helpers,
+query builder, generated database types or check command is included. `script(text)`
 is the deliberate simple-protocol, multi-statement path, available only on an owned session.
 Scripts accept no bound values and obey PostgreSQL's own transaction semantics; they do not add an
 atomic wrapper. A failed script rejects with its server error; callers must not assume earlier
@@ -124,8 +151,9 @@ command tag, not always rows returned. Object mode rejects duplicate column name
 ambiguous rows; use aliases or `rowMode: 'array'` to retain duplicate fields. Object fields are own
 data properties, including names such as `__proto__`. Array mode preserves ordinal order.
 
-`query<MyRow>` is a caller assertion; it performs no runtime validation or schema inference. Without
-a type argument, values are `unknown`. Streaming uses the same decoding rules. Description does not
+`sql<MyRow>`, `queryClassic<MyRow>` and existing `query<MyRow>` are caller assertions; they perform
+no runtime result validation or schema inference. Without a row type, values are `unknown`.
+Generation and intentional checking are Tenon responsibilities. Streaming uses the same decoding rules. Description does not
 infer nullability, resolve domains through catalog queries, or discover application TypeScript types.
 
 Protocol UTF-8 decoding preserves leading U+FEFF in values and names. It rejects invalid UTF-8;

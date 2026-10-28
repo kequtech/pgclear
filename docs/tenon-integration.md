@@ -5,6 +5,12 @@ supplied the [migration lessons report](references/tenon-driver-migration-report
 milestone re-reads its then-current public contracts, tests, and driver boundary. The authorized M4 trial uses an isolated, pinned Tenon snapshot and leaves its active checkout
 unchanged. pgclear depends on neither Tenon nor pg.
 
+Tenon is evidence for real consumer needs, not the owner of pgclear's API. Borrow protocol lessons
+and useful behavior from pg/Postgres.js where justified, without adopting their incidental contracts
+or machinery. When an intentional pgclear decision conflicts with a consumer expectation, adapt the
+consumer contract and regression rather than add a facade. The trial distinguishes genuine driver
+defects from such intentional changes; it is not an exact-replacement compatibility suite.
+
 ## Lessons from the completed migration
 
 The report supports the existing milestone order: a sequential connection core, codecs/Describe,
@@ -75,6 +81,30 @@ No global compatibility mode or pg-style native client facade is introduced.
 Affected-row policies must compare bigint counts directly or perform an explicit safe conversion
 at Tenon's boundary. A metadata or policy error after a write does not reverse that write; execute
 guarded statements within the existing atomic transaction/savepoint policy before reporting success.
+
+## Typed-query tooling
+
+The maintainer's final decision D25 leaves type generation, intentional query checking and SQL
+composition tooling in Tenon. pgclear owns conversions, parameter encoding, faithful Describe/field
+metadata and session lifetimes. It does not own a TypeScript compiler integration, schema generator,
+checker command, fragments, expansion, chooser or runtime result-schema validation.
+
+Tenon's `describeQuery()` and generated definitions must describe the actual selected codecs.
+Existing `CodecRegistry` has no public representation introspection; a future demonstrated need may
+justify a minimal decoder-contract API, but no new inspection framework or automatic catalog fetch
+is required by this decision. Do not silently assume default mappings for custom decoders or recover
+arbitrary TypeScript types from erased codec generics. Input encoder policies remain separate from
+result mappings. Type interpretation and unknown/nullability diagnostics belong in Tenon's tooling.
+
+The accepted value-only `sql<Row>` tag returns a tuple consumed by `query`; `queryClassic<Row>`
+accepts finished text and values directly. Both use pgclear's ordinary extended-protocol path.
+Tenon can keep rendering its richer query objects into the existing statement form. Neither its
+current composition API nor its active checkout is changed here.
+
+The supplied [deeper review](references/tenon-typed-query-review.md) remains evidence: original M4
+counts were independently reproduced; newer Unicode-fix counts were attributed to pgclear's author.
+The [tooling exploration](references/query-tooling-exploration.md) is historical, superseded by D25.
+Outstanding M4 consumer and PostgreSQL 16/18 adoption gates remain open.
 
 ## Regression port
 
