@@ -1,3 +1,4 @@
+export { listen } from './listener/index.js';
 export { createPool } from './pool/index.js';
 export { connect } from './connection/index.js';
 export { DriverError, DatabaseError } from './errors.js';
@@ -6,6 +7,10 @@ export { param, json } from './codecs/parameters.js';
 export { sql } from './query.js';
 export type { DriverErrorCode } from './errors.js';
 export type {
+  Notification,
+  ListenerStatus,
+  ListenerOptions,
+  Listener,
   ArrayQueryOptions,
   CloseOptions,
   CommandResult,

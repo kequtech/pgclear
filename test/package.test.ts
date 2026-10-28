@@ -1,3 +1,4 @@
+import { registerListener, notification } from './helpers/listener.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFile } from 'node:child_process';
@@ -17,8 +18,15 @@ test(
       directory = await mkdtemp(join(tmpdir(), 'pgclear-consumer-'));
     const packagePath = join(directory, 'node_modules', '@kequtech', 'pgclear');
     const server = await fakeServer(async (peer) => {
-      await peer.startup();
+      const startup = await peer.startup();
       peer.socket.write(startupReady);
+      if (startup.get('application_name') === 'packed_listener') {
+        await registerListener(peer, ['packed']);
+        peer.socket.write(notification('packed', 'package', 42));
+        assert.equal((await peer.message()).type, 'X');
+        peer.socket.end();
+        return;
+      }
       assert.equal((await peer.message()).type, 'P');
       assert.equal((await peer.message()).type, 'D');
       assert.equal((await peer.message()).type, 'S');
@@ -120,7 +128,7 @@ test(
         `
       import assert from 'node:assert/strict';
       import * as driver from '@kequtech/pgclear';
-      assert.deepEqual(Object.keys(driver).sort(), ['DatabaseError', 'DriverError', 'builtin', 'connect', 'createPool', 'defaultCodecs', 'json', 'param', 'sql']);
+      assert.deepEqual(Object.keys(driver).sort(), ['DatabaseError', 'DriverError', 'builtin', 'connect', 'createPool', 'defaultCodecs', 'json', 'listen', 'param', 'sql']);
       assert.deepEqual(driver.sql\`SELECT \${42}::integer AS value\`, ['SELECT $1::integer AS value', [42]]);
       const client = await driver.connect({host: '127.0.0.1', port: ${server.port}});
       assert.equal(client.info.backendPid, 123);
@@ -143,6 +151,13 @@ test(
       assert.ok(driver.json(null));
       assert.ok(driver.param(['9007199254740993.25', null], driver.builtin.numericArray));
       await client.close();
+      const notified=Promise.withResolvers();
+      const listener=await driver.listen({host:'127.0.0.1',port:${server.port},applicationName:'packed_listener'},
+        {channels:['packed'],timeoutMs:3600000,onNotification:notified.resolve});
+      assert.equal(listener.status.state,'connected');
+      assert.deepEqual(await notified.promise,{channel:'packed',payload:'package',backendPid:42});
+      const closing=listener.close();assert.equal(listener.close(),closing);await closing;
+      assert.equal(listener.status.state,'closed');
       const pool = driver.createPool({host:'127.0.0.1',port:${server.port}});
       assert.deepEqual(pool.stats,{total:0,idle:0,leased:0,waiting:0});
       await pool.close();
@@ -152,8 +167,20 @@ test(
       await writeFile(
         join(directory, 'index.ts'),
         `
-      import { connect, createPool, builtin, defaultCodecs, json, param, sql, type Connection, type QueryResult, type PgArray, type PreparedStatement, type PreparingExecutor, type RowStream, type StreamingExecutor, type StreamOptions, type ArrayStreamOptions, type StreamCompletion, type CommandResult, type CopySource, type CopyStream, type CopyingExecutor } from '@kequtech/pgclear';
+      import { connect, createPool, listen, type Notification, type Listener, type ListenerStatus, type ListenerOptions, builtin, defaultCodecs, json, param, sql, type Connection, type QueryResult, type PgArray, type PreparedStatement, type PreparingExecutor, type RowStream, type StreamingExecutor, type StreamOptions, type ArrayStreamOptions, type StreamCompletion, type CommandResult, type CopySource, type CopyStream, type CopyingExecutor } from '@kequtech/pgclear';
       async function example(connection: Connection) {
+        const listenerOptions: ListenerOptions={channels:['jobs'],reconnect:true,onNotification(value){const n:Notification=value;
+          const channel:string=n.channel; const pid:number=n.backendPid;
+          // @ts-expect-error notification payloads are opaque strings
+          const parsed:object=n.payload;
+        },onStatus(status){if(status.state==='connected'){const generation:number=status.generation;const pid:number=status.session.backendPid;}}};
+        const listener:Listener=await listen({host:'localhost'},listenerOptions);
+        const status:ListenerStatus=listener.status;await listener.close();
+        // @ts-expect-error channel registrations are required
+        listen({host:'localhost'},{onNotification(){}});
+        // @ts-expect-error notifications require a callback
+        listen({host:'localhost'},{channels:['jobs']});
+
         const nested: PgArray<number> = [[1,null],[2,3]];
         await connection.query({text:'SELECT $1, $2',values:[param(nested,builtin.int4Array),json(null)]});
         defaultCodecs.with(builtin.jsonbText);

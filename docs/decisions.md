@@ -490,3 +490,27 @@ using the existing `Codec` type, and close-option validation is shared before pe
 Subprocess scenarios move from embedded strings to a typechecked fixture that executes the built
 package. Shared startup/cancellation helpers retain packet assertions, long-timer/listener checks
 and natural process-exit checks. The proposed API contract re-exports the implemented public surface.
+
+## D32 — Listeners supervise a dedicated connection with explicit delivery gaps
+
+M6 exposes `listen` as a standalone entrypoint with one fixed, copied channel set and one stable
+handle. A sequential supervisor reuses physical startup, query encoding, lifetime cancellation and
+bounded close. Reconnect is opt-in and replaces only that listener's connection; ordinary session
+capabilities retain their identity and never reconnect themselves. A successful registration advances
+the observable generation. Loss and failed attempts report disconnected/reconnecting statuses, and
+all registrations are restored before the next connected status. Initial failure rejects readiness
+instead of starting an unbounded background retry. No delivery replay is promised during gaps.
+
+Channel identifiers are quoted and validated against the server's byte limit before registration.
+The validation query selects no values and uses the native command count, so user result codecs
+cannot alter that internal policy. Notifications preserve opaque payload strings and source PID.
+Observers share a fixed-warning isolator; returned promises are observed but do not provide
+backpressure. Status updates and a permanent close fence precede callbacks, including reentrant
+shutdown from a callback. Close stops backoff, pending credentials/transports and partial registration.
+
+Deployment tests use disposable owned native PostgreSQL fixtures and a checksum-pinned PgBouncer
+1.26.1 source build. TLS/Unix and session/transaction pooling are tested as explicit profiles. Native
+PostgreSQL refused TLS on its Unix socket, so transport support is not presented as a universal
+server capability. Session features use direct connections or session pooling; transaction pooling
+checks unnamed queries and transaction pinning/recovery. The local result is PostgreSQL 16.15; new
+16/18 compatibility jobs are configured without claiming their results before execution.

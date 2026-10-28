@@ -4,11 +4,10 @@ A standalone TypeScript PostgreSQL driver built around explicit session ownershi
 predictable failure handling, and first-class protocol operations. Tenon is the first intended
 consumer; pgclear has no runtime dependency on Tenon.
 
-**Status: M5 implemented locally; not ready for production or publication.** Native TypeScript
+**Status: M6 implemented locally; not ready for production or publication.** Native TypeScript
 declarations cover connections, pools, leases, transaction/savepoint scopes, immutable codecs,
 explicit typed/JSON parameters, description, scripts, scope-owned prepared statements, portal row
-streams and byte COPY.
-Notifications remain planned. An isolated Tenon 0.3.1 adapter trial uses the native driver contracts;
+streams, byte COPY and dedicated notification listeners. An isolated Tenon 0.3.1 adapter trial uses the native driver contracts;
 its evidence and remaining adoption work are recorded in [docs/tenon-trial.md](docs/tenon-trial.md).
 `private: true` prevents accidental publication until the implementation and release gates are ready.
 
@@ -46,6 +45,12 @@ active and support transaction/savepoint scopes. Input pulls and writes obey bac
 pauses for slow consumers. CSV/binary record encoding stays with the caller. Early COPY output close
 uses cancellation and retires the connection.
 
+`listen(connectionOptions, { channels, onNotification, reconnect })` owns a dedicated connection and
+returns a stable handle after registration. Reconnect is opt-in, reports status/generations and
+re-registers the fixed channels. Close permanently stops connections and retries. Notifications
+carry opaque string payloads and the sender PID; delivery gaps have no replay. Use direct PostgreSQL
+or session pooling for listeners.
+
 The connection supports TCP/Unix sockets, verified TLS, trust/password/MD5/SCRAM authentication,
 SCRAM channel binding, sequential extended queries, scalar results, field metadata, and bounded
 startup/close. Codecs preserve bigint/numeric precision inside arrays, and `json(null)` explicitly
@@ -64,3 +69,7 @@ formatting, packets/authentication, packed consumers, and real database workflow
 require `PGCLEAR_TEST_DATABASE_URL` naming an explicit `_test` database; the test harness also uses
 `psql` to compare Unicode authentication with libpq. Database-independent tests run with
 `npm run test:unit`. See [development](docs/development.md) for setup and verification evidence.
+
+`npm run test:compat` separately exercises native PostgreSQL TLS/Unix sockets and checksum-pinned
+PgBouncer 1.26.1. See [development](docs/development.md#deployment-compatibility) for its disposable
+fixture, prerequisites and exact tested profiles.

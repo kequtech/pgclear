@@ -1,3 +1,4 @@
+import { observe } from '../observe.js';
 import { Authenticator } from '../auth/index.js';
 import {
   normalizeConfiguration,
@@ -28,6 +29,7 @@ import type {
   TransactionStatus,
   StreamCompletion,
   CopySource,
+  Notification,
 } from '../types.js';
 import { ConnectionHandle } from '../session/index.js';
 import { cancel } from '../transport/cancel.js';
@@ -71,7 +73,7 @@ export class PhysicalConnection {
   #cancelController: AbortController | undefined;
   #cancelError: unknown;
   #disposed = Promise.withResolvers<void>();
-  #lost = new Set<() => void>();
+  #lost = new Set<(error: Error) => void>();
   #info: SessionInfo | undefined;
   #serverVersion = '';
   #status: TransactionStatus = 'idle';
@@ -85,7 +87,10 @@ export class PhysicalConnection {
   #closePromise: Promise<void> | undefined;
   #started = Promise.withResolvers<void>();
 
-  constructor(config: Configuration) {
+  constructor(
+    config: Configuration,
+    private readonly notification?: (value: Notification) => void,
+  ) {
     this.#config = config;
     this.#decoder = new FrameDecoder(config.maxMessageBytes);
     this.#transport = new Transport(config, {
@@ -112,8 +117,11 @@ export class PhysicalConnection {
     }
   }
 
-  onLost(listener: () => void): () => void {
-    if (this.#dead) queueMicrotask(listener);
+  onLost(listener: (error: Error) => void): () => void {
+    if (this.#dead)
+      queueMicrotask(() =>
+        listener(new DriverError('PGCLEAR_CLOSED', 'The physical session is closed.')),
+      );
     else this.#lost.add(listener);
     return () => {
       this.#lost.delete(listener);
@@ -157,13 +165,7 @@ export class PhysicalConnection {
   }
 
   #emit(event: DriverEvent): void {
-    if (!this.#config.onEvent) return;
-    const warn = () => process.emitWarning('pgclear observation callback failed.');
-    try {
-      void Promise.resolve(this.#config.onEvent(Object.freeze(event))).catch(warn);
-    } catch {
-      warn();
-    }
+    observe(this.#config.onEvent, Object.freeze(event));
   }
 
   #socketClosed = (): void => {
@@ -247,6 +249,15 @@ export class PhysicalConnection {
         this.#backendSecret = message.secret;
         return;
       case 'notification':
+        if (this.#info && !this.#closing)
+          observe(
+            this.notification,
+            Object.freeze({
+              channel: message.channel,
+              payload: message.payload,
+              backendPid: message.pid,
+            }),
+          );
         return;
       case 'ready':
         await this.#receiveReady(message.status);
@@ -955,7 +966,7 @@ export class PhysicalConnection {
     this.#auth = undefined;
     this.#backendSecret = undefined;
     this.#transport.destroy();
-    for (const listener of this.#lost) listener();
+    for (const listener of this.#lost) listener(error);
     this.#lost.clear();
     if (this.#info)
       this.#emit({ type: 'disconnect', session: this.#info, expected: this.#requestedClose });
@@ -990,13 +1001,14 @@ export class PhysicalConnection {
 export async function openConnection(
   config: Configuration,
   operation: OperationOptions = {},
+  notification?: (value: Notification) => void,
 ): Promise<PhysicalConnection> {
   validateOperation(operation);
   if (operation.signal?.aborted)
     throw new DriverError('PGCLEAR_ABORTED', 'Connection startup aborted.');
   if (operation.timeoutMs === 0 || config.connectTimeoutMs === 0)
     throw new DriverError('PGCLEAR_TIMEOUT', 'Connection startup deadline expired.');
-  return new PhysicalConnection(config).open(operation);
+  return new PhysicalConnection(config, notification).open(operation);
 }
 export async function connect(
   options: string | ConnectionOptions,

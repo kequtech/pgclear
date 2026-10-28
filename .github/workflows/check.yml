@@ -43,3 +43,35 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+
+  compatibility:
+    name: TLS / Unix / PgBouncer / PostgreSQL ${{ matrix.postgres }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: [16, 18]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install native fixture dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-common build-essential pkg-config libevent-dev libssl-dev
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-${{ matrix.postgres }}
+      - name: Build checksum-pinned PgBouncer
+        id: pgbouncer
+        run: |
+          pgclear_proxy_binary=$(node scripts/build-pgbouncer.mjs "$RUNNER_TEMP/pgclear-pgbouncer")
+          printf 'binary=%s\n' "$pgclear_proxy_binary" >> "$GITHUB_OUTPUT"
+      - run: npm run test:compat
+        env:
+          PGCLEAR_PGBOUNCER: ${{ steps.pgbouncer.outputs.binary }}
+          PGCLEAR_POSTGRES_BIN: /usr/lib/postgresql/${{ matrix.postgres }}/bin

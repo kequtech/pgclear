@@ -2,12 +2,12 @@
 
 Work in the order below. Each milestone produces a usable, verifiable slice and has an observable
 completion gate. Keep this document current by recording completed gates and evidence, not by
-maintaining a second backlog that can disagree with it. The M1–M3 core, M4 consumer trial and all M5
-slices are implemented; complete Tenon adoption remains open. The complete M1–M5 check passes **203
-local tests**. See [development](development.md) for current and historical verification evidence.
-The Unicode-fix commit `e742fbf` passed PostgreSQL 16/18 CI; this does not verify M5, whose own
-PostgreSQL 18/CI results remain unverified. The [handoff](m5-handoff.md) is the historical M5 starting
-brief. M6 notifications/deployment compatibility is the next implementation milestone.
+maintaining a second backlog that can disagree with it. M1–M6 and the M4 consumer trial are
+implemented locally; complete Tenon adoption remains open. The current check passes **216 regression
+tests**, with **3 additional compatibility tests**. See [development](development.md) for evidence.
+PostgreSQL 16/18 CI passed the earlier Unicode-fix commit `e742fbf`; M6's new CI jobs are configured
+but their results are unverified here. The [handoff](m5-handoff.md) is historical. M7 measurement is
+next; opt-in pipelining remains conditional on demonstrated benefit.
 
 ## M0 — Design and project setup (this change)
 
@@ -225,6 +225,18 @@ valid execution fail with `26000`. Include schema/result-shape changes and disti
 registries, checking result ownership and recovery rather than cache implementation details.
 
 ## M6 — Notifications and deployment compatibility
+
+Implemented locally on 2026-10-28. Dedicated listeners support initial readiness, opt-in reconnect,
+credential refresh, fixed-channel re-registration, gap/generation statuses and permanent close.
+The implementation reuses physical startup/query/close and a shared observer isolator; it adds one
+supervision task rather than reconnecting ordinary session handles.
+
+`npm run check` passes 216 tests. The separate compatibility suite passes 3 tests on PostgreSQL
+16.15 and checksum-pinned PgBouncer 1.26.1: verified native TLS/channel binding, native Unix sockets,
+session features through session pooling and ordinary/transaction queries through transaction
+pooling. Dedicated PostgreSQL 16/18 compatibility jobs are configured, with no new CI result claimed.
+See [D32](decisions.md#d32--listeners-supervise-a-dedicated-connection-with-explicit-delivery-gaps)
+and [reproduction](development.md#deployment-compatibility).
 
 1. Implement dedicated fixed-channel listeners with stable handles, status generations, optional
    reconnect, credential refresh and permanent close fences.

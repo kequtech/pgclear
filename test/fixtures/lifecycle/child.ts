@@ -6,7 +6,7 @@ import { Readable } from 'node:stream';
 import type { Connection, CopySource, OperationOptions } from '../../../src/index.js';
 
 // Exercise the built package, while typechecking fixtures against its public source contract.
-const { connect, createPool }: typeof import('../../../src/index.js') = await import(
+const { connect, createPool, listen }: typeof import('../../../src/index.js') = await import(
   pathToFileURL(resolve('dist/index.js')).href
 );
 const [kind, scenario, port] = process.argv.slice(2);
@@ -106,7 +106,38 @@ async function description(client: Connection, options: OperationOptions) {
   }
 }
 
-if (kind === 'pool') {
+if (kind === 'listener') {
+  const warnings: string[] = [];
+  process.on('warning', (warning) => warnings.push(warning.message));
+  const notified = Promise.withResolvers<void>(),
+    gap = Promise.withResolvers<void>();
+  const listener = await listen(connection, {
+    ...options,
+    channels: ['fixture'],
+    reconnect: scenario === 'reconnect-close',
+    async onNotification(value) {
+      assert.deepEqual(value, { channel: 'fixture', payload: 'bytes', backendPid: 42 });
+      notified.resolve();
+      throw Error('private callback contents');
+    },
+    async onStatus(status) {
+      if (status.state === 'reconnecting') gap.resolve();
+      if (status.state === 'connected') throw Error('private callback contents');
+    },
+  });
+  try {
+    if (scenario === 'complete') await notified.promise;
+    if (scenario === 'reconnect-close') await gap.promise;
+    if (scenario === 'abort') controller.abort();
+    await listener.close();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.ok(warnings.length > 0);
+    assert.ok(warnings.every((message) => message === 'pgclear observation callback failed.'));
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+  } finally {
+    await listener.close();
+  }
+} else if (kind === 'pool') {
   const pool = createPool({ ...connection, maxConnections: 1 });
   const [operation, fail] = scenario.split(':');
   try {

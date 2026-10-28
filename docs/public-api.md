@@ -1,7 +1,7 @@
 # Public API
 
 Status: M5 is implemented and locally verified: connections, pools/leases, session callbacks, transactions and
-savepoints, cancellation, immutable codecs, typed/JSON parameters, arrays, description, scripts, scope-owned named preparation, portal row streams and COPY byte transfer.
+savepoints, cancellation, immutable codecs, typed/JSON parameters, arrays, description, scripts, scope-owned named preparation, portal row streams, COPY byte transfer and dedicated notification listeners.
 Actual exports/types live in `src/index.ts`; [api-contract.ts](api-contract.ts) imports implemented
 signatures; only listener APIs remain proposals. [api-examples.ts](api-examples.ts) compiles with
 `npm run typecheck`. Listeners below remain design targets.
@@ -394,8 +394,13 @@ connection, resolves after LISTEN acknowledgement, and returns one stable handle
 channel set. Channel identifiers are quoted by the driver and validated against the server's
 identifier length; payloads stay strings. Close releases all registrations and stops reconnects.
 Reconnect defaults to false. When enabled it uses capped exponential backoff with jitter (100 ms
-initial, 30 s cap), reports gaps/generations, refreshes credentials, and never promises replay.
-Close during reconnect fences late transports. LISTEN is not supported behind transaction pooling.
+initial ceiling, 30 s cap; each wait is 50–100% of that ceiling), reports gaps/generations, refreshes credentials, and never promises replay.
+Close during reconnect fences late transports. The first connected generation is 1; failed
+reconnection attempts preserve that generation until all channels register again. Initial setup
+failure rejects `listen` after cleanup; optional retries apply after initial readiness. Notifications
+during setup/re-registration gaps are not delivered. Channel lists are copied and deduplicated;
+invalid/empty names reject, and UTF8 byte length is checked against the server limit before LISTEN.
+LISTEN is not supported behind transaction pooling.
 Send notifications on any executor with a parameterized statement such as
 `{ text: 'SELECT pg_notify($1, $2)', values: ['jobs_changed', 'ready'] }`.
 

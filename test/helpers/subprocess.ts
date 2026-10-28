@@ -6,7 +6,7 @@ const run = promisify(execFile);
 
 /** A leaked hour-long deadline or socket must prevent natural exit and fail this check. */
 export async function runLifecycle(
-  kind: 'describe' | 'prepare' | 'stream' | 'copy' | 'pool',
+  kind: 'describe' | 'prepare' | 'stream' | 'copy' | 'pool' | 'listener',
   scenario: string,
   port: number,
 ): Promise<void> {

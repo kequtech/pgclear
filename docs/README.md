@@ -1,13 +1,14 @@
 # Canonical design documents
 
-Status: accepted initial design, 2026-10-28. The M5 connection/pool/transaction/preparation/streaming/COPY surface is implemented locally; later APIs remain
-design targets. See [development](development.md) for the implemented subset and verification.
+Status: M1–M6 are implemented locally, including dedicated notification listeners and the isolated
+TLS/Unix/PgBouncer compatibility suite. Full Tenon adoption and PostgreSQL 18 verification of this
+checkpoint remain open. See [development](development.md) for current evidence.
 
 | Document                                                              | Responsibility                                               |
 | --------------------------------------------------------------------- | ------------------------------------------------------------ |
 | [Scope](scope.md)                                                     | Product boundary, support targets, release definition        |
 | [Public API](public-api.md)                                           | Observable behavior and usage                                |
-| [API contract](api-contract.ts)                                       | Target signatures; shared runtime types imported             |
+| [API contract](api-contract.ts)                                       | Implemented public signatures re-exported                    |
 | [Usage contracts](api-examples.ts)                                    | Type-checked examples, including rejected API usage          |
 | [Architecture](architecture.md)                                       | Internal boundaries, state machines, failure invariants      |
 | [Decisions](decisions.md)                                             | Accepted decisions, alternatives, and reasons                |
@@ -29,8 +30,8 @@ intended usage and compile-time constraints; they are not runtime tests or evide
 Implemented signatures and exports are imported from `src/index.ts` in the design contract and
 examples. `Connection` exposes queries, description, preparation, row streaming, COPY, scripts,
 transactions, identity/status and close. Pool, lease and transaction capabilities come from the
-same real entry point. Duplicate `Planned*` session interfaces have been removed; only future
-listener declarations remain proposals, never executable package exports. Packed consumers exercise
+same real entry point, and `listen` exposes the dedicated listener handle. The design contract
+re-exports the implemented API, with no duplicate planned declarations. Packed consumers exercise
 the actual public declarations.
 
 ## Evidence

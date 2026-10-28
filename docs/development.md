@@ -29,9 +29,22 @@ Fake-server tests require loopback/Unix sockets. Integration tests require `psql
 tests use `tar` and reuse only runtime dependencies declared in the packed manifest. TLS fixtures
 are explicitly public test-only keys/certificates. The package remains private; `npm pack` exercises
 distribution locally and does not publish it. The runtime exports are `connect`, `createPool`, `DriverError`, `DatabaseError`, `builtin`, `defaultCodecs`, `param`,
-`json` and `sql`.
+`json`, `sql` and `listen`.
 
 ## Current verification and limits
+
+M6 on 2026-10-28 passed `npm run check`: **216 tests** (118 database-independent, 98 integration)
+against the existing `pgclear_test` database. A separate `npm run test:compat` passed **3 compatibility
+tests** on disposable PostgreSQL 16.15 and PgBouncer 1.26.1 fixtures. All 203 previous tests remain.
+
+Listener coverage includes real commit/rollback notification delivery, quoted/Unicode channels and
+payloads, sender PID, identifier byte limits, immutable channel/status snapshots, reconnect
+generations, credential refresh, failed re-registration, malformed notifications, timeout/abort,
+close during backoff/authentication, late password results and callback-triggered shutdown. Three
+subprocess scenarios retain natural-exit and long-timer/listener checks and prove synchronous/async
+callback failures remain isolated. Packed JS/TS consumers exercise the real listener export/types.
+Dedicated PostgreSQL 16/18 compatibility jobs are configured; no M6 CI or local PostgreSQL 18 result,
+publication, production performance or full Tenon adoption is claimed.
 
 The M1–M5 lifecycle cleanup on 2026-10-28 passed `npm run check`: **203 tests**
 (109 database-independent, 94 integration) against the existing `pgclear_test` database. The new
@@ -179,8 +192,40 @@ built-in arrays use the selected scalar decoders. JSON.parse still has JavaScrip
 limits; raw JSON codecs are the explicit alternative. Binary results and catalog-driven custom array
 discovery are not implemented. Active interruption uses protocol cancellation and retires the session, bounded by cleanup time;
 force-close disposes both transports. Managed scopes classify lost COMMIT responses separately.
-Full Tenon adoption, listeners and a real proxy/TLS deployment
-matrix remain unverified later work.
+Full Tenon adoption remains open. M6 later adds real TLS/Unix/proxy evidence, recorded above.
+
+## Deployment compatibility
+
+`test/compatibility/pgbouncer.json` pins official PgBouncer **1.26.1** source and its SHA256.
+The [source releases](https://www.pgbouncer.org/downloads/) supply the archive and checksum.
+Build it with C build tools, pkg-config, libevent/OpenSSL development headers, and `tar`:
+
+```sh
+node scripts/build-pgbouncer.mjs /tmp/pgclear-pgbouncer
+PGCLEAR_PGBOUNCER=/tmp/pgclear-pgbouncer/pgbouncer-1.26.1/pgbouncer npm run test:compat
+```
+
+The build directory must not exist. Source/configuration/build logs stay there. The test fixture
+uses native `initdb`/`pg_ctl` from `pg_config --bindir`; set `PGCLEAR_POSTGRES_BIN` to select another
+installed version. Run as an ordinary user. It creates and removes an owned temporary PostgreSQL
+cluster with database `pgclear_test`, public test credentials `postgres:postgres`, loopback ports,
+Unix sockets and the existing test-only certificate. It never edits, upgrades or stops the configured
+PostgreSQL server/database. PgBouncer runs in the foreground and all owned processes are stopped
+before the temporary directory is removed, including after failures.
+
+The exact proxy configuration lives in `test/compatibility/server.ts`. It uses SCRAM client/backend
+authentication, required client TLS, verify-full backend TLS, two backend connections per pool and
+`max_prepared_statements=0`. Separate aliases select session and transaction pooling. Session tests
+cover explicit preparation, COPY, cursor batches and LISTEN/NOTIFY. Transaction tests cover unnamed
+binds, concurrent pinned transactions, temporary ON COMMIT DROP tables, savepoint recovery and active
+cancellation/retirement. They make no LISTEN or session-persistence claim for transaction pooling,
+consistent with [PgBouncer's feature map](https://www.pgbouncer.org/features.html).
+
+Native tests require verified TLS and SCRAM-PLUS on TCP, and use SCRAM over plaintext Unix sockets.
+Native PostgreSQL refused TLS negotiation on its Unix socket; these are separate tested profiles.
+The local result used PostgreSQL **16.15**. GitHub Actions configures independent native PostgreSQL
+16/18 jobs on Ubuntu 24.04 using the official PostgreSQL package repository and the same pinned
+proxy build. Their execution remains unverified until this checkpoint runs in CI.
 
 ## Tenon adapter trial
 

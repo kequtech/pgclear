@@ -64,7 +64,7 @@ fences new calls synchronously before asynchronous cleanup. A physical connectio
 expires all child handles immediately. A pool lease generation changes on every checkout, even when
 the same physical socket is retained. Every lease and child scope is a fresh, permanently expiring object. M3 uses object ownership
 instead of a reusable numeric generation; a returned connection never reactivates its previous
-capability. Prepared handles will follow the same ownership rule.
+capability. Prepared handles follow the same ownership rule.
 
 ## Operation ownership and dispatch
 
@@ -253,8 +253,17 @@ exit cancels and retires the connection. No CSV or binary-record interpretation 
 
 A listener supervisor owns immutable channel registrations and a replaceable physical connection.
 Its public handle survives reconnect only when explicitly configured, but each connection generation
-is observable. Re-register channels after authentication, then report connected. A permanent closed
-fence disposes pending transports and backoff timers. Notifications during gaps are not replayable.
+is observable. One sequential supervision task owns startup, channel validation/registration,
+loss observation, disposal and backoff. Re-register all channels after authentication, then report
+connected. Query/session handles keep their existing no-reconnect behavior. The physical connection
+only forwards decoded notifications and terminal loss evidence; it owns no retry policy.
+
+A close promise establishes the permanent fence before invoking user status callbacks. Closing
+aborts backoff and pending startup, disposes unfinished registration, or closes an established idle
+session through its existing deadline. Ending that dedicated session releases LISTEN registrations.
+Notifications dispatch only for the current connected generation, and callbacks share the isolated,
+non-awaiting observer helper. Notifications during gaps are not replayable. See
+[D32](decisions.md#d32--listeners-supervise-a-dedicated-connection-with-explicit-delivery-gaps).
 
 ## Pipelining after the sequential core
 
