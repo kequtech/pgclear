@@ -1,32 +1,43 @@
-/** Proposed signatures only. No runtime implementation exists in this file. */
+/** Target API. Implemented signatures are imported from src; later features stay proposals. */
 import type { Readable } from 'node:stream';
 
-export type Oid = number;
-export type WireFormat = 'text' | 'binary';
-export type Row = Readonly<Record<string, unknown>>;
-export type TransactionStatus = 'idle' | 'transaction' | 'failed';
-export type Outcome = 'not-sent' | 'confirmed' | 'unknown';
-
-export interface Field {
-  readonly name: string;
-  readonly dataTypeOid: Oid;
-  readonly tableOid: Oid;
-  readonly columnAttribute: number;
-  readonly dataTypeSize: number;
-  readonly typeModifier: number;
-  readonly format: WireFormat;
-}
-
-export interface CommandResult {
-  readonly command: string;
-  readonly commandTag: string;
-  readonly rowCount: bigint | null;
-}
-
-export interface QueryResult<T = Row> extends CommandResult {
-  readonly rows: readonly T[];
-  readonly fields: readonly Field[];
-}
+import type {
+  Oid,
+  WireFormat,
+  Row,
+  TransactionStatus,
+  Outcome,
+  Field,
+  CommandResult,
+  QueryResult,
+  OperationOptions,
+  QueryOptions,
+  ArrayQueryOptions,
+  CloseOptions,
+  SessionInfo,
+  PasswordContext,
+  TlsOptions,
+  InputValue as ScalarInputValue,
+} from '../src/index.js';
+export { connect, DriverError, DatabaseError } from '../src/index.js';
+export type {
+  Oid,
+  WireFormat,
+  Row,
+  TransactionStatus,
+  Outcome,
+  Field,
+  CommandResult,
+  QueryResult,
+  OperationOptions,
+  QueryOptions,
+  ArrayQueryOptions,
+  CloseOptions,
+  SessionInfo,
+  PasswordContext,
+  TlsOptions,
+  DriverErrorCode,
+} from '../src/index.js';
 
 export interface TextCodec<T> {
   readonly encode: (value: T) => string;
@@ -52,7 +63,7 @@ declare const parameterBrand: unique symbol;
 export interface Parameter {
   readonly [parameterBrand]: true;
 }
-export type InputValue = null | string | number | bigint | boolean | Uint8Array | Parameter;
+export type InputValue = ScalarInputValue | Parameter;
 export declare function param<T>(
   value: NoInfer<T> | null,
   codec: Codec<T>,
@@ -89,16 +100,6 @@ export interface DescribeStatement {
   readonly text: string;
   readonly parameterTypes?: readonly Oid[];
 }
-export interface OperationOptions {
-  readonly signal?: AbortSignal;
-  readonly timeoutMs?: number;
-}
-export interface QueryOptions extends OperationOptions {
-  readonly rowMode?: 'object';
-}
-export interface ArrayQueryOptions extends OperationOptions {
-  readonly rowMode: 'array';
-}
 export interface Description {
   readonly parameterTypes: readonly Oid[];
   readonly fields: readonly Field[];
@@ -115,15 +116,6 @@ export interface Executor {
   describe(statement: string | DescribeStatement, options?: OperationOptions): Promise<Description>;
 }
 
-export interface SessionInfo {
-  /** Local, monotonically increasing identity; never a cancellation secret. */
-  readonly id: number;
-  readonly backendPid: number;
-  readonly serverVersion: string;
-}
-export interface CloseOptions {
-  readonly timeoutMs?: number;
-}
 export interface TransactionOptions extends OperationOptions {
   readonly isolation?: 'read committed' | 'repeatable read' | 'serializable';
   readonly readOnly?: boolean;
@@ -186,7 +178,7 @@ export interface Session extends StreamingExecutor {
     options?: TransactionOptions,
   ): Promise<T>;
 }
-export interface Connection extends Session {
+export interface PlannedConnection extends Session {
   close(options?: CloseOptions): Promise<void>;
 }
 export interface Lease extends Session {
@@ -208,19 +200,6 @@ export interface Pool extends Executor {
   close(options?: CloseOptions): Promise<void>;
 }
 
-export interface PasswordContext {
-  readonly host: string;
-  readonly port: number;
-  readonly user: string;
-  readonly database: string;
-}
-export interface TlsOptions {
-  readonly ca?: string | readonly string[];
-  readonly cert?: string;
-  readonly key?: string;
-  readonly serverName?: string;
-  readonly channelBinding?: 'prefer' | 'require' | 'disable';
-}
 export interface ConnectionOptions {
   readonly connectionString?: string;
   readonly host?: string;
@@ -245,10 +224,6 @@ export interface PoolOptions extends ConnectionOptions {
   readonly idleTimeoutMs?: number;
   readonly maxLifetimeMs?: number;
 }
-export declare function connect(
-  options: string | ConnectionOptions,
-  operation?: OperationOptions,
-): Promise<Connection>;
 export declare function createPool(options: string | PoolOptions): Pool;
 
 export interface DatabaseNotice {
@@ -295,38 +270,3 @@ export declare function listen(
   connection: string | ConnectionOptions,
   options: ListenerOptions,
 ): Promise<Listener>;
-
-export type DriverErrorCode =
-  | 'PGCLEAR_CONFIGURATION'
-  | 'PGCLEAR_AUTHENTICATION'
-  | 'PGCLEAR_CONNECTION_LOST'
-  | 'PGCLEAR_SESSION_EXPIRED'
-  | 'PGCLEAR_CLOSED'
-  | 'PGCLEAR_BUSY'
-  | 'PGCLEAR_QUEUE_FULL'
-  | 'PGCLEAR_TIMEOUT'
-  | 'PGCLEAR_ABORTED'
-  | 'PGCLEAR_ENCODE'
-  | 'PGCLEAR_DECODE'
-  | 'PGCLEAR_PROTOCOL'
-  | 'PGCLEAR_RESULT_LIMIT'
-  | 'PGCLEAR_SESSION_STATE'
-  | 'PGCLEAR_COMMIT_UNKNOWN';
-export declare class DriverError extends Error {
-  readonly code: DriverErrorCode;
-  readonly outcome: Outcome;
-}
-export declare class DatabaseError extends Error {
-  /** PostgreSQL SQLSTATE. */
-  readonly code: string;
-  readonly severity: string;
-  readonly detail?: string;
-  readonly hint?: string;
-  readonly position?: number;
-  readonly schema?: string;
-  readonly table?: string;
-  readonly column?: string;
-  readonly dataType?: string;
-  readonly constraint?: string;
-  readonly routine?: string;
-}

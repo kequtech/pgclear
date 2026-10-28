@@ -1,7 +1,16 @@
 # Public API
 
-Status: accepted design, not implemented. [api-contract.ts](api-contract.ts) owns exact signatures;
-[api-examples.ts](api-examples.ts) is compiled by `npm run typecheck`.
+Status: accepted target design. M1 implements `connect`, standalone identity/status/query/close,
+scalar parameter/results, SQLSTATE errors, startup authentication and verified transport. All later
+features below remain targets. Actual exports/types live in `src/index.ts`; [api-contract.ts](api-contract.ts)
+imports implemented shared signatures and proposes the remaining API. [api-examples.ts](api-examples.ts)
+is compiled by `npm run typecheck`; its standalone example uses the real `connect` export.
+
+M1 uses socket destruction for active abort/deadline expiry; it does not yet send CancelRequest.
+There are no managed transaction helpers or special COMMIT_UNKNOWN detection until M3. Built-in
+arrays, typed parameters/custom codecs, description, and scripts arrive in M2. Unknown OIDs currently
+remain strings. The remainder specifies the complete intended API rather than claiming those features
+are available today.
 
 ## Connections, pools, and ownership
 
@@ -71,7 +80,8 @@ validates server proof, nonces, algorithm selection, and a fixed SCRAM iteration
 
 `startupParameters` is for PostgreSQL GUC strings, not protocol options. The driver fixes UTF8 client
 encoding, ISO DateStyle and ISO-8601 IntervalStyle, and initially UTC TimeZone for predictable defaults.
-Conflicting startup values reject; later ParameterStatus changes update codec context. Temporal
+Driver-owned startup keys cannot be repeated or overridden; later ParameterStatus changes update
+session context. Temporal
 strings follow the server's current session settings. Protocol/user/database/replication overrides
 through this map reject. Never infer TLS mode from credentials or hostname.
 
@@ -80,7 +90,7 @@ through this map reject. Never infer TLS mode from credentials or hostname.
 | `connectTimeoutMs`    | 5,000   | TCP/TLS/auth/startup, including password provider                   |
 | `maxQueuedOperations` | 1,000   | Unsent operations per physical connection                           |
 | `maxMessageBytes`     | 64 MiB  | Maximum inbound protocol frame, including length word               |
-| `maxResultBytes`      | 64 MiB  | Buffered field payload bytes per ordinary query/script              |
+| `maxResultBytes`      | 64 MiB  | Buffered DataRow bytes, including framing/field lengths             |
 | `maxConnections`      | 10      | Pool connection ceiling                                             |
 | `maxWaiting`          | 1,000   | Pool acquisition waiters                                            |
 | `acquireTimeoutMs`    | 5,000   | Wait for an exclusive lease, including connection startup           |

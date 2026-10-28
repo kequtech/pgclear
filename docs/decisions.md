@@ -1,6 +1,6 @@
 # Design decisions
 
-Accepted on 2026-10-28. These are implementation constraints, not claims of implemented behavior.
+Accepted on 2026-10-28. These are implementation constraints; only the M1 subset is implemented.
 Amend details in place while the initial design is unimplemented; record a superseding decision for
 a meaningful reversal. The engineer maintaining the project owns these decisions; no review board
 or separate approval workflow is required.
@@ -95,6 +95,23 @@ now; move the contract into actual source at the first implementation milestone.
 disabled until the release gate. Reuse the assigned private GitHub repository, shared Kequtech docs
 synchronization action, and existing test database. Documentation checks do not claim runtime driver
 coverage, and onboarding does not authorize a package release or visibility change.
+
+## D12 — SASLprep tables as a focused dependency
+
+M1 uses `@mongodb-js/saslprep` 1.6.1 instead of reproducing Unicode 3.2 character tables and bidi
+rules or treating NFKC normalization alone as SASLprep. PostgreSQL falls back to the raw password
+when preparation rejects it; tests compare both normalization and that fallback with PostgreSQL and
+libpq. Crypto operations remain native Node functions. TLS channel binding uses the verified
+certificate's signature hash (including SHA384), rather than assuming every certificate uses SHA256.
+This is a concrete exception to the initial zero-runtime-dependency preference, supported by the
+authentication correctness requirement.
+
+## D13 — Buffered result limits charge row framing
+
+`maxResultBytes` counts complete DataRow wire bytes, including the row header and each field's length
+word. Counting value payloads alone gives NULL and empty values zero cost and lets their row objects
+grow without consuming the budget. The limit still does not promise an exact JavaScript heap bound;
+large results use streaming when that milestone is available. No extra deployment variable is added.
 
 ## Deferred decisions
 

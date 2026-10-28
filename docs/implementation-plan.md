@@ -2,7 +2,8 @@
 
 Work in the order below. Each milestone produces a usable, verifiable slice and has an observable
 completion gate. Keep this document current by recording completed gates and evidence, not by
-maintaining a second backlog that can disagree with it. No driver milestone is complete yet.
+maintaining a second backlog that can disagree with it. The M1 connection core is implemented and
+verified locally against PostgreSQL 16; its PostgreSQL 18 CI gate is configured but not yet observed.
 
 ## M0 — Design and project setup (this change)
 
@@ -16,6 +17,16 @@ repository metadata and Actions secret presence are checked. Documentation sync 
 separate observation, not inferred from configuration. See development.md for setup evidence.
 
 ## M1 — Protocol and one real connection
+
+Implemented on 2026-10-28: framing, configuration, startup/authentication, verified TLS and channel
+binding, scalar extended queries, sequential dispatch, field metadata, structured errors, bounded
+startup/close, and actual packed-consumer checks. See [development](development.md) for current
+verification evidence. Later surfaces are not stubbed into runtime exports.
+
+The normal sequential query path and scalar conversion needed for a real connection are implemented;
+M2 owns custom codecs/arrays, description and scripts. Active query abort currently destroys the
+socket; protocol cancellation and managed transaction outcome handling remain M3 work. The 16/18
+CI matrix is introduced now because M1 already has meaningful database tests.
 
 1. Move the contract to `src/` as its APIs are implemented. Make examples import the package-facing
    entry point, and keep unreleased advanced signatures clearly separated until implemented.
@@ -74,8 +85,8 @@ Gate:
 3. Implement AbortSignal/deadlines from invocation, pre-dispatch removal, active cancellation via a
    separate connection and mandatory retirement of canceled active connections.
 4. Implement close fences, bounded draining, forced disposal, late startup cleanup and no resurrection.
-5. Extend CI to a PostgreSQL 16/18 service matrix when these real integration checks exist. Keep
-   packet tests database-independent. Add deterministic fake-server tests for commit-ack loss.
+5. Extend the existing PostgreSQL 16/18 CI matrix with transaction/pool tests. Keep packet tests
+   database-independent. Add deterministic fake-server tests for commit-ack loss.
 
 Gate:
 
@@ -165,5 +176,6 @@ For one engineer, allow approximately 1–3 weeks for M1 experimentation, 6–12
 M1–M4, and 3–6 months cumulative for a credible M1–M6 release. These are uncertain effort envelopes,
 not deadlines or automation schedules. Authentication, cancellation races, codec edge cases and the
 Tenon value migration are the largest risks. M7 is deliberately separable from release correctness.
-The next concrete implementation task is M1; do not start with benchmarks or runtime compatibility
-shims while the request/session state machine is unproven.
+After observing the remaining M1 PostgreSQL 18 gate, the next implementation task is M2. Do not
+start with benchmarks or runtime compatibility shims while the request/session state machine is
+still being established.

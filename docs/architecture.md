@@ -2,8 +2,9 @@
 
 ## Module boundaries
 
-One npm package, no runtime dependency initially. Node net/tls/crypto/stream provide transport,
-authentication primitives, and stream integration. Write the small protocol core in TypeScript;
+One npm package. Node net/tls/crypto/stream provide transport, authentication primitives, and stream
+integration. The only direct runtime dependency is `@mongodb-js/saslprep` for the Unicode 3.2
+normalization/prohibition/bidirectional tables used by PostgreSQL SCRAM. Write the small protocol core in TypeScript;
 do not embed pg, fork Postgres.js, or publish separate internal packages.
 
 | Module                   | Owns                                                               | Must not own                                            |
@@ -24,6 +25,11 @@ do not embed pg, fork Postgres.js, or publish separate internal packages.
 Layer communication is ordinary functions, discriminated unions and small responsibility-specific
 interfaces. Avoid a plugin framework, generic event bus, dependency injection container, or public
 raw-protocol escape hatch. Add an internal adapter only where a real boundary benefits testing.
+
+M1 implements config, protocol, auth, transport and connection modules. Transport owns socket/TLS
+lifetime; the connection owns authentication and protocol/request state. M3 can reuse that transport
+boundary for its separate cancellation connection. The minimal scalar encoder/decoder lives in `connection/query.ts` until M2 establishes the
+codec registry. Remaining module rows describe planned responsibility boundaries, not empty scaffolds.
 
 ## Physical connection state
 

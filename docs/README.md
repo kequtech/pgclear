@@ -1,12 +1,13 @@
 # Canonical design documents
 
-Status: accepted initial design, 2026-10-28. Implementation is pending.
+Status: accepted initial design, 2026-10-28. The M1 connection core is implemented; later APIs remain
+design targets. See [development](development.md) for the implemented subset and verification.
 
 | Document                                      | Responsibility                                          |
 | --------------------------------------------- | ------------------------------------------------------- |
 | [Scope](scope.md)                             | Product boundary, support targets, release definition   |
 | [Public API](public-api.md)                   | Observable behavior and usage                           |
-| [API contract](api-contract.ts)               | Canonical proposed public TypeScript signatures         |
+| [API contract](api-contract.ts)               | Target signatures; shared runtime types imported        |
 | [Usage contracts](api-examples.ts)            | Type-checked examples, including rejected API usage     |
 | [Architecture](architecture.md)               | Internal boundaries, state machines, failure invariants |
 | [Decisions](decisions.md)                     | Accepted decisions, alternatives, and reasons           |
@@ -14,13 +15,16 @@ Status: accepted initial design, 2026-10-28. Implementation is pending.
 | [Tenon integration](tenon-integration.md)     | First-consumer requirements and migration gate          |
 | [Development](development.md)                 | Actual setup, verification, and contributor commands    |
 
-The API contract owns signatures; the public API document owns their behavioral meaning. Architecture
+`src/index.ts` owns implemented public exports and types. The API contract owns proposed signatures
+for later milestones; the public API document owns their target behavioral meaning. Architecture
 explains how to satisfy that contract. Change conflicting documents together. Record a material
 reversal in the decision log rather than leaving competing designs in new files. Examples express
 intended usage and compile-time constraints; they are not runtime tests or evidence of implementation.
 
-The first implementation milestone moves the accepted signatures into `src/` and makes these
-examples import the actual package declarations. Avoid maintaining a second independent API copy.
+Implemented shared signatures and `connect` are imported from `src/index.ts` in the design contract
+and examples. `PlannedConnection` describes the future complete session surface; the real
+`Connection` currently exposes query, identity/status, and close. Later declarations are never
+published as executable exports. Packed-consumer tests exercise the actual package declarations.
 
 ## Evidence
 
