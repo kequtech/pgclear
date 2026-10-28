@@ -1,0 +1,163 @@
+/** Compile-only usage contracts. These functions are not runtime tests. */
+import {
+  builtin,
+  connect,
+  createPool,
+  defaultCodecs,
+  listen,
+  param,
+  type Codec,
+  type ConnectionOptions,
+  type Pool,
+  type Session,
+} from './api-contract.js';
+
+export async function standalone(connectionString: string) {
+  const connection = await connect({ connectionString });
+  try {
+    const result = await connection.query<{ id: number; balance: string }>({
+      text: 'SELECT id, balance FROM accounts WHERE id = $1',
+      values: [42],
+    });
+    const count: bigint | null = result.rowCount;
+    return { first: result.rows[0], count };
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function poolUsage(connectionString: string) {
+  const pool = createPool({ connectionString, maxConnections: 4 });
+  try {
+    await pool.query({
+      text: 'SELECT $1::jsonb AS payload, $2::integer[] AS values',
+      values: [param({ tag: 'example' }, builtin.jsonb), param([1, null, 3], builtin.int4Array)],
+    });
+    const result = await pool.query<readonly [number, number]>('SELECT 1 AS n, 2 AS n', {
+      rowMode: 'array',
+    });
+    const pair: readonly [number, number] | undefined = result.rows[0];
+    return pair;
+  } finally {
+    await pool.close({ timeoutMs: 5000 });
+  }
+}
+
+export async function descriptionAndPreparation(session: Session) {
+  const description = await session.describe('SELECT $1::integer AS value');
+  const prepared = await session.prepare({
+    text: 'SELECT $1::integer AS value',
+    parameterTypes: [23],
+  });
+  try {
+    const result = await prepared.query<{ value: number }>([42]);
+    return { description, result };
+  } finally {
+    await prepared.close();
+  }
+}
+
+export async function transactions(pool: Pool) {
+  return pool.transaction(
+    async (tx) => {
+      await tx.query({
+        text: 'UPDATE accounts SET balance = balance - $1 WHERE id = $2',
+        values: [10, 1],
+      });
+      await tx.savepoint(async (child) => {
+        await child.query({
+          text: 'UPDATE accounts SET balance = balance + $1 WHERE id = $2',
+          values: [10, 2],
+        });
+      });
+      // Every call inside the savepoint used its child; the parent is active again here.
+      return tx.query('SELECT current_timestamp::text AS recorded_at');
+    },
+    { isolation: 'serializable' },
+  );
+}
+
+export async function migrationLock(pool: Pool) {
+  return pool.withSession(async (session) => {
+    await session.query('SELECT pg_advisory_lock(42)');
+    try {
+      return await session.script('CREATE TABLE IF NOT EXISTS example (id integer); SELECT 1;');
+    } finally {
+      await session.query('SELECT pg_advisory_unlock(42)');
+    }
+  });
+}
+
+export async function streamRows(pool: Pool) {
+  return pool.withSession(async (session) => {
+    const stream = session.stream<{ id: number }>('SELECT generate_series(1, 1000) AS id', {
+      batchSize: 100,
+    });
+    for await (const row of stream) {
+      if (row.id === 5) break; // Awaits portal cleanup before the next query.
+    }
+    await stream.completion;
+    return session.query('SELECT 1');
+  });
+}
+
+export async function copy(session: Session, source: AsyncIterable<Uint8Array>) {
+  await session.copyFrom('COPY example (id) FROM STDIN', source);
+  const output = session.copyTo('COPY example TO STDOUT');
+  for await (const chunk of output) {
+    const bytes: Uint8Array = chunk;
+    void bytes;
+  }
+  return output.completion;
+}
+
+export async function notifications(options: ConnectionOptions, signal: AbortSignal) {
+  const received: string[] = [];
+  const listener = await listen(options, {
+    channels: ['jobs_changed'],
+    reconnect: true,
+    signal,
+    onNotification: ({ payload }) => {
+      received.push(payload);
+    },
+  });
+  return { received, close: () => listener.close() };
+}
+
+export async function customCodecs(connectionString: string) {
+  const int8AsText: Codec<string> = {
+    oid: 20,
+    text: { encode: (value) => value, decode: (value) => value },
+  };
+  const pool = createPool({ connectionString, codecs: defaultCodecs.with(int8AsText) });
+  try {
+    return await pool.query<{ id: string }>('SELECT 42::bigint AS id');
+  } finally {
+    await pool.close();
+  }
+}
+
+export async function abort(pool: Pool) {
+  return pool.query('SELECT pg_sleep(10)', { signal: AbortSignal.timeout(100) });
+}
+
+export function invalidUsage(pool: Pool, session: Session) {
+  // @ts-expect-error Undefined is not a parameter value.
+  void pool.query({ text: 'SELECT $1', values: [undefined] });
+  // @ts-expect-error Objects need an explicit codec.
+  void pool.query({ text: 'SELECT $1', values: [{ enabled: true }] });
+  // @ts-expect-error Arrays need an explicit codec.
+  void pool.query({ text: 'SELECT $1', values: [[1, 2]] });
+  // @ts-expect-error Describe accepts type hints, never bound execution values.
+  void pool.describe({ text: 'SELECT $1', values: [1] });
+  // @ts-expect-error A pool cannot execute multi-statement scripts without a held session.
+  void pool.script('SELECT 1; SELECT 2');
+  void pool.transaction(async (tx) => {
+    // @ts-expect-error Callback-scoped transaction handles cannot release the pool lease.
+    await tx.release();
+  });
+  // @ts-expect-error An explicit codec checks the value type.
+  param('wrong', builtin.int4);
+  // @ts-expect-error Session callbacks do not own the standalone connection's close.
+  void session.close();
+}
