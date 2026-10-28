@@ -2,8 +2,8 @@
 
 Work in the order below. Each milestone produces a usable, verifiable slice and has an observable
 completion gate. Keep this document current by recording completed gates and evidence, not by
-maintaining a second backlog that can disagree with it. The M1 connection core is implemented and
-verified locally against PostgreSQL 16; its PostgreSQL 18 CI gate is configured but not yet observed.
+maintaining a second backlog that can disagree with it. M1 is complete: its connection core passes
+local PostgreSQL 16 checks and the PostgreSQL 16/18 CI matrix. M2 is the next implementation milestone.
 
 ## M0 — Design and project setup (this change)
 
@@ -17,6 +17,12 @@ repository metadata and Actions secret presence are checked. Documentation sync 
 separate observation, not inferred from configuration. See development.md for setup evidence.
 
 ## M1 — Protocol and one real connection
+
+Verification gate completed on 2026-10-28 for implementation commit
+[`7529693`](https://github.com/kequtech/pgclear/commit/7529693805201c242f4d67e41ae70d98d4342d9c).
+Both PostgreSQL 16 and 18 jobs passed the full `npm run check` in
+[CI run 40629729303](https://github.com/kequtech/pgclear/actions/runs/40629729303).
+The local PostgreSQL 16 installation and supplied database were not upgraded or replaced.
 
 Implemented on 2026-10-28: framing, configuration, startup/authentication, verified TLS and channel
 binding, scalar extended queries, sequential dispatch, field metadata, structured errors, bounded
@@ -176,6 +182,6 @@ For one engineer, allow approximately 1–3 weeks for M1 experimentation, 6–12
 M1–M4, and 3–6 months cumulative for a credible M1–M6 release. These are uncertain effort envelopes,
 not deadlines or automation schedules. Authentication, cancellation races, codec edge cases and the
 Tenon value migration are the largest risks. M7 is deliberately separable from release correctness.
-After observing the remaining M1 PostgreSQL 18 gate, the next implementation task is M2. Do not
+With M1's PostgreSQL 16/18 gate satisfied, the next implementation task is M2. Do not
 start with benchmarks or runtime compatibility shims while the request/session state machine is
 still being established.

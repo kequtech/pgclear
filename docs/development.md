@@ -43,7 +43,12 @@ CA/hostname), SHA384 certificate channel binding, Unix-socket passwords, deadlin
 credential results. A packed consumer imports actual exports, checks declarations, connects and
 exits after close without a retained client timer/socket.
 
-PostgreSQL 18 is configured in CI but has not been run locally; the available local cluster is 16.
+The [M1 CI run](https://github.com/kequtech/pgclear/actions/runs/40629729303) passed the full
+`npm run check` separately on PostgreSQL 16 and 18 for implementation commit `7529693` on 2026-10-28.
+Both matrix jobs completed successfully, including their dependency installation and test steps.
+PostgreSQL 18 ran only in an isolated GitHub Actions service container; the local installation
+remains PostgreSQL 16. No local upgrade is needed for this compatibility gate.
+
 The fake TLS server establishes transport/channel-binding behavior; this is not a claim of a full
 real-server TLS/proxy deployment matrix. SCRAM iteration counts above 100,000 and unsupported
 certificate signature digests fail explicitly. Default temporal/numeric/unknown types remain text;
