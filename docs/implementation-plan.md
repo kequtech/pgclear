@@ -3,7 +3,8 @@
 Work in the order below. Each milestone produces a usable, verifiable slice and has an observable
 completion gate. Keep this document current by recording completed gates and evidence, not by
 maintaining a second backlog that can disagree with it. M1 is complete: its connection core passes
-local PostgreSQL 16 checks and the PostgreSQL 16/18 CI matrix. M2 is the next implementation milestone.
+local PostgreSQL 16 checks and the PostgreSQL 16/18 CI matrix. M2 is implemented and verified locally;
+its PostgreSQL 16/18 CI gate awaits a pushed implementation. M3 follows that verification.
 
 ## M0 — Design and project setup (this change)
 
@@ -66,6 +67,13 @@ native functionality cannot faithfully meet the PostgreSQL-compatible contract.
 The [Tenon migration report](references/tenon-driver-migration-report.md) sharpens this milestone;
 see [the assessment](tenon-integration.md#lessons-from-the-completed-migration) and decisions D14–D16.
 It does not reopen the completed M1 gate or change the milestone order.
+
+Implemented locally on 2026-10-28. The verification suite passes 63 tests (38 database-independent,
+25 integration) against the supplied PostgreSQL 16 database. The packed-consumer test exercises the
+seven actual runtime exports. Describe child processes exit after success/server-error/abort/timeout,
+with abort listeners removed. See [development](development.md) for evidence and remaining limits.
+Decisions D13 and D17 record the expanded result budget and native multidimensional input.
+PostgreSQL 18 verification remains pending the implementation's CI run.
 
 1. Implement scalar codecs, array text grammar, typed parameters and immutable registry composition.
    Derive built-in array element decoding from the scalar registry, with explicit array override
@@ -210,6 +218,6 @@ For one engineer, allow approximately 1–3 weeks for M1 experimentation, 6–12
 M1–M4, and 3–6 months cumulative for a credible M1–M6 release. These are uncertain effort envelopes,
 not deadlines or automation schedules. Authentication, cancellation races, codec edge cases and the
 Tenon value migration are the largest risks. M7 is deliberately separable from release correctness.
-With M1's PostgreSQL 16/18 gate satisfied, the next implementation task is M2. Do not
+After M2's PostgreSQL 16/18 CI verification, the next implementation task is M3. Do not
 start with benchmarks or runtime compatibility shims while the request/session state machine is
 still being established.

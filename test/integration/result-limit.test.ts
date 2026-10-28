@@ -7,9 +7,9 @@ test(
   { timeout: 10000 },
   async () => {
     for (const projection of ['NULL::text', "''::text"]) {
-      const { client } = await testConnection({ maxResultBytes: 32 });
+      const { client } = await testConnection({ maxResultBytes: 128 });
       try {
-        await assert.rejects(client.query(`SELECT ${projection} FROM generate_series(1, 10)`), {
+        await assert.rejects(client.query(`SELECT ${projection} FROM generate_series(1, 100)`), {
           code: 'PGCLEAR_RESULT_LIMIT',
           outcome: 'unknown',
         });

@@ -26,10 +26,10 @@ Layer communication is ordinary functions, discriminated unions and small respon
 interfaces. Avoid a plugin framework, generic event bus, dependency injection container, or public
 raw-protocol escape hatch. Add an internal adapter only where a real boundary benefits testing.
 
-M1 implements config, protocol, auth, transport and connection modules. Transport owns socket/TLS
+M2 implements config, protocol, auth, transport, codecs and connection modules. Transport owns socket/TLS
 lifetime; the connection owns authentication and protocol/request state. M3 can reuse that transport
-boundary for its separate cancellation connection. The minimal scalar encoder/decoder lives in `connection/query.ts` until M2 establishes the
-codec registry. Remaining module rows describe planned responsibility boundaries, not empty scaffolds.
+boundary for its separate cancellation connection. The codec module owns value conversion; `connection/query.ts` builds frontend operations.
+Remaining module rows describe planned responsibility boundaries, not empty scaffolds.
 
 ## Physical connection state
 
@@ -70,9 +70,11 @@ phase (`queued`, `sent`, `recovering`, `settled`), resolver/rejector, expected r
 completion evidence. Store no secret values in enumerable error/event properties.
 
 1. Validate input and owner; reject already aborted or expired calls.
-2. Resolve parameter encoders and serialize the complete operation before writing its first byte.
-   A failure at this point settles only this operation as not-sent and leaves queue ownership intact.
-3. Reserve one operation slot; normal dispatch is FIFO and sequential initially.
+2. Reserve a bounded FIFO slot before calling user encoders, since an encoder may reenter the
+   connection. Encoding is an unsent operation phase, not an independent scheduler.
+3. Resolve parameter encoders and serialize the complete operation before writing its first byte.
+   A failure settles only this operation as not-sent and releases its slot. Recheck the deadline
+   after synchronous encoding, which may have prevented timer callbacks from running.
 4. Write complete framed buffers with socket backpressure. A partial write failure destroys the
    connection; it cannot safely retry or reclaim the request as not-sent.
 5. Route backend messages only to the active operation. Notices, parameter status, notifications and
@@ -121,6 +123,10 @@ capturing a stale default parser. Explicit array-OID overrides take precedence. 
 element decoding. JSON-bound descriptions distinguish a JSON-null token from typed SQL NULL; they
 share ordinary parameter preflight and never inject SQL expressions. Raw JSON text codecs preserve
 server text without JSON.parse.
+
+The buffered byte budget charges complete row, field/parameter-description, command and empty-query
+frames across the entire operation. Metadata-only description and scripts with many zero-row
+commands therefore remain bounded. This is a wire-byte budget, not an exact heap measurement.
 
 Scripts use Query(text), collect all successful result sets in order, then ReadyForQuery. On an error
 reject the script, preserving the DatabaseError and prior command evidence; never silently return

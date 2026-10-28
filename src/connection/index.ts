@@ -12,6 +12,8 @@ import type {
   ArrayQueryOptions,
   CloseOptions,
   CommandResult,
+  Description,
+  DescribeStatement,
   Connection,
   ConnectionOptions,
   DriverEvent,
@@ -26,22 +28,43 @@ import type {
   TransactionStatus,
 } from '../types.js';
 import { Transport } from '../transport/index.js';
-import { commandResult, decodeValue, encodeQuery } from './query.js';
+import { commandResult, encodeDescribe, encodeQuery, encodeScript } from './query.js';
 import { deadline, watchOperation } from './timing.js';
 
 interface Operation {
-  readonly wire: Buffer;
+  readonly kind: 'query' | 'describe' | 'script';
+  wire: Buffer | undefined;
   readonly arrayMode: boolean;
-  readonly resolve: (value: QueryResult<object>) => void;
+  readonly complete: (operation: Operation) => void;
   readonly reject: (error: unknown) => void;
   readonly started: number;
   stop: () => void;
-  phase: 'queued' | 'parse' | 'bind' | 'description' | 'rows' | 'ready' | 'settled';
+  phase:
+    | 'encoding'
+    | 'queued'
+    | 'parse'
+    | 'bind'
+    | 'parameters'
+    | 'description'
+    | 'rows'
+    | 'script'
+    | 'ready'
+    | 'settled';
   fields: readonly Field[];
+  parameterTypes: readonly number[];
   rows: object[];
+  results: QueryResult<object>[];
   resultBytes: number;
+  confirmed: boolean;
   command?: CommandResult;
   error?: Error;
+}
+function result(operation: Operation): QueryResult<object> {
+  return Object.freeze({
+    ...operation.command!,
+    rows: Object.freeze(operation.rows),
+    fields: operation.fields,
+  });
 }
 let sessionId = 0;
 const noOp = () => {};
@@ -62,7 +85,7 @@ class PhysicalConnection implements Connection {
   #info: SessionInfo | undefined;
   #parameters = new Map<string, string>();
   #status: TransactionStatus = 'idle';
-  #messages: Message[] = [];
+  #messages: { message: Message; byteLength: number }[] = [];
   #processing = false;
   #queue: Operation[] = [];
   #active: Operation | undefined;
@@ -126,7 +149,12 @@ class PhysicalConnection implements Connection {
     if (this.#dead) return;
     this.#transport.pause();
     try {
-      this.#decoder.push(chunk, (frame) => this.#messages.push(decodeMessage(frame)));
+      this.#decoder.push(chunk, (frame) =>
+        this.#messages.push({
+          message: decodeMessage(frame),
+          byteLength: frame.payload.length + 5,
+        }),
+      );
     } catch (error) {
       this.#fail(error instanceof Error ? error : protocolError());
       return;
@@ -153,7 +181,7 @@ class PhysicalConnection implements Connection {
         message && !this.#dead;
         message = this.#messages.shift()
       ) {
-        await this.#receive(message);
+        await this.#receive(message.message, message.byteLength);
       }
     } catch (error) {
       this.#fail(error instanceof Error ? error : protocolError());
@@ -163,7 +191,7 @@ class PhysicalConnection implements Connection {
     }
   }
 
-  async #receive(message: Message): Promise<void> {
+  async #receive(message: Message, byteLength: number): Promise<void> {
     if (message.type === 'error') {
       if (!this.#ready) {
         this.#fail(message.error);
@@ -173,8 +201,23 @@ class PhysicalConnection implements Connection {
         this.#fail(message.error);
         return;
       }
-      this.#active.error ??= message.error;
+      if (
+        this.#active.error instanceof DriverError &&
+        this.#active.error.code === 'PGCLEAR_DECODE'
+      ) {
+        const decodeError = this.#active.error;
+        this.#active.error = new AggregateError(
+          [
+            new DriverError(decodeError.code, decodeError.message, 'confirmed', {
+              cause: decodeError,
+            }),
+            message.error,
+          ],
+          'Result decoding and PostgreSQL command failed.',
+        );
+      } else this.#active.error ??= message.error;
       this.#active.phase = 'ready';
+      this.#active.confirmed = true;
       return;
     }
     if (message.type === 'notice') {
@@ -230,7 +273,11 @@ class PhysicalConnection implements Connection {
         this.#emit({ type: 'connect', session: this.#info });
       } else {
         const operation = this.#active;
-        if (!operation || operation.phase !== 'ready')
+        if (
+          !operation ||
+          (operation.phase !== 'ready' &&
+            !(operation.kind === 'script' && operation.phase === 'script'))
+        )
           throw protocolError('Unexpected ReadyForQuery.');
         this.#active = undefined;
         this.#settle(operation, operation.error, 'confirmed');
@@ -240,8 +287,27 @@ class PhysicalConnection implements Connection {
     }
     const operation = this.#active;
     if (!operation) throw protocolError('Backend response has no owning operation.');
+    if (message.type === 'command' && operation.kind === 'query') operation.confirmed = true;
+    if (['fields', 'row', 'command', 'empty', 'parameters'].includes(message.type)) {
+      operation.resultBytes += byteLength;
+      if (operation.resultBytes > this.#config.maxResultBytes)
+        throw new DriverError(
+          'PGCLEAR_RESULT_LIMIT',
+          'Buffered result exceeded maxResultBytes.',
+          operation.confirmed ? 'confirmed' : 'unknown',
+        );
+    }
     if (message.type === 'parse' && operation.phase === 'parse') {
-      operation.phase = 'bind';
+      operation.phase = operation.kind === 'describe' ? 'parameters' : 'bind';
+      return;
+    }
+    if (
+      message.type === 'parameters' &&
+      operation.phase === 'parameters' &&
+      operation.kind === 'describe'
+    ) {
+      operation.parameterTypes = message.oids;
+      operation.phase = 'description';
       return;
     }
     if (message.type === 'bind' && operation.phase === 'bind') {
@@ -250,18 +316,24 @@ class PhysicalConnection implements Connection {
     }
     if (
       (message.type === 'fields' || message.type === 'no-data') &&
-      operation.phase === 'description'
+      (operation.phase === 'description' ||
+        (operation.kind === 'script' && operation.phase === 'script' && message.type === 'fields'))
     ) {
       operation.fields = message.type === 'fields' ? message.fields : Object.freeze([]);
+      if (operation.kind === 'describe') {
+        operation.phase = 'ready';
+        operation.confirmed = true;
+        return;
+      }
       operation.phase = 'rows';
       if (
         !operation.arrayMode &&
         new Set(operation.fields.map((field) => field.name)).size !== operation.fields.length
       ) {
-        operation.error = new DriverError(
+        operation.error ??= new DriverError(
           'PGCLEAR_DECODE',
           'Duplicate column names require array row mode.',
-          'confirmed',
+          'unknown',
         );
       }
       return;
@@ -269,26 +341,17 @@ class PhysicalConnection implements Connection {
     if (message.type === 'row' && operation.phase === 'rows') {
       if (message.values.length !== operation.fields.length)
         throw protocolError('Data row does not match its fields.');
-      // Include row/field framing so a stream of NULL or empty values still spends its budget.
-      operation.resultBytes +=
-        7 +
-        4 * message.values.length +
-        message.values.reduce((total, value) => total + (value?.length ?? 0), 0);
-      if (operation.resultBytes > this.#config.maxResultBytes)
-        throw new DriverError(
-          'PGCLEAR_RESULT_LIMIT',
-          'Buffered result exceeded maxResultBytes.',
-          'unknown',
-        );
       if (!operation.error) {
         try {
-          const values = message.values.map((value, i) => decodeValue(value, operation.fields[i]!));
+          const values = message.values.map((value, index) =>
+            this.#config.codecs.decode(value, operation.fields[index]!),
+          );
           if (operation.arrayMode) operation.rows.push(values);
           else {
             const row = {};
-            operation.fields.forEach((field, i) =>
+            operation.fields.forEach((field, index) =>
               Object.defineProperty(row, field.name, {
-                value: values[i],
+                value: values[index],
                 enumerable: true,
                 writable: true,
                 configurable: true,
@@ -307,9 +370,20 @@ class PhysicalConnection implements Connection {
       }
       return;
     }
-    if ((message.type === 'command' || message.type === 'empty') && operation.phase === 'rows') {
+    if (
+      (message.type === 'command' || message.type === 'empty') &&
+      (operation.phase === 'rows' || (operation.kind === 'script' && operation.phase === 'script'))
+    ) {
       operation.command = commandResult(message.type === 'command' ? message.tag : '');
-      operation.phase = 'ready';
+      if (operation.kind === 'script') {
+        if (!operation.error) operation.results.push(result(operation));
+        operation.rows = [];
+        operation.fields = Object.freeze([]);
+        operation.phase = 'script';
+      } else {
+        operation.phase = 'ready';
+        operation.confirmed = true;
+      }
       return;
     }
     throw protocolError('Unexpected operation response sequence.');
@@ -327,10 +401,47 @@ class PhysicalConnection implements Connection {
     statement: string | Statement,
     options: QueryOptions | ArrayQueryOptions = {},
   ): Promise<QueryResult<object>> {
+    return this.#execute('query', () => encodeQuery(statement), options, result);
+  }
+
+  describe(
+    statement: string | DescribeStatement,
+    options: OperationOptions = {},
+  ): Promise<Description> {
+    return this.#execute(
+      'describe',
+      () => encodeDescribe(statement),
+      options,
+      (operation) =>
+        Object.freeze({ parameterTypes: operation.parameterTypes, fields: operation.fields }),
+    );
+  }
+
+  script(text: string, options: OperationOptions = {}): Promise<readonly QueryResult[]> {
+    return this.#execute(
+      'script',
+      () => encodeScript(text),
+      options,
+      (operation) => Object.freeze(operation.results) as readonly QueryResult[],
+    );
+  }
+
+  #execute<T>(
+    kind: Operation['kind'],
+    encode: () => Buffer,
+    options: QueryOptions | ArrayQueryOptions,
+    read: (operation: Operation) => T,
+  ): Promise<T> {
+    const started = performance.now();
     return new Promise((resolve, reject) => {
+      let operation: Operation | undefined;
       try {
-        validateOperation(options, ['rowMode']);
-        if (options.rowMode !== undefined && !['object', 'array'].includes(options.rowMode))
+        validateOperation(options, kind === 'query' ? ['rowMode'] : []);
+        if (
+          kind === 'query' &&
+          options.rowMode !== undefined &&
+          !['object', 'array'].includes(options.rowMode)
+        )
           throw new DriverError('PGCLEAR_CONFIGURATION', 'Invalid row mode.');
         if (this.#closing || this.#dead)
           throw new DriverError('PGCLEAR_CLOSED', 'The connection is closed.');
@@ -339,38 +450,82 @@ class PhysicalConnection implements Connection {
           throw new DriverError('PGCLEAR_TIMEOUT', 'Operation deadline expired.');
         if (this.#queue.length >= this.#config.maxQueuedOperations)
           throw new DriverError('PGCLEAR_QUEUE_FULL', 'The connection queue is full.');
-        const wire = encodeQuery(statement);
-        const operation: Operation = {
-          wire,
-          arrayMode: options.rowMode === 'array',
-          resolve,
+        operation = {
+          kind,
+          wire: undefined,
+          arrayMode: kind === 'query' && options.rowMode === 'array',
+          complete: (op) => {
+            try {
+              resolve(read(op));
+            } catch (error) {
+              reject(error);
+            }
+          },
           reject,
-          started: performance.now(),
+          started,
           stop: noOp,
-          phase: 'queued',
+          phase: 'encoding',
           fields: Object.freeze([]),
+          parameterTypes: Object.freeze([]),
           rows: [],
+          results: [],
           resultBytes: 0,
+          confirmed: false,
         };
-        this.#queue.push(operation);
-        operation.stop = watchOperation(options, (error) => {
-          if (operation.phase === 'settled') return;
-          if (operation.phase !== 'queued') {
-            this.#fail(error);
-            return;
-          }
-          this.#queue.splice(this.#queue.indexOf(operation), 1);
-          this.#settle(operation, error, 'not-sent');
-        });
+        const accepted = operation;
+        // Reserve FIFO position before invoking a user encoder, which may reenter this connection.
+        this.#queue.push(accepted);
+        accepted.stop = watchOperation(options, (error) => this.#interrupt(accepted, error));
+        try {
+          accepted.wire = encode();
+        } catch (cause) {
+          throw cause instanceof DriverError
+            ? cause
+            : new DriverError(
+                'PGCLEAR_ENCODE',
+                'Failed to encode PostgreSQL operation.',
+                'not-sent',
+                { cause },
+              );
+        }
+        if (accepted.phase === 'settled') return;
+        if (options.timeoutMs !== undefined && performance.now() - started >= options.timeoutMs) {
+          this.#interrupt(
+            accepted,
+            new DriverError('PGCLEAR_TIMEOUT', 'Operation deadline expired.'),
+          );
+          return;
+        }
+        accepted.phase = 'queued';
         this.#pump();
       } catch (error) {
-        reject(error);
+        if (operation && operation.phase !== 'settled')
+          this.#interrupt(
+            operation,
+            error instanceof Error
+              ? error
+              : new DriverError('PGCLEAR_ENCODE', 'Operation encoding failed.'),
+          );
+        else reject(error);
       }
     });
   }
 
+  #interrupt(operation: Operation, error: Error): void {
+    if (operation.phase === 'settled') return;
+    if (operation.phase !== 'queued' && operation.phase !== 'encoding') {
+      this.#fail(error);
+      return;
+    }
+    const index = this.#queue.indexOf(operation);
+    if (index !== -1) this.#queue.splice(index, 1);
+    this.#settle(operation, error, 'not-sent');
+    this.#pump();
+  }
+
   #pump(): void {
     if (this.#dead || this.#active) return;
+    if (this.#queue[0]?.phase === 'encoding') return;
     const operation = this.#queue.shift();
     if (!operation) {
       if (this.#closing && !this.#terminationSent) {
@@ -380,8 +535,8 @@ class PhysicalConnection implements Connection {
       return;
     }
     this.#active = operation;
-    operation.phase = 'parse';
-    this.#write(operation.wire);
+    operation.phase = operation.kind === 'script' ? 'script' : 'parse';
+    this.#write(operation.wire!);
   }
 
   #settle(operation: Operation, error: Error | undefined, outcome: Outcome): void {
@@ -391,18 +546,11 @@ class PhysicalConnection implements Connection {
     if (error instanceof DriverError && error.outcome !== outcome)
       error = new DriverError(error.code, error.message, outcome, { cause: error });
     if (error) operation.reject(error);
-    else
-      operation.resolve(
-        Object.freeze({
-          ...operation.command!,
-          rows: Object.freeze(operation.rows),
-          fields: operation.fields,
-        }),
-      );
+    else operation.complete(operation);
     this.#emit({
       type: 'operation',
       sessionId: this.#id,
-      operation: 'query',
+      operation: operation.kind,
       durationMs: performance.now() - operation.started,
       outcome,
       ...(error instanceof DriverError || error instanceof DatabaseError
@@ -421,11 +569,7 @@ class PhysicalConnection implements Connection {
     this.#active = undefined;
     if (active) {
       const failure = active.error ?? error;
-      this.#settle(
-        active,
-        failure,
-        active.command || active.error instanceof DatabaseError ? 'confirmed' : 'unknown',
-      );
+      this.#settle(active, failure, active.confirmed ? 'confirmed' : 'unknown');
     }
     for (const operation of this.#queue.splice(0)) {
       this.#settle(

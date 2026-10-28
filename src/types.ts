@@ -1,10 +1,32 @@
-/** Runtime API implemented by the connection milestone. Later APIs remain in docs/. */
+/** Implemented runtime API. Later milestones remain proposals in docs/. */
 export type Oid = number;
 export type WireFormat = 'text' | 'binary';
 export type Row = Readonly<Record<string, unknown>>;
 export type TransactionStatus = 'idle' | 'transaction' | 'failed';
 export type Outcome = 'not-sent' | 'confirmed' | 'unknown';
-export type InputValue = null | string | number | bigint | boolean | Uint8Array;
+/** Rectangular PostgreSQL arrays. SQL NULL is represented by null at the element level. */
+export type PgArray<T> = readonly (T | null | PgArray<T>)[];
+declare const parameterBrand: unique symbol;
+export interface Parameter {
+  readonly [parameterBrand]: true;
+}
+export type InputValue = null | string | number | bigint | boolean | Uint8Array | Parameter;
+export interface TextCodec<T> {
+  readonly encode: (value: T) => string;
+  readonly decode: (value: string) => T;
+}
+export interface BinaryCodec<T> {
+  readonly encode: (value: T) => Uint8Array;
+  readonly decode: (value: Uint8Array) => T;
+}
+export interface Codec<T> {
+  readonly oid: Oid;
+  readonly text?: TextCodec<T>;
+  readonly binary?: BinaryCodec<T>;
+}
+export interface CodecRegistry {
+  with<T>(codec: Codec<T>): CodecRegistry;
+}
 
 export interface Field {
   readonly name: string;
@@ -29,6 +51,14 @@ export interface Statement {
   readonly values?: readonly InputValue[];
   readonly parameterTypes?: readonly Oid[];
 }
+export interface DescribeStatement {
+  readonly text: string;
+  readonly parameterTypes?: readonly Oid[];
+}
+export interface Description {
+  readonly parameterTypes: readonly Oid[];
+  readonly fields: readonly Field[];
+}
 export interface OperationOptions {
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
@@ -47,10 +77,7 @@ export interface SessionInfo {
   readonly backendPid: number;
   readonly serverVersion: string;
 }
-export interface Connection {
-  readonly info: SessionInfo;
-  /** Last observed ReadyForQuery status; this is not a liveness probe. */
-  readonly transactionStatus: TransactionStatus;
+export interface Executor {
   query<T extends object = Row>(
     statement: string | Statement,
     options?: QueryOptions,
@@ -59,6 +86,13 @@ export interface Connection {
     statement: string | Statement,
     options: ArrayQueryOptions,
   ): Promise<QueryResult<T>>;
+  describe(statement: string | DescribeStatement, options?: OperationOptions): Promise<Description>;
+}
+export interface Connection extends Executor {
+  readonly info: SessionInfo;
+  /** Last observed ReadyForQuery status; this is not a liveness probe. */
+  readonly transactionStatus: TransactionStatus;
+  script(text: string, options?: OperationOptions): Promise<readonly QueryResult[]>;
   close(options?: CloseOptions): Promise<void>;
 }
 export interface PasswordContext {
@@ -84,6 +118,7 @@ export interface ConnectionOptions {
   readonly tls?: false | TlsOptions;
   readonly applicationName?: string;
   readonly startupParameters?: Readonly<Record<string, string>>;
+  readonly codecs?: CodecRegistry;
   readonly connectTimeoutMs?: number;
   readonly maxQueuedOperations?: number;
   readonly maxMessageBytes?: number;
@@ -104,7 +139,7 @@ export type DriverEvent =
   | {
       readonly type: 'operation';
       readonly sessionId: number;
-      readonly operation: 'query';
+      readonly operation: 'query' | 'describe' | 'script';
       readonly durationMs: number;
       readonly outcome: Outcome;
       readonly errorCode?: string;

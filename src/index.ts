@@ -1,5 +1,7 @@
 export { connect } from './connection/index.js';
 export { DriverError, DatabaseError } from './errors.js';
+export { defaultCodecs, builtin } from './codecs/index.js';
+export { param, json } from './codecs/parameters.js';
 export type { DriverErrorCode } from './errors.js';
 export type {
   ArrayQueryOptions,
@@ -7,6 +9,7 @@ export type {
   CommandResult,
   Connection,
   ConnectionOptions,
+  Executor,
   DatabaseNotice,
   DriverEvent,
   Field,
@@ -23,4 +26,12 @@ export type {
   TlsOptions,
   TransactionStatus,
   WireFormat,
+  Parameter,
+  PgArray,
+  TextCodec,
+  BinaryCodec,
+  Codec,
+  CodecRegistry,
+  DescribeStatement,
+  Description,
 } from './types.js';

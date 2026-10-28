@@ -106,12 +106,16 @@ certificate's signature hash (including SHA384), rather than assuming every cert
 This is a concrete exception to the initial zero-runtime-dependency preference, supported by the
 authentication correctness requirement.
 
-## D13 — Buffered result limits charge row framing
+## D13 — Buffered result limits charge framing and metadata
 
 `maxResultBytes` counts complete DataRow wire bytes, including the row header and each field's length
 word. Counting value payloads alone gives NULL and empty values zero cost and lets their row objects
-grow without consuming the budget. The limit still does not promise an exact JavaScript heap bound;
-large results use streaming when that milestone is available. No extra deployment variable is added.
+grow without consuming the budget. M2 extends the same budget to field/parameter descriptions,
+command tags and empty-query frames. Otherwise metadata-only Describe and zero-row scripts could
+retain unbounded results without spending the row budget. Charge these across the whole operation,
+including frames drained after a decoding error. Exceeding the limit disposes the connection and
+settles queued work. The limit does not promise an exact JavaScript heap bound; large results use
+streaming when available. No extra setting is added.
 
 ## D14 — Separate JSON values from typed SQL NULL
 
@@ -139,6 +143,15 @@ not an accidental requirement inherited from Postgres.js. Tenon's adapter must p
 undefined-to-NULL behavior and published value contracts where required. Do not add a global
 compatibility mode or require Tenon to expose new restrictions merely to match the driver. Revisit
 these defaults only with a concrete consumer need and an explicit contract change.
+
+## D17 — Use native nested arrays for multidimensional parameters
+
+Built-in array codec types must describe their decoded output faithfully. Since PostgreSQL array
+OIDs do not distinguish dimensions, a flat-only TypeScript type would misrepresent nested results.
+Use recursive `PgArray<T>` for the common typed array helpers, and encode rectangular native arrays
+up to PostgreSQL's six-dimension limit. Reject ragged or nested-empty input before dispatch. Keep
+lower-bound metadata outside the default JS representation. This replaces the initial requirement
+for a custom codec for multidimensional input without adding wrappers or catalog discovery.
 
 ## Deferred decisions
 

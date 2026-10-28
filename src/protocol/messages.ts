@@ -67,6 +67,7 @@ export type Message =
   | { readonly type: 'ready'; readonly status: TransactionStatus }
   | { readonly type: 'error' | 'notice'; readonly error: DatabaseError }
   | { readonly type: 'fields'; readonly fields: readonly Field[] }
+  | { readonly type: 'parameters'; readonly oids: readonly number[] }
   | { readonly type: 'row'; readonly values: readonly (Buffer | null)[] }
   | { readonly type: 'command'; readonly tag: string }
   | { readonly type: 'parse' | 'bind' | 'no-data' | 'empty' }
@@ -173,6 +174,13 @@ export function decodeMessage(frame: Frame): Message {
         );
       }
       message = { type: 'fields', fields: Object.freeze(fields) };
+      break;
+    }
+    case 't': {
+      const count = reader.uint16(),
+        oids: number[] = [];
+      for (let i = 0; i < count; i++) oids.push(reader.uint32());
+      message = { type: 'parameters', oids: Object.freeze(oids) };
       break;
     }
     case 'D': {

@@ -7,6 +7,7 @@ import type {
   Row,
   TransactionStatus,
   Outcome,
+  DatabaseNotice,
   Field,
   CommandResult,
   QueryResult,
@@ -17,7 +18,17 @@ import type {
   SessionInfo,
   PasswordContext,
   TlsOptions,
-  InputValue as ScalarInputValue,
+  InputValue,
+  TextCodec,
+  BinaryCodec,
+  Codec,
+  CodecRegistry,
+  Parameter,
+  Statement,
+  DescribeStatement,
+  Description,
+  Executor,
+  ConnectionOptions as ImplementedConnectionOptions,
 } from '../src/index.js';
 export { connect, DriverError, DatabaseError } from '../src/index.js';
 export type {
@@ -37,89 +48,21 @@ export type {
   PasswordContext,
   TlsOptions,
   DriverErrorCode,
+  InputValue,
+  TextCodec,
+  BinaryCodec,
+  Codec,
+  CodecRegistry,
+  Parameter,
+  PgArray,
+  Statement,
+  DescribeStatement,
+  Description,
+  Executor,
+  DatabaseNotice,
 } from '../src/index.js';
 
-export interface TextCodec<T> {
-  readonly encode: (value: T) => string;
-  readonly decode: (value: string) => T;
-}
-
-export interface BinaryCodec<T> {
-  readonly encode: (value: T) => Uint8Array;
-  readonly decode: (value: Uint8Array) => T;
-}
-
-export interface Codec<T> {
-  readonly oid: Oid;
-  readonly text?: TextCodec<T>;
-  readonly binary?: BinaryCodec<T>;
-}
-
-export interface CodecRegistry {
-  with<T>(codec: Codec<T>): CodecRegistry;
-}
-
-declare const parameterBrand: unique symbol;
-export interface Parameter {
-  readonly [parameterBrand]: true;
-}
-export type InputValue = ScalarInputValue | Parameter;
-export declare function param<T>(
-  value: NoInfer<T> | null,
-  codec: Codec<T>,
-  format?: WireFormat,
-): Parameter;
-/** JSON.stringify semantics; unlike param(null, codec), json(null) encodes a JSON null token. */
-export declare function json(value: unknown, type?: 'json' | 'jsonb'): Parameter;
-export declare const defaultCodecs: CodecRegistry;
-export declare const builtin: {
-  readonly bool: Codec<boolean>;
-  readonly int2: Codec<number>;
-  readonly int4: Codec<number>;
-  readonly int8: Codec<bigint>;
-  readonly float4: Codec<number>;
-  readonly float8: Codec<number>;
-  readonly numeric: Codec<string>;
-  readonly text: Codec<string>;
-  readonly uuid: Codec<string>;
-  readonly bytea: Codec<Uint8Array>;
-  readonly json: Codec<unknown>;
-  readonly jsonb: Codec<unknown>;
-  readonly jsonText: Codec<string>;
-  readonly jsonbText: Codec<string>;
-  readonly date: Codec<string>;
-  readonly timestamp: Codec<string>;
-  readonly timestamptz: Codec<string>;
-  readonly int4Array: Codec<readonly (number | null)[]>;
-  readonly int8Array: Codec<readonly (bigint | null)[]>;
-  readonly numericArray: Codec<readonly (string | null)[]>;
-  readonly textArray: Codec<readonly (string | null)[]>;
-};
-
-export interface Statement {
-  readonly text: string;
-  readonly values?: readonly InputValue[];
-  readonly parameterTypes?: readonly Oid[];
-}
-export interface DescribeStatement {
-  readonly text: string;
-  readonly parameterTypes?: readonly Oid[];
-}
-export interface Description {
-  readonly parameterTypes: readonly Oid[];
-  readonly fields: readonly Field[];
-}
-export interface Executor {
-  query<T extends object = Row>(
-    statement: string | Statement,
-    options?: QueryOptions,
-  ): Promise<QueryResult<T>>;
-  query<T extends readonly unknown[] = readonly unknown[]>(
-    statement: string | Statement,
-    options: ArrayQueryOptions,
-  ): Promise<QueryResult<T>>;
-  describe(statement: string | DescribeStatement, options?: OperationOptions): Promise<Description>;
-}
+export { param, json, defaultCodecs, builtin } from '../src/index.js';
 
 export interface TransactionOptions extends OperationOptions {
   readonly isolation?: 'read committed' | 'repeatable read' | 'serializable';
@@ -205,21 +148,8 @@ export interface Pool extends Executor {
   close(options?: CloseOptions): Promise<void>;
 }
 
-export interface ConnectionOptions {
-  readonly connectionString?: string;
-  readonly host?: string;
-  readonly port?: number;
-  readonly user?: string;
-  readonly database?: string;
-  readonly password?: string | ((context: PasswordContext) => string | Promise<string>);
-  readonly tls?: false | TlsOptions;
-  readonly applicationName?: string;
-  readonly startupParameters?: Readonly<Record<string, string>>;
-  readonly codecs?: CodecRegistry;
-  readonly connectTimeoutMs?: number;
-  readonly maxQueuedOperations?: number;
-  readonly maxMessageBytes?: number;
-  readonly maxResultBytes?: number;
+/** Reuses the implemented configuration; only future observation kinds are added here. */
+export interface ConnectionOptions extends Omit<ImplementedConnectionOptions, 'onEvent'> {
   readonly onEvent?: (event: DriverEvent) => void;
 }
 export interface PoolOptions extends ConnectionOptions {
@@ -231,13 +161,6 @@ export interface PoolOptions extends ConnectionOptions {
 }
 export declare function createPool(options: string | PoolOptions): Pool;
 
-export interface DatabaseNotice {
-  readonly severity: string;
-  readonly code: string;
-  readonly message: string;
-  readonly detail?: string;
-  readonly hint?: string;
-}
 export type DriverEvent =
   | { readonly type: 'connect'; readonly session: SessionInfo }
   | { readonly type: 'disconnect'; readonly session: SessionInfo; readonly expected: boolean }

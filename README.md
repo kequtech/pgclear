@@ -4,9 +4,9 @@ A standalone TypeScript PostgreSQL driver built around explicit session ownershi
 predictable failure handling, and first-class protocol operations. Tenon is the first intended
 consumer; pgclear has no runtime dependency on Tenon.
 
-**Status: M1 connection core implemented; not ready for production or publication.** The package
-exports `connect`, `DriverError`, and `DatabaseError`, with native TypeScript declarations. Pooling,
-managed transactions, custom codecs, description, streaming and notification APIs remain planned.
+**Status: M2 implemented locally; not ready for production or publication.** Native TypeScript
+declarations cover connections, immutable codecs, explicit typed/JSON parameters, description and
+scripts. Pooling, managed transactions, preparation, streaming and notifications remain planned.
 `private: true` prevents accidental publication until the implementation and release gates are ready.
 
 ```ts
@@ -26,7 +26,9 @@ try {
 
 The connection supports TCP/Unix sockets, verified TLS, trust/password/MD5/SCRAM authentication,
 SCRAM channel binding, sequential extended queries, scalar results, field metadata, and bounded
-startup/close. Arrays/custom codecs arrive in M2. Active operation interruption currently destroys
+startup/close. Codecs preserve bigint/numeric precision inside arrays, and `json(null)` explicitly
+binds JSON null. `describe` returns parameter/field metadata without Execute; `script` returns ordered
+result sets using PostgreSQL transaction semantics. Active operation interruption currently destroys
 the transport; protocol CancelRequest and transaction outcome handling arrive in M3. A client-side
 timeout or disconnect does not establish that a write rolled back.
 

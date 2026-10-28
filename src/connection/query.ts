@@ -1,5 +1,13 @@
 import { DriverError } from '../errors.js';
-import type { Field, InputValue, Statement, CommandResult } from '../types.js';
+import type {
+  InputValue,
+  Statement,
+  CommandResult,
+  DescribeStatement,
+  Parameter,
+} from '../types.js';
+import { encodeParameter } from '../codecs/parameters.js';
+import { textValue } from '../codecs/builtin.js';
 import { cstring, frame, int16, int32, uint32 } from '../protocol/framing.js';
 
 function invalid(message: string): never {
@@ -30,7 +38,7 @@ export function encodeQuery(input: string | Statement): Buffer {
     if (value === null) {
       /* Protocol NULL. */
     } else if (typeof value === 'string') {
-      if (value.includes('\0')) invalid('Text parameters cannot contain NUL.');
+      if (value.includes('\0') || !value.isWellFormed()) invalid('Invalid text parameter.');
       bytes = Buffer.from(value);
     } else if (typeof value === 'number') {
       if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))
@@ -46,7 +54,14 @@ export function encodeQuery(input: string | Statement): Buffer {
       oid = 17;
       format = 1;
       bytes = Buffer.from(value);
-    } else invalid('Unsupported parameter value; explicit codecs are introduced in M2.');
+    } else {
+      const encoded =
+        value && typeof value === 'object' ? encodeParameter(value as Parameter) : undefined;
+      if (!encoded) invalid('Unsupported parameter value; use an explicit codec or json().');
+      oid = encoded.oid;
+      format = encoded.format;
+      bytes = encoded.bytes === null ? undefined : encoded.bytes;
+    }
     const hint = hints?.[index];
     if (hints && (hint === undefined || !Number.isInteger(hint) || hint < 0 || hint > 0xffffffff))
       invalid('Invalid parameter OID.');
@@ -83,45 +98,29 @@ export function encodeQuery(input: string | Statement): Buffer {
   ]);
 }
 
-const utf8 = new TextDecoder('utf8', { fatal: true });
-/** Minimal scalar result decoding for M1; registry and array support belong to M2. */
-export function decodeValue(value: Buffer | null, field: Field): unknown {
-  if (value === null) return null;
-  if (field.format !== 'text') throw new Error('Unexpected binary result.');
-  const text = utf8.decode(value);
-  switch (field.dataTypeOid) {
-    case 16:
-      if (!['t', 'f'].includes(text)) throw new Error('Invalid boolean.');
-      return text === 't';
-    case 20:
-      if (!/^-?\d+$/.test(text)) throw new Error('Invalid int8.');
-      return BigInt(text);
-    case 21:
-    case 23:
-    case 26: {
-      const number = Number(text);
-      if (!/^-?\d+$/.test(text) || !Number.isSafeInteger(number))
-        throw new Error('Invalid integer.');
-      return number;
-    }
-    case 700:
-    case 701: {
-      if (text === 'Infinity') return Infinity;
-      if (text === '-Infinity') return -Infinity;
-      if (text === 'NaN') return NaN;
-      const number = Number(text);
-      if (!text || !Number.isFinite(number)) throw new Error('Invalid float.');
-      return number;
-    }
-    case 114:
-    case 3802:
-      return JSON.parse(text) as unknown;
-    case 17:
-      if (!/^\\x(?:[0-9a-f]{2})*$/.test(text)) throw new Error('Unsupported bytea encoding.');
-      return new Uint8Array(Buffer.from(text.slice(2), 'hex'));
-    default:
-      return text;
-  }
+export function encodeDescribe(input: string | DescribeStatement): Buffer {
+  if (typeof input !== 'string' && (!input || typeof input !== 'object' || Array.isArray(input)))
+    invalid('Expected SQL text or a description statement.');
+  const statement = typeof input === 'string' ? { text: input } : input;
+  if (Object.keys(statement).some((key) => !['text', 'parameterTypes'].includes(key)))
+    invalid('Describe accepts no execution values.');
+  const text = textValue(statement.text),
+    hints = statement.parameterTypes === undefined ? [] : statement.parameterTypes;
+  if (!Array.isArray(hints) || hints.length > 65535) invalid('Invalid parameter hints.');
+  for (const hint of hints)
+    if (!Number.isInteger(hint) || hint < 0 || hint > 0xffffffff) invalid('Invalid parameter OID.');
+  return Buffer.concat([
+    frame(
+      'P',
+      Buffer.concat([cstring(''), cstring(text), int16(hints.length), ...hints.map(uint32)]),
+    ),
+    frame('D', Buffer.from('S'), cstring('')),
+    frame('S'),
+  ]);
+}
+
+export function encodeScript(text: string): Buffer {
+  return frame('Q', cstring(textValue(text)));
 }
 
 export function commandResult(tag: string): CommandResult {

@@ -1,5 +1,6 @@
 import { userInfo } from 'node:os';
 import { configurationError } from '../errors.js';
+import { defaultCodecs, registry } from '../codecs/index.js';
 import type { ConnectionOptions, OperationOptions, TlsOptions } from '../types.js';
 
 export interface Configuration {
@@ -15,6 +16,7 @@ export interface Configuration {
   readonly maxMessageBytes: number;
   readonly maxResultBytes: number;
   readonly onEvent: ConnectionOptions['onEvent'];
+  readonly codecs: ReturnType<typeof registry>;
 }
 
 const optionNames = new Set([
@@ -32,6 +34,7 @@ const optionNames = new Set([
   'maxMessageBytes',
   'maxResultBytes',
   'onEvent',
+  'codecs',
 ]);
 const uriNames = new Set([
   'host',
@@ -239,6 +242,7 @@ export function normalizeConfiguration(input: string | ConnectionOptions): Confi
     ),
     maxResultBytes: integer(options.maxResultBytes ?? 64 * 1024 * 1024, 'maxResultBytes', 1),
     onEvent: options.onEvent,
+    codecs: registry(options.codecs ?? defaultCodecs),
   });
 }
 

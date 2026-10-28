@@ -40,13 +40,13 @@ test(
   'buffered result limits dispose the connection and settle queued operations',
   within,
   async () => {
-    const { client } = await testConnection({ maxResultBytes: 32 });
+    const { client } = await testConnection({ maxResultBytes: 128 });
     try {
       assert.equal(
-        (await client.query("SELECT repeat('x', 21) AS value")).rows[0]!.value,
-        'x'.repeat(21),
+        (await client.query("SELECT repeat('x', 72) AS value")).rows[0]!.value,
+        'x'.repeat(72),
       );
-      const limited = assert.rejects(client.query("SELECT repeat('x', 22)"), {
+      const limited = assert.rejects(client.query("SELECT repeat('x', 73)"), {
         code: 'PGCLEAR_RESULT_LIMIT',
       });
       const queued = assert.rejects(client.query('SELECT 1'), {

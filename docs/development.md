@@ -28,20 +28,28 @@ JavaScript/TypeScript consumers, and real PostgreSQL integration tests. Set the 
 Fake-server tests require loopback/Unix sockets. Integration tests require `psql`; packed-consumer
 tests use `tar` and reuse only runtime dependencies declared in the packed manifest. TLS fixtures
 are explicitly public test-only keys/certificates. The package remains private; `npm pack` exercises
-distribution locally and does not publish it. The only runtime exports are connect/DriverError/DatabaseError.
+distribution locally and does not publish it. The runtime exports are `connect`, `DriverError`, `DatabaseError`, `builtin`, `defaultCodecs`, `param`
+and `json`.
 
 ## Current verification and limits
 
-On 2026-10-28, `npm run check` passed 42 tests (28 database-independent and 14 integration) against
-local PostgreSQL 16.15 and Node 24.4.1. They cover scalar
-parameter/NULL round trips, field origins, affected counts, error recovery, raw transaction status,
-backend termination, all 65,535 protocol parameters, result limits including empty/NULL row framing,
-bounded queue/close behavior, and temporary Unicode-auth roles compared with
-libpq. Protocol/authentication tests include fragmentation/coalescing, malformed frames and strings,
-RFC 7677 proof vectors, invalid proofs/nonces, MD5 compatibility, verified TLS (including wrong
-CA/hostname), SHA384 certificate channel binding, Unix-socket passwords, deadline disposal and late
-credential results. A packed consumer imports actual exports, checks declarations, connects and
-exits after close without a retained client timer/socket.
+On 2026-10-28, M2 passed `npm run check`: 63 tests (38 database-independent, 25 integration) against
+local PostgreSQL 16.15 and Node 24.4.1. M2 coverage includes exact scalar/numeric-array/bigint values,
+array grammar/nesting/bounds/box delimiters, immutable registry overrides, SQL NULL versus JSON null,
+raw JSON precision, binary typed parameters, valid/invalid/valid encoding, reentrant/expired encoders,
+decoder recovery, Describe without execution and script transaction semantics. Child processes exit
+after Describe success/server-error/abort/timeout; abort listeners are removed. Buffered limits cover
+rows, metadata and zero-row scripts. The external packed JavaScript/TypeScript consumer uses actual
+exports/declarations and exits after close.
+
+M1 coverage remains: field origins, affected counts, raw transaction status, backend termination,
+65,535 parameters, bounded queues/close, Unicode-auth roles compared with libpq,
+fragmentation/coalescing, malformed frames/strings, RFC 7677 proof vectors, invalid proofs/nonces,
+MD5 compatibility, verified TLS including wrong CA/hostname, SHA384 channel binding, Unix-socket
+passwords, deadline disposal and late credential results.
+
+M2 is verified locally; its PostgreSQL 16/18 CI run has not yet been observed. The CI evidence below
+applies to M1, not the unpushed M2 implementation.
 
 The [M1 CI run](https://github.com/kequtech/pgclear/actions/runs/40629729303) passed the full
 `npm run check` separately on PostgreSQL 16 and 18 for implementation commit `7529693` on 2026-10-28.
@@ -52,7 +60,9 @@ remains PostgreSQL 16. No local upgrade is needed for this compatibility gate.
 The fake TLS server establishes transport/channel-binding behavior; this is not a claim of a full
 real-server TLS/proxy deployment matrix. SCRAM iteration counts above 100,000 and unsupported
 certificate signature digests fail explicitly. Default temporal/numeric/unknown types remain text;
-M2 implements the custom codec registry and built-in arrays. Active interruption currently destroys
+built-in arrays use the selected scalar decoders. JSON.parse still has JavaScript numeric precision
+limits; raw JSON codecs are the explicit alternative. Binary results and catalog-driven custom array
+discovery are not implemented. Active interruption currently destroys
 the transport rather than sending CancelRequest, and does not establish server rollback. M3 adds
 protocol cancellation and managed transaction handling, including COMMIT_UNKNOWN classification.
 

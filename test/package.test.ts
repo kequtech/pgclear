@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { fakeServer, startupReady } from './helpers/server.js';
+import { fakeServer, startupReady, packet, ready, z } from './helpers/server.js';
 
 const run = promisify(execFile);
 
@@ -19,6 +19,16 @@ test(
     const server = await fakeServer(async (peer) => {
       await peer.startup();
       peer.socket.write(startupReady);
+      assert.equal((await peer.message()).type, 'P');
+      assert.equal((await peer.message()).type, 'D');
+      assert.equal((await peer.message()).type, 'S');
+      peer.socket.write(
+        Buffer.concat([packet('1'), packet('t', Buffer.from([0, 0])), packet('n'), ready]),
+      );
+      assert.equal((await peer.message()).type, 'Q');
+      peer.socket.write(
+        Buffer.concat([packet('C', z('BEGIN')), packet('C', z('ROLLBACK')), ready]),
+      );
       assert.equal((await peer.message()).type, 'X');
       peer.socket.end();
     });
@@ -62,9 +72,13 @@ test(
         `
       import assert from 'node:assert/strict';
       import * as driver from '@kequtech/pgclear';
-      assert.deepEqual(Object.keys(driver).sort(), ['DatabaseError', 'DriverError', 'connect']);
+      assert.deepEqual(Object.keys(driver).sort(), ['DatabaseError', 'DriverError', 'builtin', 'connect', 'defaultCodecs', 'json', 'param']);
       const client = await driver.connect({host: '127.0.0.1', port: ${server.port}});
       assert.equal(client.info.backendPid, 123);
+      assert.deepEqual(await client.describe('BEGIN'), {parameterTypes: [], fields: []});
+      assert.deepEqual((await client.script('BEGIN; ROLLBACK')).map(r => r.command), ['BEGIN','ROLLBACK']);
+      assert.ok(driver.json(null));
+      assert.ok(driver.param(['9007199254740993.25', null], driver.builtin.numericArray));
       await client.close();
     `,
       );
@@ -72,12 +86,21 @@ test(
       await writeFile(
         join(directory, 'index.ts'),
         `
-      import { connect, type Connection, type QueryResult } from '@kequtech/pgclear';
+      import { connect, builtin, defaultCodecs, json, param, type Connection, type QueryResult, type PgArray } from '@kequtech/pgclear';
       async function example(connection: Connection) {
+        const nested: PgArray<number> = [[1,null],[2,3]];
+        await connection.query({text:'SELECT $1, $2',values:[param(nested,builtin.int4Array),json(null)]});
+        defaultCodecs.with(builtin.jsonbText);
+        // @ts-expect-error Typed array parameters require the codec's scalar type.
+        param([[1.25]], builtin.numericArray);
         const result: QueryResult<{value: number}> = await connection.query<{value: number}>('SELECT 42 AS value');
         const count: bigint | null = result.rowCount;
-        // @ts-expect-error Description is not implemented or exported in M1.
-        await connection.describe('SELECT 42');
+        const description = await connection.describe('SELECT $1::integer');
+        const oid: number | undefined = description.parameterTypes[0];
+        const script = await connection.script('SELECT 1; SELECT 2');
+        // @ts-expect-error Preparation is not implemented or exported in M2.
+        await connection.prepare('SELECT 42');
+        void oid; void script;
         return {count, result};
       }
       void connect; void example;

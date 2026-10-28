@@ -1,16 +1,13 @@
 # Public API
 
-Status: accepted target design. M1 implements `connect`, standalone identity/status/query/close,
-scalar parameter/results, SQLSTATE errors, startup authentication and verified transport. All later
-features below remain targets. Actual exports/types live in `src/index.ts`; [api-contract.ts](api-contract.ts)
-imports implemented shared signatures and proposes the remaining API. [api-examples.ts](api-examples.ts)
-is compiled by `npm run typecheck`; its standalone example uses the real `connect` export.
+Status: M2 is implemented locally: `connect`, connection query/describe/script/close, immutable
+codecs, explicit typed/JSON parameters, arrays, structured errors and bounded results. Actual
+exports/types live in `src/index.ts`; [api-contract.ts](api-contract.ts) imports implemented signatures
+and proposes later APIs. [api-examples.ts](api-examples.ts) compiles with `npm run typecheck`.
+Pool, transaction, preparation, streaming, COPY and listener examples below remain design targets.
 
-M1 uses socket destruction for active abort/deadline expiry; it does not yet send CancelRequest.
-There are no managed transaction helpers or special COMMIT_UNKNOWN detection until M3. Built-in
-arrays, typed parameters/custom codecs, description, and scripts arrive in M2. Unknown OIDs currently
-remain strings. The remainder specifies the complete intended API rather than claiming those features
-are available today.
+Active abort/deadline expiry currently destroys the socket. CancelRequest, managed transaction
+helpers and special COMMIT_UNKNOWN detection remain M3 work. Unknown OIDs remain strings.
 
 ## Connections, pools, and ownership
 
@@ -90,7 +87,7 @@ through this map reject. Never infer TLS mode from credentials or hostname.
 | `connectTimeoutMs`    | 5,000   | TCP/TLS/auth/startup, including password provider                   |
 | `maxQueuedOperations` | 1,000   | Unsent operations per physical connection                           |
 | `maxMessageBytes`     | 64 MiB  | Maximum inbound protocol frame, including length word               |
-| `maxResultBytes`      | 64 MiB  | Buffered DataRow bytes, including framing/field lengths             |
+| `maxResultBytes`      | 64 MiB  | Buffered rows, metadata and command bytes, including framing        |
 | `maxConnections`      | 10      | Pool connection ceiling                                             |
 | `maxWaiting`          | 1,000   | Pool acquisition waiters                                            |
 | `acquireTimeoutMs`    | 5,000   | Wait for an exclusive lease, including connection startup           |
@@ -113,7 +110,8 @@ is the deliberate simple-protocol, multi-statement path, available only on an ow
 Scripts accept no bound values and obey PostgreSQL's own transaction semantics; they do not add an
 atomic wrapper. A failed script rejects with its server error; callers must not assume earlier
 commands rolled back. Detailed public partial-result error context is deferred. No automatic script
-retry is permitted.
+retry is permitted. If decoding and a later script command both fail, an AggregateError preserves
+the decode error and server error in that order.
 
 `parameterTypes` contains OIDs, with 0 meaning server inference. When supplied to execution it must
 have one entry per value. Typed `param` values fill unspecified OIDs; conflicting nonzero OIDs reject.
@@ -147,6 +145,8 @@ await pool.query({
 `param` captures value, codec, and optional wire format. Encoding happens when the operation is
 accepted for dispatch, before any bytes of that operation are written. Treat input objects/bytes as
 immutable until settlement. Null uses the selected OID with protocol NULL, without invoking encode.
+Codec functions are synchronous; registry composition snapshots their references. Keep any captured
+codec state immutable. The default parameter format is text when implemented, otherwise binary.
 A codec must implement at least one complete format pair. A requested missing format rejects.
 
 `json(value, type = 'jsonb')` is a separate bound-data helper using JSON.stringify semantics. It
@@ -188,10 +188,13 @@ the non-NULL string `null`. A JSON.stringify helper cannot restore precision alr
 
 Built-in array parsing distinguishes SQL NULL from quoted `"NULL"`, validates shape, handles escapes,
 and uses the correct delimiter. Non-default lower bounds are consumed but not represented in JS
-arrays; callers needing them select text or install a codec. All known built-in array OIDs have
-explicit mappings; custom enum/domain/extension arrays require a caller codec. No background catalog
-fetch mutates decoding behavior. Named `builtin.*Array` helpers cover common one-dimensional inputs;
-custom multidimensional input uses a typed codec. The internal parser supports nested result arrays.
+arrays; callers needing them select text or install a codec. Stable bootstrap array OIDs have explicit
+mappings; dynamically assigned catalog, enum, domain and extension array OIDs stay text unless a
+caller supplies a codec. No background catalog fetch mutates decoding behavior. Named helpers
+`builtin.int4Array`, `int8Array`, `numericArray` and `textArray` accept `PgArray<T>`: ordinary nested
+readonly arrays with null elements. Inputs must be rectangular, contain no undefined values and have
+at most six dimensions; nested empty arrays reject. Bounds default to PostgreSQL's ordinary lower
+bound of 1. No wrapper class or dimension metadata is introduced.
 
 Built-in array decoders resolve each element through the same immutable registry as the scalar OID.
 NULL is handled before the element decoder. Overriding int4 changes both int4 and its default array
