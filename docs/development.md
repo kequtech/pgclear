@@ -66,6 +66,13 @@ The full benchmark matrix passed 126 measurements with three repetitions at 0/10
 per-repetition metrics and provenance are checked in under `benchmarks/results/`. Individual latency
 arrays remain in ignored `.benchmark-dist/run-o9qK8H/` in the producing checkout.
 
+The profiled follow-up passes **219 tests** (121 database-independent, 98 integration). It removes
+per-row temporary arrays/numeric Buffer views and unnecessary promise suspension for ordinary
+packets. Pool cleanup allocates expiry signals/errors only when observed, unconstrained lifetimes
+avoid abort composition, and empty drains need no cleanup timer. New/expanded checks retain inherited
+deadline/cancellation behavior and safe writable/enumerable own properties for special column names.
+See [profiling](../benchmarks/README.md#profiling) for evidence and reproduction.
+
 The M1–M5 lifecycle cleanup on 2026-10-28 passed `npm run check`: **203 tests**
 (109 database-independent, 94 integration) against the existing `pgclear_test` database. The new
 regressions verify that synchronous user code blocking timer callbacks cannot cause overdue queued

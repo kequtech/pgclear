@@ -7,34 +7,35 @@ const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 export class Reader {
   #offset = 0;
   constructor(private readonly data: Buffer) {}
-  #take(size: number): Buffer {
+  #take(size: number): number {
     if (size < 0 || size > this.data.length - this.#offset)
       throw protocolError('Truncated protocol field.');
-    const bytes = this.data.subarray(this.#offset, this.#offset + size);
+    const start = this.#offset;
     this.#offset += size;
-    return bytes;
+    return start;
   }
   byte(): number {
-    return this.#take(1)[0]!;
+    return this.data[this.#take(1)]!;
   }
   int16(): number {
-    return this.#take(2).readInt16BE();
+    return this.data.readInt16BE(this.#take(2));
   }
   uint16(): number {
-    return this.#take(2).readUInt16BE();
+    return this.data.readUInt16BE(this.#take(2));
   }
   int32(): number {
-    return this.#take(4).readInt32BE();
+    return this.data.readInt32BE(this.#take(4));
   }
   uint32(): number {
-    return this.#take(4).readUInt32BE();
+    return this.data.readUInt32BE(this.#take(4));
   }
   bytes(size: number): Buffer {
-    return this.#take(size);
+    const start = this.#take(size);
+    return this.data.subarray(start, start + size);
   }
   text(size: number): string {
     try {
-      return utf8.decode(this.#take(size));
+      return utf8.decode(this.bytes(size));
     } catch {
       throw protocolError('Invalid UTF8 protocol string.');
     }

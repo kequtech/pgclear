@@ -57,7 +57,8 @@ export class Scope {
     { output?: Pick<OutputStream<unknown>, 'closing' | 'settled' | 'close'> } | undefined;
   abandonedStream = false;
   cleanupDeadline: number | undefined;
-  readonly expiry = new AbortController();
+  #expiry: AbortController | undefined;
+  #expiryReason: unknown;
   readonly pending = new Set<Promise<unknown>>();
   readonly statements = new Set<PreparedHandle>();
   readonly #initialDispatches: number;
@@ -78,11 +79,19 @@ export class Scope {
   get signal(): AbortSignal | undefined {
     return this.lifetime?.signal;
   }
+  // Ordinary query cleanup needs only the active fence. Callbacks also observe expiry.
+  get expiry(): AbortSignal {
+    if (!this.#expiry) {
+      this.#expiry = new AbortController();
+      if (!this.active) this.#expiry.abort(this.#expiryReason ?? expired());
+    }
+    return this.#expiry.signal;
+  }
   check(): void {
     if (!this.active)
-      throw this.expiry.signal.reason instanceof DriverError &&
-        this.expiry.signal.reason.code === 'PGCLEAR_CLOSED'
-        ? this.expiry.signal.reason
+      throw this.#expiryReason instanceof DriverError &&
+        this.#expiryReason.code === 'PGCLEAR_CLOSED'
+        ? this.#expiryReason
         : expired();
     if (!this.connection.usable)
       throw new DriverError('PGCLEAR_CLOSED', 'The physical session is closed.');
@@ -90,9 +99,10 @@ export class Scope {
     if (this.#reservation) throw new DriverError('PGCLEAR_BUSY', 'A stream owns this session.');
     this.lifetime?.check();
   }
-  expire(reason: unknown = expired()): void {
+  expire(reason?: unknown): void {
     if (!this.active) return;
     this.active = false;
+    this.#expiryReason = reason;
     this.cleanupDeadline ??= performance.now() + CLEANUP_TIMEOUT_MS;
     const stream = this.#reservation?.output;
     if (stream && !stream.settled) {
@@ -100,7 +110,7 @@ export class Scope {
       void stream.close(this.cleanupDeadline).catch(() => {});
     }
     this.child?.expire(reason);
-    this.expiry.abort(reason);
+    this.#expiry?.abort(reason ?? expired());
   }
   track<T>(promise: Promise<T>): Promise<T> {
     this.pending.add(promise);
@@ -277,9 +287,7 @@ export async function callback<T>(
     stopAbort = () => {};
   try {
     return await new Promise<T>((resolve, reject) => {
-      const signal = scope.signal
-        ? AbortSignal.any([scope.signal, scope.expiry.signal])
-        : scope.expiry.signal;
+      const signal = scope.signal ? AbortSignal.any([scope.signal, scope.expiry]) : scope.expiry;
       const abort = () => {
         const error = scope.signal?.aborted
           ? interrupt
@@ -326,6 +334,7 @@ export async function callback<T>(
 export async function drain(scope: Scope, timeoutMs = CLEANUP_TIMEOUT_MS): Promise<void> {
   const end = Math.min(scope.cleanupDeadline ?? Infinity, performance.now() + timeoutMs);
   scope.cleanupDeadline = end;
+  if (scope.pending.size === 0 && scope.statements.size === 0) return;
   let stop = () => {};
   try {
     await Promise.race([

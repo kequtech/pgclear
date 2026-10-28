@@ -209,7 +209,8 @@ export class PhysicalConnection {
       while (!this.#dead && index < this.#messages.length) {
         const entry = this.#messages[index]!;
         this.#messages[index++] = undefined;
-        await this.#receive(entry.message, entry.byteLength);
+        const pending = this.#receive(entry.message, entry.byteLength);
+        if (pending) await pending;
       }
     } catch (error) {
       this.#fail(error instanceof Error ? error : protocolError());
@@ -220,7 +221,8 @@ export class PhysicalConnection {
     }
   }
 
-  async #receive(message: Message, byteLength: number): Promise<void> {
+  // Ordinary packets stay synchronous; only authentication, recovery and backpressure suspend.
+  #receive(message: Message, byteLength: number): void | Promise<void> {
     switch (message.type) {
       case 'error':
         this.#databaseError(message.error);
@@ -230,9 +232,9 @@ export class PhysicalConnection {
         return;
       case 'authentication': {
         if (this.#info || !this.#auth) throw protocolError('Unexpected authentication response.');
-        const reply = await this.#auth.receive(message.authentication);
-        if (reply && !this.#dead) this.#write(reply);
-        return;
+        return this.#auth.receive(message.authentication).then((reply) => {
+          if (reply && !this.#dead) this.#write(reply);
+        });
       }
     }
     if (!this.#auth?.complete && !this.#info)
@@ -260,8 +262,7 @@ export class PhysicalConnection {
           );
         return;
       case 'ready':
-        await this.#receiveReady(message.status);
-        return;
+        return this.#receiveReady(message.status);
     }
     const op = this.#active;
     if (!op) throw protocolError('Backend response has no owning operation.');
@@ -399,7 +400,7 @@ export class PhysicalConnection {
       if (byteLength + work.bytes > this.#config.maxResultBytes)
         throw new DriverError('PGCLEAR_RESULT_LIMIT', 'COPY output chunk exceeded maxResultBytes.');
       if (!this.#expired(op) && !this.#interruption && work.kind === 'copy-to')
-        await work.output.publish([new Uint8Array(message.bytes)]);
+        return work.output.publish([new Uint8Array(message.bytes)]);
       return;
     }
     if (message.type === 'copy-done' && work.phase === 'copy-out') {
@@ -410,17 +411,17 @@ export class PhysicalConnection {
       if (work.batchRows !== work.batchSize)
         throw protocolError('Portal suspended before filling its requested batch.');
       work.phase = 'suspended';
-      await this.#publish(op, false);
-      if (op.state !== 'active') return;
-      if (work.output.closing || op.error || this.#interruption || this.#expired(op))
-        this.#sync(op, true);
-      else {
-        work.result.bytes = work.metadataBytes;
-        work.batchRows = 0;
-        work.phase = 'rows';
-        this.#write(encodePortalExecute(work.batchSize));
-      }
-      return;
+      return this.#publish(op, false).then(() => {
+        if (op.state !== 'active') return;
+        if (work.output.closing || op.error || this.#interruption || this.#expired(op))
+          this.#sync(op, true);
+        else {
+          work.result.bytes = work.metadataBytes;
+          work.batchRows = 0;
+          work.phase = 'rows';
+          this.#write(encodePortalExecute(work.batchSize));
+        }
+      });
     }
     if (
       (message.type === 'command' || message.type === 'empty') &&
@@ -436,11 +437,12 @@ export class PhysicalConnection {
         work.result.fields = Object.freeze([]);
         work.phase = 'script';
       } else if (work.kind === 'stream') {
-        await this.#publish(op, true);
-        if (op.state === 'active') {
-          this.#expired(op);
-          this.#sync(op);
-        }
+        return this.#publish(op, true).then(() => {
+          if (op.state === 'active') {
+            this.#expired(op);
+            this.#sync(op);
+          }
+        });
       } else if (work.kind === 'copy-from' || work.kind === 'copy-to') {
         if (work.phase !== 'copy-done')
           op.error ??= new DriverError(

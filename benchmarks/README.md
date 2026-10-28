@@ -99,6 +99,46 @@ transaction boundaries must survive those cases. M7b would start with bounded or
 exclusive sessions; streaming, COPY and managed transaction semantics would retain their existing
 ownership rules. The probe estimates the opportunity without introducing those runtime changes.
 
+## Profiling
+
+The follow-up used Node's native `--cpu-prof --cpu-prof-interval=500` against the existing worker,
+with 100,000 configured iterations, 100 warmup operations and the same 0 ms relay. This means 5,000
+large queries (five million rows) or 100,000 pool operations. CPU profiles include startup, warmup
+and cleanup, so their timing is diagnostic rather than a replacement for uninstrumented benchmarks.
+Raw profiles and worker metrics remain in ignored `.benchmark-dist/profiles-before/` and
+`.benchmark-dist/profiles-after/` in the producing checkout.
+
+Before changes, row mapping accounts for about 33% of sampled active time inclusively, and expiry
+error construction alone accounts for about 14% in the pool profile. Numeric readers also allocate
+short-lived Buffer views; ordinary packet handling creates a promise/microtask for each row.
+The follow-up uses one-pass own-property row construction, bounded direct numeric reads,
+synchronous ordinary packets, lazy scope expiry signals/errors, unconstrained lifetimes without
+abort composition, and an immediate return from empty cleanup drains. Authentication, recovery,
+stream/COPY backpressure, strict UTF8 and copied payload ownership retain their existing rules.
+No generated row functions, decoder cache, alternative pool scheduler or runtime dependency is added.
+
+For a direct CPU exploration without the relay, build once, then profile either worker workload:
+
+```sh
+npm run build
+mkdir -p .benchmark-dist/profiles
+node --env-file-if-exists=.env --cpu-prof --cpu-prof-interval=500 \
+  --cpu-prof-dir=.benchmark-dist/profiles --input-type=module - pool <<'JS'
+import { resolve } from 'node:path';
+process.env.PGCLEAR_BENCH_DATABASE_URL = process.env.PGCLEAR_TEST_DATABASE_URL;
+process.env.PGCLEAR_BENCH_PACKAGE = resolve('dist/index.js');
+process.argv[2] = JSON.stringify({
+  driver: 'pgclear', workload: process.argv[2], iterations: 100000, warmup: 100,
+  poolSize: 4, concurrency: 16, batchSize: 32, sample: 0, addedRttMs: 0,
+  output: '.benchmark-dist/profiles/worker.json'
+});
+await import('./benchmarks/worker.mjs');
+JS
+```
+
+Replace `pool` with `large` for result decoding. Load the generated `.cpuprofile` in a V8-compatible
+CPU profile viewer. Keep uninstrumented benchmark runs separate and compare the same configuration.
+
 ## Recorded results
 
 The 2026-10-28 run passed all **126 measurements**: seven workloads, three drivers, three

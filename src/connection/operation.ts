@@ -99,8 +99,16 @@ export function decodeRow(
   codecs: Configuration['codecs'],
   arrayMode: boolean,
 ): object {
-  const decoded = values.map((value, index) => codecs.decode(value, fields[index]!));
-  return arrayMode
-    ? decoded
-    : Object.fromEntries(fields.map((field, index) => [field.name, decoded[index]]));
+  if (arrayMode) return values.map((value, index) => codecs.decode(value, fields[index]!));
+  const row = {};
+  for (let index = 0; index < fields.length; index++) {
+    const field = fields[index]!;
+    Object.defineProperty(row, field.name, {
+      value: codecs.decode(values[index]!, field),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return row;
 }

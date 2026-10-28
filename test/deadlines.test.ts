@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { connect, createPool, defaultCodecs } from '../src/index.js';
+import { connect, createPool, defaultCodecs, type DriverError } from '../src/index.js';
 import { Reader } from '../src/protocol/messages.js';
+import { Lifetime } from '../src/connection/timing.js';
 import {
   fakeServer,
   sessionServer,
@@ -11,6 +12,29 @@ import {
   startupReady,
   z,
 } from './helpers/server.js';
+
+test('inherited lifetimes retain deadlines and cancellation without interrupting their parent', async () => {
+  const controller = new AbortController();
+  const parent = new Lifetime({ signal: controller.signal, timeoutMs: 1000 });
+  const inherited = new Lifetime({}, parent);
+  const shorter = new Lifetime({ timeoutMs: 5 }, parent);
+  const timedOut = Promise.withResolvers<DriverError>();
+  const canceled = Promise.withResolvers<DriverError>();
+  const stopShorter = shorter.watch(timedOut.resolve);
+  const stopInherited = inherited.watch(canceled.resolve);
+  try {
+    assert.equal((await timedOut.promise).code, 'PGCLEAR_TIMEOUT');
+    parent.check();
+    inherited.check();
+    controller.abort();
+    assert.equal((await canceled.promise).code, 'PGCLEAR_ABORTED');
+    assert.throws(() => inherited.check(), { code: 'PGCLEAR_ABORTED' });
+  } finally {
+    stopShorter();
+    stopInherited();
+    parent.stop();
+  }
+});
 
 test('elapsed queued deadlines prevent dispatch even while a decoder blocks timers', async () => {
   const requests: string[] = [];

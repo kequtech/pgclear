@@ -41,9 +41,11 @@ export interface ExecutionOptions {
   readonly batchSize?: number;
 }
 
+// Unconstrained operations share this signal; watch() never installs listeners on it.
+const unlimited = new AbortController().signal;
+
 /** One absolute deadline. Children inherit it and arm a timer only for a shorter local limit. */
 export class Lifetime {
-  readonly #controller = new AbortController();
   readonly signal: AbortSignal;
   readonly end: number;
   readonly #stop: () => void;
@@ -53,30 +55,34 @@ export class Lifetime {
       limit,
     );
     this.end = Math.min(ownEnd, parent?.end ?? Infinity);
-    this.signal = AbortSignal.any([
-      this.#controller.signal,
-      ...(parent ? [parent.signal] : []),
-      ...(options.signal ? [options.signal] : []),
-    ]);
-    const stopTimer =
-      ownEnd < (parent?.end ?? Infinity)
-        ? deadline(Math.max(0, ownEnd - performance.now()), () =>
-            this.#controller.abort(
-              new DriverError('PGCLEAR_TIMEOUT', 'Operation deadline expired.'),
-            ),
-          )
-        : () => {};
-    this.#stop = stopTimer;
+    const signals: AbortSignal[] = [];
+    if (parent && parent.signal !== unlimited) signals.push(parent.signal);
+    if (options.signal) signals.push(options.signal);
+    this.#stop = () => {};
+    if (ownEnd < (parent?.end ?? Infinity)) {
+      const controller = new AbortController();
+      signals.push(controller.signal);
+      this.#stop = deadline(Math.max(0, ownEnd - performance.now()), () =>
+        controller.abort(new DriverError('PGCLEAR_TIMEOUT', 'Operation deadline expired.')),
+      );
+    }
+    this.signal =
+      signals.length === 0
+        ? unlimited
+        : signals.length === 1
+          ? signals[0]!
+          : AbortSignal.any(signals);
   }
   stop(): void {
     this.#stop();
   }
   check(): void {
     if (this.signal.aborted) throw abortError(this.signal);
-    if (performance.now() >= this.end)
+    if (this.end !== Infinity && performance.now() >= this.end)
       throw new DriverError('PGCLEAR_TIMEOUT', 'Operation deadline expired.');
   }
   watch(fail: (error: DriverError) => void): () => void {
+    if (this.signal === unlimited) return () => this.stop();
     const abort = () => fail(abortError(this.signal));
     this.signal.addEventListener('abort', abort, { once: true });
     return () => {

@@ -101,10 +101,24 @@ test(
   async () => {
     const { client } = await testConnection();
     try {
-      const special = (await client.query('SELECT 42 AS "__proto__", 7 AS constructor')).rows[0]!;
+      const special = (
+        await client.query('SELECT 42 AS "__proto__", 7 AS constructor, NULL AS "toString"')
+      ).rows[0]!;
       assert.equal(Object.getPrototypeOf(special), Object.prototype);
       assert.ok(Object.hasOwn(special, '__proto__'));
       assert.equal(special.__proto__, 42);
+      for (const [name, value] of [
+        ['__proto__', 42],
+        ['constructor', 7],
+        ['toString', null],
+      ] as const) {
+        assert.deepEqual(Object.getOwnPropertyDescriptor(special, name), {
+          value,
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
+      }
       await assert.rejects(client.query('SELECT 1 AS n, 2 AS n'), {
         code: 'PGCLEAR_DECODE',
         outcome: 'confirmed',
