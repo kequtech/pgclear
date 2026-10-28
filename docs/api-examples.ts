@@ -5,6 +5,7 @@ import {
   createPool,
   defaultCodecs,
   listen,
+  json,
   param,
   type Codec,
   type ConnectionOptions,
@@ -54,6 +55,33 @@ export async function descriptionAndPreparation(session: Session) {
     return { description, result };
   } finally {
     await prepared.close();
+  }
+}
+
+export async function jsonAndExactValues(session: Session) {
+  const distinctions = await session.query({
+    text: 'SELECT $1::jsonb IS NULL AS missing, jsonb_typeof($2::jsonb) AS kind, $3::jsonb AS text',
+    values: [null, json(null), json('text')],
+  });
+  await session.query({
+    text: 'SELECT $1::numeric[] AS exact, $2::json AS payload',
+    values: [param(['9007199254740993.25', null], builtin.numericArray), json([1, 2], 'json')],
+  });
+  return distinctions;
+}
+
+export async function rawJsonValues(connectionString: string) {
+  const pool = createPool({
+    connectionString,
+    codecs: defaultCodecs.with(builtin.jsonText).with(builtin.jsonbText),
+  });
+  try {
+    return await pool.query<{ payload: string }>({
+      text: 'SELECT $1::jsonb AS payload',
+      values: [param('{"n":9007199254740993}', builtin.jsonbText)],
+    });
+  } finally {
+    await pool.close();
   }
 }
 
@@ -158,6 +186,10 @@ export function invalidUsage(pool: Pool, session: Session) {
   });
   // @ts-expect-error An explicit codec checks the value type.
   param('wrong', builtin.int4);
+  // @ts-expect-error Exact numeric array inputs are strings, never rounded JS numbers.
+  param([1.25], builtin.numericArray);
+  // @ts-expect-error JSON helpers select only PostgreSQL json or jsonb.
+  json(null, 'text');
   // @ts-expect-error Session callbacks do not own the standalone connection's close.
   void session.close();
 }

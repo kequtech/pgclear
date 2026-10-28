@@ -69,6 +69,8 @@ export declare function param<T>(
   codec: Codec<T>,
   format?: WireFormat,
 ): Parameter;
+/** JSON.stringify semantics; unlike param(null, codec), json(null) encodes a JSON null token. */
+export declare function json(value: unknown, type?: 'json' | 'jsonb'): Parameter;
 export declare const defaultCodecs: CodecRegistry;
 export declare const builtin: {
   readonly bool: Codec<boolean>;
@@ -83,11 +85,14 @@ export declare const builtin: {
   readonly bytea: Codec<Uint8Array>;
   readonly json: Codec<unknown>;
   readonly jsonb: Codec<unknown>;
+  readonly jsonText: Codec<string>;
+  readonly jsonbText: Codec<string>;
   readonly date: Codec<string>;
   readonly timestamp: Codec<string>;
   readonly timestamptz: Codec<string>;
   readonly int4Array: Codec<readonly (number | null)[]>;
   readonly int8Array: Codec<readonly (bigint | null)[]>;
+  readonly numericArray: Codec<readonly (string | null)[]>;
   readonly textArray: Codec<readonly (string | null)[]>;
 };
 

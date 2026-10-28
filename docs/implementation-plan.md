@@ -63,9 +63,16 @@ native functionality cannot faithfully meet the PostgreSQL-compatible contract.
 
 ## M2 — Codecs, description and resource bounds
 
+The [Tenon migration report](references/tenon-driver-migration-report.md) sharpens this milestone;
+see [the assessment](tenon-integration.md#lessons-from-the-completed-migration) and decisions D14–D16.
+It does not reopen the completed M1 gate or change the milestone order.
+
 1. Implement scalar codecs, array text grammar, typed parameters and immutable registry composition.
-   Preserve raw wire bytes internally. Resolve all encoding before request bytes are sent.
-2. Add description-only dispatch and session-only multi-statement scripts.
+   Derive built-in array element decoding from the scalar registry, with explicit array override
+   precedence. Add `json(value)` for JSON null/primitives and raw json/jsonb text codecs. Preserve
+   raw wire bytes internally. Resolve all encoding before request bytes are sent.
+2. Add description-only dispatch and session-only multi-statement scripts through the ordinary
+   operation settlement path, including timer and abort-listener cleanup.
 3. Add byte/result limits, bounded per-connection queues, structured encode/decode errors and safe
    draining after decode failure. Reject duplicate object columns; exercise array mode.
 4. Make buffered result lifetime independent of reusable transport buffers.
@@ -76,8 +83,14 @@ Gate:
   match the documented runtime mapping; JavaScript generic assertions do not pretend to validate rows.
 - Arrays cover NULL versus quoted NULL, escaped quotes/backslashes, nesting, dimension prefixes,
   delimiters and custom element types. Assert actual values, not parser implementation details.
+- Numeric scalar/array values preserve `9007199254740993.25`; scalar codec overrides affect default
+  built-in array decoding in either registration order, while explicit array codecs take precedence.
+- SQL NULL, typed SQL NULL, JSON null, JSON strings/arrays/objects/primitives and raw JSON text have
+  distinct, documented encoding paths. JSON serialization failure is local and cannot shift results.
 - Description does not execute a test function that would change persistent state; confirm returned
   parameter OIDs, field origins, zero-column commands and server errors.
+- Child processes exit after successful or failed Describe, including server-error, timeout and
+  AbortSignal paths. Test timer/listener disposal in addition to promise settlement.
 - Failed encoding between concurrent successful operations preserves ownership and allows later work.
 - Limits reject at their boundary with all promises settled; decode failure does not corrupt the next
   result; scripts obey server transaction/error semantics and do not invent atomicity.
@@ -100,6 +113,9 @@ Gate:
   session can receive it, and other concurrent transactions remain usable.
 - Exercise cold concurrent acquisition, full queues, canceled waiters, auth failures, late password
   results, release during activity and close while connecting. Capacity never leaks or exceeds max.
+- Close and abort while queued, in TCP/TLS negotiation, authenticating and completing initialization;
+  late success/failure cannot publish a lease. One disposal failure cannot skip cleanup of other
+  attempts, leases or idle transports; report collected failures after every cleanup attempt.
 - Savepoint failure recovers; sibling work cannot enter the scope; recovery failure blocks commit;
   callback handles expire before cleanup; accepted unawaited work cannot escape into another lease.
 - COMMIT returning ROLLBACK fails; dropping the commit response yields COMMIT_UNKNOWN rather than
@@ -108,6 +124,8 @@ Gate:
   not replayed. Cleanup failures preserve the original cause.
 - Normal/error/deadline shutdown settles accepted work or rejects it, empties waiters and disposes
   owned timers/transports. Observe a bounded quiet period to prove reconnects stay stopped.
+- Run repeatable seeded operation sequences against ownership/settlement/expiration invariants,
+  retaining the seed and sequence for failures. Use the current Node test harness.
 
 ## M4 — Tenon trial and differential contract checks
 
@@ -128,7 +146,8 @@ before extending breadth.
 ## M5 — Explicit preparation, portals and COPY
 
 1. Implement session-owned prepared statement handles, close ordering and lease cleanup, without
-   automatic named caches/retries.
+   automatic named caches/retries. Distinguish submitted from confirmed creation; do not close a
+   confirmed statement when a later execution's parameter encoder fails.
 2. Implement async row iteration, metadata, bounded portal batches, explicit/early close and command
    completion distinctions. Reject competing session operations while streaming.
 3. Implement COPY FROM/TO byte streams, source failures, protocol recovery and cancellation retirement.
@@ -138,6 +157,10 @@ prepared close orders correctly with accepted executions; early stream exit perm
 query only after safe recovery; source errors and abandoned output do not strand connections;
 slow consumers/producers keep buffering bounded; all completion promises settle. Verify that a
 closed partial stream does not invent a final PostgreSQL command tag/count.
+
+Add a named valid/invalid/valid reuse regression: a local encoding error must not make the later
+valid execution fail with `26000`. Include schema/result-shape changes and distinct immutable codec
+registries, checking result ownership and recovery rather than cache implementation details.
 
 ## M6 — Notifications and deployment compatibility
 
@@ -162,6 +185,11 @@ raw scripts/configuration. Do not encode universal speed rankings in documentati
 Then specify the pipelining option and implement bounded sent queues with one Sync boundary per
 independent operation. Initially restrict it to exclusive sessions and ordinary queries. No silent
 change to managed transaction semantics or one-off pool scheduling.
+
+Use the report's interaction matrix explicitly: named/unnamed execution, pipeline on/off, local/server
+errors, transaction/savepoint boundaries, cancellation/disconnects, schema changes and distinct codec
+registries. Unsupported combinations must reject before dispatch; the supported subset must retain
+operation ownership across failures. Repeatable seeded sequences complement specific regressions.
 
 Gate: middle serialization/server/decoder failures, concurrent repeated preparations where supported,
 cancel races, queue pressure and shutdown all preserve result ownership and settlement. Prove memory

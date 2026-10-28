@@ -113,6 +113,33 @@ word. Counting value payloads alone gives NULL and empty values zero cost and le
 grow without consuming the budget. The limit still does not promise an exact JavaScript heap bound;
 large results use streaming when that milestone is available. No extra deployment variable is added.
 
+## D14 — Separate JSON values from typed SQL NULL
+
+The [Tenon report](references/tenon-driver-migration-report.md) exposed an omission in the planned
+parameter API: `param(null, codec)` deliberately bypasses the encoder and binds SQL NULL, so it
+cannot express JSON null. M2 adds `json(value, type = 'jsonb')` for JSON.stringify of every JSON
+value, including null and primitives. This helper is bound data, never a SQL expression. The normal
+param null behavior stays unchanged. Add json/jsonb text codecs for exact numeric tokens and for
+distinguishing returned SQL NULL from JSON null when the parsed defaults are insufficient.
+
+## D15 — Derive default array decoding from scalar codecs
+
+Use the same immutable scalar registry when decoding built-in array elements, with SQL NULL handled
+before any element decoder. A scalar override therefore changes its default array representation;
+an explicit array-OID codec still wins. The report's numeric-array precision regression becomes an
+M2 gate: `9007199254740993.25` must remain an exact string alone and inside numeric arrays. Retain
+native bigint for int8 in both shapes. Typed input encoders remain explicitly chosen by parameters.
+
+## D16 — Make compatibility adaptations deliberate
+
+The report's undefined-to-NULL and string-bigint recommendations partly target a pg-compatible
+replacement. pgclear has a standalone API: retain the M1 rejection of undefined binds and ambiguous
+plain arrays/objects, and retain exact native bigint values/counts. These are explicit driver policy,
+not an accidental requirement inherited from Postgres.js. Tenon's adapter must preserve its current
+undefined-to-NULL behavior and published value contracts where required. Do not add a global
+compatibility mode or require Tenon to expose new restrictions merely to match the driver. Revisit
+these defaults only with a concrete consumer need and an explicit contract change.
+
 ## Deferred decisions
 
 These do not block the sequential core: pipelining configuration shape; binary result selection;

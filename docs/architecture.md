@@ -80,6 +80,11 @@ completion evidence. Store no secret values in enumerable error/event properties
 6. Capture command/error evidence, drain to ReadyForQuery, update transaction state, then settle and
    release the slot. A decoder exception cannot stop reading the recovery messages.
 
+Use this one settlement path for query, description, preparation and future operation variants.
+It owns timer disposal, abort-listener removal, queue release and exactly-once promise completion;
+metadata delivery cannot bypass it. Child-process tests verify that completed Describe operations
+leave no referenced timer or socket, including when server errors, aborts or deadlines occur.
+
 Frame decoding handles all header/payload split points and multiple frames per TCP chunk. Validate
 lengths before allocation, bound frames, preserve NULL distinct from empty bytes, reject invalid
 counts and offsets, and bound NUL-string scans to the current frame. Unsupported or malformed
@@ -103,6 +108,19 @@ Sync. Each preparation handle stores field/OID metadata, never permanently cache
 Codecs belong to the immutable connection configuration. Dispose all lease-owned preparations before
 returning its connection; failed disposal discards it. External SQL that deallocates statements is
 caller-owned and invalidates those handles on the subsequent server error.
+
+Named statement records distinguish submitting, confirmed, closing and expired states. Publish a
+usable handle only after its creation operation succeeds. An encode error during reuse is a local
+operation failure, not a reason to close or delete the previously confirmed statement. If creation
+parses successfully but later description fails, close the unpublished statement during recovery
+or discard the connection when that cleanup cannot be confirmed.
+
+Built-in array metadata maps array OIDs to element OIDs and delimiters. The immutable codec registry
+derives default array decoders from the selected scalar decoder, so scalar overrides apply without
+capturing a stale default parser. Explicit array-OID overrides take precedence. Handle SQL NULL before
+element decoding. JSON-bound descriptions distinguish a JSON-null token from typed SQL NULL; they
+share ordinary parameter preflight and never inject SQL expressions. Raw JSON text codecs preserve
+server text without JSON.parse.
 
 Scripts use Query(text), collect all successful result sets in order, then ReadyForQuery. On an error
 reject the script, preserving the DatabaseError and prior command evidence; never silently return
@@ -162,6 +180,10 @@ dispose resources and settle every waiter/request. A late password, DNS, TLS or 
 checks the fence before publishing resources. Use remaining absolute deadlines instead of restarting
 timeouts at every stage. Client-side disposal is distinct from remote backend termination.
 
+Pool close attempts cleanup of every owned connection/attempt even if one disposer fails. Collect
+cleanup errors after all attempts instead of allowing the first rejection to abandon other resources.
+Unfinished establishment belongs to the pool from its creation, not from its checkout event.
+
 ## Streaming, COPY, and listeners
 
 Portal streaming owns an exclusive execution slot and performs bounded Execute/Flush batches. Close
@@ -197,3 +219,9 @@ and an optional network fault proxy. Prefer controlled barriers (observed backen
 messages, server locks) over sleeps. Test user-visible results and resource ownership, not private
 method names or documentation wording. Track accepted/settled operation counts and live resources
 in test-only harnesses. Verify packed-package declarations and exports before publishing.
+
+Add small, repeatable seeded operation sequences as pooling and preparation arrive. Check result
+ownership, permanent lease expiration, complete settlement and irreversible close across generated
+interleavings; log the seed and sequence on failure. Keep this in the existing Node test harness
+until a demonstrated need warrants a fuzzing dependency. The
+[Tenon report](references/tenon-driver-migration-report.md) supplies concrete regression seeds.

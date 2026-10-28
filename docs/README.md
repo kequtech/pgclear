@@ -3,17 +3,18 @@
 Status: accepted initial design, 2026-10-28. The M1 connection core is implemented; later APIs remain
 design targets. See [development](development.md) for the implemented subset and verification.
 
-| Document                                      | Responsibility                                          |
-| --------------------------------------------- | ------------------------------------------------------- |
-| [Scope](scope.md)                             | Product boundary, support targets, release definition   |
-| [Public API](public-api.md)                   | Observable behavior and usage                           |
-| [API contract](api-contract.ts)               | Target signatures; shared runtime types imported        |
-| [Usage contracts](api-examples.ts)            | Type-checked examples, including rejected API usage     |
-| [Architecture](architecture.md)               | Internal boundaries, state machines, failure invariants |
-| [Decisions](decisions.md)                     | Accepted decisions, alternatives, and reasons           |
-| [Implementation plan](implementation-plan.md) | Ordered work and behavioral completion gates            |
-| [Tenon integration](tenon-integration.md)     | First-consumer requirements and migration gate          |
-| [Development](development.md)                 | Actual setup, verification, and contributor commands    |
+| Document                                                              | Responsibility                                          |
+| --------------------------------------------------------------------- | ------------------------------------------------------- |
+| [Scope](scope.md)                                                     | Product boundary, support targets, release definition   |
+| [Public API](public-api.md)                                           | Observable behavior and usage                           |
+| [API contract](api-contract.ts)                                       | Target signatures; shared runtime types imported        |
+| [Usage contracts](api-examples.ts)                                    | Type-checked examples, including rejected API usage     |
+| [Architecture](architecture.md)                                       | Internal boundaries, state machines, failure invariants |
+| [Decisions](decisions.md)                                             | Accepted decisions, alternatives, and reasons           |
+| [Implementation plan](implementation-plan.md)                         | Ordered work and behavioral completion gates            |
+| [Tenon integration](tenon-integration.md)                             | First-consumer requirements and migration gate          |
+| [Development](development.md)                                         | Actual setup, verification, and contributor commands    |
+| [Tenon migration report](references/tenon-driver-migration-report.md) | Preserved first-consumer evidence and recommendations   |
 
 `src/index.ts` owns implemented public exports and types. The API contract owns proposed signatures
 for later milestones; the public API document owns their target behavioral meaning. Architecture
@@ -28,9 +29,12 @@ published as executable exports. Packed-consumer tests exercise the actual packa
 
 ## Evidence
 
-The initial design was informed by Postgres.js 3.4.9, pg 8.23.1, and Tenon's in-progress return to pg.
-Tenon's local migration is unfinished, so its current source is evidence of requirements rather than
-a stable integration target. Revalidate that source at the integration milestone.
+The initial design was informed by Postgres.js 3.4.9, pg 8.23.1, and Tenon's then-in-progress return
+to pg. The maintainer subsequently supplied the completed migration's
+[lessons report](references/tenon-driver-migration-report.md). Its
+[assessment](tenon-integration.md#lessons-from-the-completed-migration) informs the next milestones;
+the report's recommendations do not silently override accepted decisions. Revalidate Tenon's current
+public contracts at the integration milestone.
 
 - [PostgreSQL protocol message flow](https://www.postgresql.org/docs/18/protocol-flow.html)
 - [PostgreSQL message formats](https://www.postgresql.org/docs/18/protocol-message-formats.html)

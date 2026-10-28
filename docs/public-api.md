@@ -149,6 +149,13 @@ accepted for dispatch, before any bytes of that operation are written. Treat inp
 immutable until settlement. Null uses the selected OID with protocol NULL, without invoking encode.
 A codec must implement at least one complete format pair. A requested missing format rejects.
 
+`json(value, type = 'jsonb')` is a separate bound-data helper using JSON.stringify semantics. It
+supports objects, arrays, strings, numbers, booleans and JSON null. It never becomes a SQL fragment.
+The wrapper's payload is a JSON value, so `json(null)` encodes the non-NULL text token `null`;
+plain `null` and `param(null, builtin.jsonb)` encode SQL NULL. `json('text')` encodes a JSON string,
+not raw JSON source. Cycles/BigInt or a top-level value that produces no JSON text reject before
+dispatch. Typed parameter descriptions and `json` serialize through the same operation-owned path.
+
 The registry is immutable, scoped to the pool/connection; `.with(codec)` returns a new registry.
 It affects decoding; typed parameters carry their own encoders. Replacing a codec for an OID does
 not mutate another pool or cached metadata. Ordinary results request text in 0.1. Binary parameter
@@ -172,13 +179,26 @@ does not transfer the error to another operation.
 | SQL NULL                                 | null, always before a codec                                               |
 | supported built-in arrays                | nested arrays of element values or null                                   |
 
-JSON defaults do not promise arbitrary numeric precision; install a JSON codec when required.
+JSON defaults do not promise arbitrary numeric precision. `builtin.jsonText` (OID 114) and
+`builtin.jsonbText` (OID 3802) are string codecs: install them through the registry for raw result
+text, and use `param(rawJsonText, builtin.jsonbText)` to bind pre-encoded JSON without JSON.stringify.
+They preserve numeric tokens as returned by PostgreSQL; jsonb may normalize formatting and key order.
+Parsed reads map SQL NULL and JSON null to the same JS null; text codecs distinguish SQL NULL from
+the non-NULL string `null`. A JSON.stringify helper cannot restore precision already lost in a JS number.
+
 Built-in array parsing distinguishes SQL NULL from quoted `"NULL"`, validates shape, handles escapes,
 and uses the correct delimiter. Non-default lower bounds are consumed but not represented in JS
 arrays; callers needing them select text or install a codec. All known built-in array OIDs have
 explicit mappings; custom enum/domain/extension arrays require a caller codec. No background catalog
 fetch mutates decoding behavior. Named `builtin.*Array` helpers cover common one-dimensional inputs;
 custom multidimensional input uses a typed codec. The internal parser supports nested result arrays.
+
+Built-in array decoders resolve each element through the same immutable registry as the scalar OID.
+NULL is handled before the element decoder. Overriding int4 changes both int4 and its default array
+decoder, independent of registry construction order. An explicit array-OID codec overrides this
+derivation and need not change the scalar. Defaults preserve int8 as bigint and numeric as string
+inside arrays, including `9007199254740993.25`; `builtin.numericArray` accepts string elements.
+Typed input parameters still carry their chosen encoder rather than borrowing a result decoder.
 
 ## Description and preparation
 
@@ -187,12 +207,21 @@ binds parameters or sends Execute. It returns parameter OIDs and field origin me
 or schema inference. Errors remain PostgreSQL errors. Description performs parse/analysis and takes
 normal server locks; it is not a zero-impact sandbox for arbitrary SQL.
 
+Description uses the same operation ownership, settlement, deadline and cleanup path as execution.
+Completion must remove its timer/listener resources on success and every failure path. Returning
+metadata alone does not establish that the connection or calling process can be released.
+
 Ordinary queries use the unnamed statement; no automatic named cache. `session.prepare` allocates a
 driver-generated, session-scoped name and returns its description plus `query` and idempotent `close`.
 Prepared handles expire with their owning session/lease even if the transport is later reused.
 Prepared executions are ordinary queue operations. Close follows earlier accepted executions,
 rejects later ones, and releases the server statement before connection reuse. On known disconnect
 it only expires local state. Server plan-invalidated errors surface; the driver does not retry writes.
+
+Preparation bookkeeping distinguishes submission from server-confirmed creation. A prepared handle
+is usable only after successful Parse acknowledgement, description and ReadyForQuery. A local
+parameter encoder error during later reuse leaves that confirmed statement intact; it must not
+close or evict it and turn another operation into SQLSTATE `26000`.
 
 ## Transactions and savepoints
 
@@ -291,3 +320,6 @@ deadline, then fences handles and destroys remaining transports. Close resolves 
 client-side resources/timers are disposed, including late connection attempts. It cannot prove that
 a remote backend has stopped executing or that an arbitrary application callback has returned.
 No shutdown path schedules a reconnect. Force-close is not an acknowledgement of server rollback.
+Cleanup failure on one owned resource never skips attempts to dispose the others. After all attempts,
+unresolved disposal failures reject close through AggregateError; concurrent close callers observe
+the same result. Timers and callback registrations are released through finally paths.
