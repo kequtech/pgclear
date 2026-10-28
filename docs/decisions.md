@@ -556,6 +556,22 @@ parsed JSON as unknown and recursive built-in arrays. Dynamic OIDs retain wire-t
 Custom decoder functions with erased return types generate unknown with a diagnostic; known
 built-in overrides, including raw JSON and explicit array codecs, retain their real mappings.
 
+The boundary is database/driver facts versus application policy. Catalog metadata and the driver's
+read/bind representations determine generated schema types; SQL composition, expected query shapes
+and project checking belong to consumers. Returning source lets standalone applications generate
+types without adopting Tenon, and leaves file locations and build workflows with the caller.
+Generation remains an explicit optional operation, outside ordinary query execution.
+
+Generated table rows do not establish arbitrary query results. Projections, expressions, aggregates,
+aliases and outer-join nullability still need appropriate query types and checking. The library
+returns TypeScript source for later compilation/import; it cannot infer a new compile-time type
+from a live database during an application's execution.
+
+Tenon's current query inspection still has representation tables of its own. That is a remaining
+integration concern: checking should reuse generated model types or a small shared conversion
+description where needed, rather than let independent mappings drift. It does not require moving
+the checker into pgclear or expanding generation into project-wide tooling.
+
 Insert/update shapes describe schema writability, defaults and nullability. Optional properties
 represent omission by an SQL authoring tool, not permission to bind undefined. Arrays and JSON use
 explicit `Parameter` values or authored wire text; other columns use canonical native values or

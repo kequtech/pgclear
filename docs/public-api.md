@@ -317,6 +317,11 @@ indexes (including expressions, INCLUDE columns and predicates), constraints and
 appear in comments. They do not add properties to returned rows. Comments are descriptive catalog
 output, not migrations or a complete schema fingerprint.
 
+Table types describe table values and schema mutation inputs. Joins, expressions, aggregates and
+aliases can change a query's shape; outer joins can introduce nulls into otherwise required
+columns. Those query-specific types remain authored/checked by the consumer. The return value is
+TypeScript source to compile/import, not a dynamically inferred type for runtime SQL calls.
+
 `connection` accepts a pgclear pool/session, a connection URI or `ConnectionOptions`. Supplied
 handles are borrowed and remain usable; configuration creates an owned short-lived connection.
 Generation uses a repeatable-read, read-only transaction, restoring transaction-local settings on
