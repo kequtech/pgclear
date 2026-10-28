@@ -128,7 +128,7 @@ test(
         `
       import assert from 'node:assert/strict';
       import * as driver from '@kequtech/pgclear';
-      assert.deepEqual(Object.keys(driver).sort(), ['DatabaseError', 'DriverError', 'builtin', 'connect', 'createPool', 'defaultCodecs', 'json', 'listen', 'param', 'sql']);
+      assert.deepEqual(Object.keys(driver).sort(), ['DatabaseError', 'DriverError', 'builtin', 'connect', 'createPool', 'defaultCodecs', 'generateDefinitions', 'json', 'listen', 'param', 'sql']);
       assert.deepEqual(driver.sql\`SELECT \${42}::integer AS value\`, ['SELECT $1::integer AS value', [42]]);
       const client = await driver.connect({host: '127.0.0.1', port: ${server.port}});
       assert.equal(client.info.backendPid, 123);
@@ -167,8 +167,12 @@ test(
       await writeFile(
         join(directory, 'index.ts'),
         `
-      import { connect, createPool, listen, type Notification, type Listener, type ListenerStatus, type ListenerOptions, builtin, defaultCodecs, json, param, sql, type Connection, type QueryResult, type PgArray, type PreparedStatement, type PreparingExecutor, type RowStream, type StreamingExecutor, type StreamOptions, type ArrayStreamOptions, type StreamCompletion, type CommandResult, type CopySource, type CopyStream, type CopyingExecutor } from '@kequtech/pgclear';
+      import { connect, createPool, listen, generateDefinitions, type GenerateOptions, type Notification, type Listener, type ListenerStatus, type ListenerOptions, builtin, defaultCodecs, json, param, sql, type Connection, type QueryResult, type PgArray, type PreparedStatement, type PreparingExecutor, type RowStream, type StreamingExecutor, type StreamOptions, type ArrayStreamOptions, type StreamCompletion, type CommandResult, type CopySource, type CopyStream, type CopyingExecutor } from '@kequtech/pgclear';
       async function example(connection: Connection) {
+        const generationOptions:GenerateOptions={connection,namespace:'public',timeoutMs:1000};
+        const definitions:string=await generateDefinitions(generationOptions);
+        // @ts-expect-error generation requires a connection source
+        generateDefinitions({namespace:'public'});
         const listenerOptions: ListenerOptions={channels:['jobs'],reconnect:true,onNotification(value){const n:Notification=value;
           const channel:string=n.channel; const pid:number=n.backendPid;
           // @ts-expect-error notification payloads are opaque strings

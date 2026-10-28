@@ -132,7 +132,8 @@ This applies to connections, pools, leases, sessions and transactions, including
 
 All forms use the extended protocol even without parameters. Exactly one statement is accepted;
 an empty statement has an empty result and command tag. No SQL composition, identifier helpers,
-query builder, generated database types or check command is included. `script(text)`
+query builder or check command is included. Schema types are generated explicitly through
+`generateDefinitions`, described below. `script(text)`
 is the deliberate simple-protocol, multi-statement path, available only on an owned session.
 Scripts accept no bound values and obey PostgreSQL's own transaction semantics; they do not add an
 atomic wrapper. A failed script rejects with its server error; callers must not assume earlier
@@ -153,7 +154,8 @@ data properties, including names such as `__proto__`. Array mode preserves ordin
 
 `sql<MyRow>`, `queryClassic<MyRow>` and existing `query<MyRow>` are caller assertions; they perform
 no runtime result validation or schema inference. Without a row type, values are `unknown`.
-Generation and intentional checking are Tenon responsibilities. Streaming uses the same decoding rules. Description does not
+Schema generation is a pgclear library operation; intentional query checking remains in Tenon.
+Streaming uses the same decoding rules. Description does not
 infer nullability, resolve domains through catalog queries, or discover application TypeScript types.
 
 Protocol UTF-8 decoding preserves leading U+FEFF in values and names. It rejects invalid UTF-8;
@@ -289,6 +291,53 @@ savepoints reject rather than interleave or deadlock. Outside child scopes, acce
 FIFO. Manual SQL transaction boundaries inside managed callbacks are caller misuse: pgclear does not
 parse arbitrary SQL or promise to undo an explicit COMMIT issued by the caller. Tenon may enforce
 stronger SQL restrictions above this layer.
+
+## Schema type generation
+
+`generateDefinitions(options)` returns TypeScript source. It explicitly reads PostgreSQL catalogs;
+ordinary queries still perform no automatic catalog lookup or query checking.
+
+```ts
+import { createPool, generateDefinitions } from '@kequtech/pgclear';
+import { writeFile } from 'node:fs/promises';
+
+const pool = createPool(process.env.DATABASE_URL!);
+try {
+  const source = await generateDefinitions({ connection: pool, namespace: 'public' });
+  await writeFile('database.d.ts', source);
+} finally {
+  await pool.close();
+}
+```
+
+The generated export is `Database`. Each exact table name has `row`, `insert` and `update` shapes:
+`Database['users']['row']`, `Database['users']['insert']` and `Database['users']['update']`.
+Compose projections with ordinary `Pick`, indexed access and intersections. Foreign-key relations,
+indexes (including expressions, INCLUDE columns and predicates), constraints and schema details
+appear in comments. They do not add properties to returned rows. Comments are descriptive catalog
+output, not migrations or a complete schema fingerprint.
+
+`connection` accepts a pgclear pool/session, a connection URI or `ConnectionOptions`. Supplied
+handles are borrowed and remain usable; configuration creates an owned short-lived connection.
+Generation uses a repeatable-read, read-only transaction, restoring transaction-local settings on
+completion. `namespace` defaults to `public`; missing schemas fail, and empty schemas are valid.
+Ordinary tables and partitioned roots are included; views, foreign tables and attached partitions
+need authored types. `excludeTables` explicitly omits named tables; there are no Tenon-specific
+defaults. `timeoutMs`/`signal` cover acquisition, catalog work and rendering. `onWarning` receives
+diagnostics and may return a promise; thrown/rejected warnings fail generation with cleanup.
+
+Reads use the selected codecs: integers/floats are numbers, int8 is bigint, numeric and temporal
+values are strings, bytea is Uint8Array, and JSON is unknown. Known built-in arrays use recursive
+`PgArray<T>` with null elements; dynamic/unregistered types retain wire text. Enums become literal
+unions. Known built-in overrides are reflected; erased custom decoder return types become unknown
+with a warning. Internal catalog reads use native defaults without mutating application codecs.
+
+Insert/update fields reflect defaults, generated/identity writability and input nullability.
+Writable fields accept canonical native values or explicit `Parameter`s; arrays and JSON accept
+explicit parameters or authored wire text. Missing/undefined optional fields represent omission by
+an SQL authoring tool. They are not valid undefined driver binds. Generated declarations contain
+only types, with type-only pgclear imports when needed. File output, freshness comparison, query
+checking and migration locks remain consumer responsibilities (D34).
 
 ## Deadlines, cancellation, and errors
 

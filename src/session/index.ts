@@ -14,6 +14,7 @@ import type {
   ArrayQueryOptions,
   CloseOptions,
   Connection,
+  Executor,
   DescribeStatement,
   Description,
   OperationOptions,
@@ -155,6 +156,13 @@ export class Scope {
       return Promise.reject(error);
     }
   }
+}
+
+/** Internal catalog readers retain the same scope admission and operation ownership. */
+export function executorScope(executor: Executor): Scope {
+  if (!(executor instanceof ExecutorHandle))
+    throw new DriverError('PGCLEAR_CONFIGURATION', 'Expected a pgclear executor.');
+  return executor.scope;
 }
 
 class ExecutorHandle {

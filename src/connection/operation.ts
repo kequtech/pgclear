@@ -9,6 +9,7 @@ interface Rows {
   rows: object[];
   bytes: number;
   readonly arrayMode: boolean;
+  readonly codecs: Configuration['codecs'];
 }
 type RowPhase = 'parse' | 'bind' | 'description' | 'rows' | 'ready';
 type CopyPhase =
@@ -73,8 +74,8 @@ export interface Operation {
   command?: CommandResult;
   error?: Error;
 }
-export function rows(arrayMode = false): Rows {
-  return { fields: Object.freeze([]), rows: [], bytes: 0, arrayMode };
+export function rows(codecs: Configuration['codecs'], arrayMode = false): Rows {
+  return { fields: Object.freeze([]), rows: [], bytes: 0, arrayMode, codecs };
 }
 export function result(operation: Operation): QueryResult<object> {
   const work = operation.work;

@@ -30,7 +30,7 @@ Fake-server tests require loopback/Unix sockets. Integration tests require `psql
 tests use `tar` and reuse only runtime dependencies declared in the packed manifest. TLS fixtures
 are explicitly public test-only keys/certificates. The package remains private; `npm pack` exercises
 distribution locally and does not publish it. The runtime exports are `connect`, `createPool`, `DriverError`, `DatabaseError`, `builtin`, `defaultCodecs`, `param`,
-`json`, `sql` and `listen`.
+`json`, `sql`, `listen` and `generateDefinitions`.
 
 The M8 package audit keeps the ISC license, ESM exports, declarations and `private: true`. Runtime
 SASLprep and its transitive `sparse-bitfield`/`memory-pager` dependencies are external MIT-licensed
@@ -40,6 +40,20 @@ repository-only. The package README points to the benchmark evidence on GitHub.
 See [M8](implementation-plan.md#m8--initial-release-gate) for the remaining consumer/matrix gates.
 
 ## Current verification and limits
+
+D34's schema-generation export passes `npm run check`: **228 tests** (122 database-independent,
+106 integration) on local PostgreSQL 16.15. The separate native compatibility suite passes three
+tests. Generated `Database[table]` row/insert/update consumers compile against actual native values;
+coverage includes defaults/identity/generated columns, domains, arrays, enums, dynamic wire-text
+types, relationship/index comments, hostile names, custom codecs, settings restoration, owned
+cleanup and queued/active cancellation. No runtime dependency or compiler integration is added.
+
+The packed Tenon trial `.trial-dist/tenon-m4-QHPqtq/report.json` passes the original pg baseline's
+180 tests, 15 shared baseline cases (five candidate-only skips), and all 20 candidate cases. The
+candidate delegates generation to pgclear and compiles `Database['models']['row']` with Tenon's
+typed SQL under TypeScript 6/7. Its three old generation modules are removed; checking and
+migration coordination stay in Tenon. This is local evidence, not full consumer adoption or a new
+PostgreSQL 18 CI result.
 
 M6 on 2026-10-28 passed `npm run check`: **216 tests** (118 database-independent, 98 integration)
 against the existing `pgclear_test` database. A separate `npm run test:compat` passed **3 compatibility

@@ -60,15 +60,17 @@ weaken pgclear's conservative initial rule: retire every actively canceled conne
 
 ## Value compatibility
 
-Tenon's generation/inspection mappings must describe actual selected codec outputs, not remembered
+Generated types and Tenon's inspection mappings must describe actual selected codec outputs, not remembered
 pg defaults. int8 becomes bigint, numeric stays string, date/timestamps become strings, bytes become
 Uint8Array, and rowCount becomes bigint. Generic JSON values remain unknown. Result metadata uses
 `dataTypeOid`, `tableOid`, and `columnAttribute`, rather than pg's field-property names.
 
 The M4 trial selects the driver's native representations. It changes Tenon's count/event types to
 bigint, temporal reads/writes to text and numeric-array reads to exact strings. Generated definitions
-are compiled under TypeScript 6 and 7. Generation/inspection in this trial describe the default
-registry; they cannot infer arbitrary TypeScript output types from a caller's custom JS decoder.
+are compiled under TypeScript 6 and 7. The candidate now delegates generation to pgclear and uses
+`Database[table]['row' | 'insert' | 'update']`. Generation reflects known selected codecs; custom
+decoder return types without known metadata become unknown with warnings. Tenon's inspection
+still describes its explicit default mapping; it cannot infer arbitrary custom JS decoder types.
 Borrowed custom registries remain untouched, and their type contracts remain the caller's responsibility.
 
 Tenon's compiler accepts unknown bind values, so the candidate passes them unchanged to pgclear's
@@ -84,15 +86,17 @@ guarded statements within the existing atomic transaction/savepoint policy befor
 
 ## Typed-query tooling
 
-The maintainer's final decision D25 leaves type generation, intentional query checking and SQL
-composition tooling in Tenon. pgclear owns conversions, parameter encoding, faithful Describe/field
-metadata and session lifetimes. It does not own a TypeScript compiler integration, schema generator,
-checker command, fragments, expansion, chooser or runtime result-schema validation.
+The maintainer's decision D34 moves schema type generation to pgclear as a library export, while
+intentional query checking and SQL composition stay in Tenon. pgclear owns conversions, parameter
+encoding, faithful Describe/field metadata, session lifetimes and generated schema declarations.
+Tenon's candidate delegates `generateDefinitions` while retaining migration coordination, history
+table exclusion, file writing and freshness checks. Relationships and indexes are comments; row
+shapes contain actual columns. No compiler integration, checker command or result validation moves.
 
 Tenon's `describeQuery()` and generated definitions must describe the actual selected codecs.
-Existing `CodecRegistry` has no public representation introspection; a future demonstrated need may
-justify a minimal decoder-contract API, but no new inspection framework or automatic catalog fetch
-is required by this decision. Do not silently assume default mappings for custom decoders or recover
+`CodecRegistry` still has no public representation-introspection API. Generation shares internal
+codec registrations and uses default catalog decoding independently of application overrides.
+Ordinary queries do not fetch catalogs. Do not silently assume default mappings for custom decoders or recover
 arbitrary TypeScript types from erased codec generics. Input encoder policies remain separate from
 result mappings. Type interpretation and unknown/nullability diagnostics belong in Tenon's tooling.
 

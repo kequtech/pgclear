@@ -20,6 +20,7 @@ do not embed pg, fork Postgres.js, or publish separate internal packages.
 | `pool/`                                      | FIFO acquisition, capacity, leases, retirement and close           | SQL rewriting or write retries                          |
 | `connection/stream.ts`, `connection/copy.ts` | bounded row/byte handoff, COPY source/write lifecycle              | bypassing the connection scheduler                      |
 | `listener/`                                  | dedicated LISTEN connection, registrations, optional supervision   | sharing a query pool connection                         |
+| `generation/`                                | explicit read-only catalogs and TypeScript schema declarations     | file output, checking or migration coordination         |
 | `errors.ts`, `events.ts`                     | public diagnostics and safe observation                            | automatic logging of SQL/values                         |
 | `index.ts`                                   | intentional public exports                                         | accidental exports of internal socket/message machinery |
 
@@ -265,6 +266,21 @@ session through its existing deadline. Ending that dedicated session releases LI
 Notifications dispatch only for the current connected generation, and callbacks share the isolated,
 non-awaiting observer helper. Notifications during gaps are not replayable. See
 [D32](decisions.md#d32--listeners-supervise-a-dedicated-connection-with-explicit-delivery-gaps).
+
+## Schema type generation
+
+`generation/` reads explicit catalog metadata and renders `Database[table]` with row/insert/update
+types and descriptive relationship/index comments. It reuses read-only repeatable-read transactions
+and normal scope admission. Catalog queries choose an internal default codec snapshot per operation;
+application type rendering uses the connection's selected registry. This keeps catalog control data
+independent of user decoder overrides without mutating the registry or adding public query options.
+Ordinary operations retain their configured codecs.
+
+Codec registrations supply both native decoders and their known TypeScript representations.
+Unknown OIDs remain strings; erased custom decoder functions remain unknown for generation.
+The generator owns no migration lock, history-table policy, file I/O, compiler or checking command.
+Consumers can exclude their own bookkeeping tables and keep output/checking workflows themselves.
+See [D34](decisions.md#d34--generate-schema-types-in-pgclear-keep-checking-in-tenon).
 
 ## Deferred pipelining
 

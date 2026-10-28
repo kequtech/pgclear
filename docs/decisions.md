@@ -208,8 +208,8 @@ while correctness and applicable M4 adoption gates are addressed.
 
 ## D22 — Describe and decoder contracts support external type generation
 
-Historical discussion: final tooling ownership is decided by D25. A codec-description API remains
-unimplemented and must be justified by a concrete driver-consumer need.
+Historical discussion: D25 narrowed tooling ownership, and D34 later moved schema generation into
+pgclear. A public codec-description API remains unimplemented and needs a concrete consumer need.
 
 The generator-first workflow below is superseded as the preferred path by D23. Its Describe and
 selected-codec requirements remain applicable; generation remains a possible separate consumer.
@@ -248,7 +248,8 @@ Named preparation remains M5 work and is not a prerequisite for generation. M5 s
 
 ## D23 — Check ordinary TypeScript query types intentionally
 
-Superseded by D25: generation and checking are Tenon responsibilities. The value-only tag remains.
+D25 superseded the checking proposal; D34 later moves only schema generation into pgclear.
+The value-only tag remains.
 
 The maintainer rejected separately authored runtime contracts: existing TypeScript types, including
 `Pick<Database['user'], 'id' | 'name'>`, should express expected results. Prefer an optional command
@@ -295,6 +296,9 @@ semantics and unresolved API details. Prove the small value-only checker first; 
 are later experiments. M5 remains on hold and neither Tenon's checkout nor its public API changes.
 
 ## D25 — Driver only; value-bound tags and classic query execution
+
+Type-generation ownership is superseded by D34. The query-checking and SQL-composition boundaries
+and value-only query APIs below remain in effect.
 
 The maintainer made the final boundary explicit: pgclear does not own type generation or a check
 operation. Tenon owns those tools and may develop its own SQL authoring/composition policies.
@@ -535,3 +539,31 @@ whose latency/concurrency still warrants the cost after suitable SQL batching, C
 Any future proposal must preserve operation ownership, bounded memory and the default sequential
 path, and prove recovery as well as throughput. This supersedes M7b's conditional place before M8;
 it does not change implemented query, transaction, stream, COPY or listener behavior.
+
+## D34 — Generate schema types in pgclear; keep checking in Tenon
+
+The maintainer moved schema type generation from Tenon to pgclear because generated JavaScript
+representations should follow the component that decodes PostgreSQL values. This supersedes only
+D25's generation ownership. Intentional query checking, SQL composition, migration coordination,
+file writing and freshness checks remain in Tenon or other consumers. No checking command,
+TypeScript compiler dependency or SQL parser is added to pgclear.
+
+`generateDefinitions` returns TypeScript source as a library export. The generated shape is
+`Database['users']['row' | 'insert' | 'update']`, with each shape separately accessible. Relationships,
+indexes and descriptive schema details are comments, not additional row properties or relation
+APIs. Read types follow selected native codecs: bigint, exact numeric/temporal strings, Uint8Array,
+parsed JSON as unknown and recursive built-in arrays. Dynamic OIDs retain wire-text behavior.
+Custom decoder functions with erased return types generate unknown with a diagnostic; known
+built-in overrides, including raw JSON and explicit array codecs, retain their real mappings.
+
+Insert/update shapes describe schema writability, defaults and nullability. Optional properties
+represent omission by an SQL authoring tool, not permission to bind undefined. Arrays and JSON use
+explicit `Parameter` values or authored wire text; other columns use canonical native values or
+explicit parameters. There is no runtime validation of generated declarations.
+
+Generation uses the existing ownership/lifetime machinery and a repeatable-read, read-only
+transaction. Supplied pools/sessions are borrowed; connection configuration creates a short-lived
+owned connection. Internal catalog queries use default codecs independently of application result
+overrides, without mutating the selected registry or exposing a public per-query codec override.
+Tenon's isolated candidate delegates generation and retains its shared migration lock, history
+table exclusion and output/checking code. Its active checkout and the full adoption gate stay separate.

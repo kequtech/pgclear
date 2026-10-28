@@ -276,12 +276,12 @@ index 0000000..2037000
 +  }
 +}
 diff --git a/src/driver/types.ts b/src/driver/types.ts
-index 2d02c53..cc53147 100644
+index 2d02c53..381ce7c 100644
 --- a/src/driver/types.ts
 +++ b/src/driver/types.ts
 @@ -1,27 +1,27 @@
 -/** pg default representations, shared by generation and query inspection. */
-+/** pgclear default representations, shared by generation and query inspection. */
++/** pgclear default representations, used by query inspection. */
  export type ValueTypes = Readonly<{ read: string; write: string }>;
  type TypeMapping = string | ValueTypes;
  
@@ -355,73 +355,437 @@ index 03d242b..4431646 100644
      command: string,
      supported: boolean,
    ) {
-diff --git a/src/generation/catalog.ts b/src/generation/catalog.ts
-index df29671..da3604e 100644
---- a/src/generation/catalog.ts
-+++ b/src/generation/catalog.ts
-@@ -1,4 +1,4 @@
--import type { PoolClient } from 'pg';
-+import type { SessionClient as PoolClient } from '../driver/session.js';
- import { migrationTable } from '../migrations/history.js';
+diff --git a/src/generate.ts b/src/generate.ts
+index 9805de8..da126d8 100644
+--- a/src/generate.ts
++++ b/src/generate.ts
+@@ -1,45 +1,25 @@
++import {
++  generateDefinitions as generateDriverDefinitions,
++  type GenerateOptions as DriverGenerateOptions,
++} from '@kequtech/pgclear';
+ import type { Connection } from './connection.js';
+-import { readTables } from './generation/catalog.js';
+-import { renderTableTypes } from './generation/table-types.js';
+-import { domainSummaries, schemaSummary, tableSummary } from './generation/schema-summary.js';
+ import { withMigrationLock } from './migrations/connection.js';
+-import { quote } from './sql.js';
++import { migrationTable } from './migrations/history.js';
  
- export interface ColumnRow {
-@@ -61,7 +61,7 @@ export async function readTables(client: PoolClient, namespace: string): Promise
-         WHERE a.attrelid = $1::oid AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`,
-       [table.oid],
-     );
--    definitions.push({ ...table, columns: columns.rows });
-+    definitions.push({ ...table, columns: [...columns.rows] });
-   }
-   return definitions;
+ export interface GenerateOptions {
+   readonly connection: Connection;
+   readonly namespace?: string;
+-  /** Receives generation warnings; defaults to console.warn. */
+-  readonly onWarning?: (message: string) => void;
++  readonly onWarning?: DriverGenerateOptions['onWarning'];
  }
-diff --git a/src/generation/schema-summary.ts b/src/generation/schema-summary.ts
-index 62a2205..f5f261b 100644
---- a/src/generation/schema-summary.ts
-+++ b/src/generation/schema-summary.ts
-@@ -1,4 +1,5 @@
--import type { PoolClient } from 'pg';
-+import type { SessionClient as PoolClient } from '../driver/session.js';
-+import { builtin, param } from '@kequtech/pgclear';
- import { quote } from '../sql.js';
  
- interface NamedDefinition {
-@@ -42,7 +43,7 @@ export async function domainSummaries(
-       JOIN pg_catalog.pg_type base ON base.oid = t.typbasetype
-     WHERE t.typtype = 'd'
-     ORDER BY pg_catalog.format_type(t.oid, NULL) COLLATE "C"`,
+-/** Read-only introspection. Output needs no runtime imports or schema registration. */
+-export async function generateDefinitions(options: GenerateOptions): Promise<string> {
+-  const onWarning = options.onWarning ?? ((message: string) => console.warn(`Warning: ${message}`));
+-  return withMigrationLock(options, 'shared', async (client, namespace) => {
+-    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+-    const schema = await client.query('SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = $1', [
++/** Tenon owns migration coordination and output checking; pgclear owns the generated types. */
++export function generateDefinitions(options: GenerateOptions): Promise<string> {
++  return withMigrationLock(options, 'shared', (client, namespace) =>
++    generateDriverDefinitions({
++      connection: client.session,
+       namespace,
+-    ]);
+-    if (!schema.rows.length) throw new Error(`Schema ${quote(namespace)} does not exist.`);
+-    // Keep catalog deparsing stable across connection settings and replay schemas.
+-    // Transaction-local settings are restored before returning a borrowed client.
+-    await client.query(`SET LOCAL search_path TO pg_catalog, ${quote(namespace)}`);
+-    await client.query('SET LOCAL quote_all_identifiers TO off');
+-    await client.query('SET LOCAL standard_conforming_strings TO on');
+-    const definitions = await readTables(client, namespace);
+-    const summaries: string[] = [];
+-    for (const table of definitions) {
+-      summaries.push(await tableSummary(client, table.oid, table.name));
+-    }
+-    const domains = await domainSummaries(
+-      client,
+-      definitions.flatMap((table) => table.columns.map((column) => column.declaredOid)),
+-    );
+-    const types = renderTableTypes(definitions, namespace, onWarning);
+-    await client.query('COMMIT');
+-    return `// Generated by Tenon from the PostgreSQL schema. Do not edit.
+-// Commit this file and regenerate it after changing the schema.
+-
+-${schemaSummary([...domains, ...summaries])}${types}`;
+-  });
++      excludeTables: [migrationTable],
++      ...(options.onWarning === undefined ? {} : { onWarning: options.onWarning }),
++    }),
++  );
+ }
+diff --git a/src/generation/catalog.ts b/src/generation/catalog.ts
+deleted file mode 100644
+index df29671..0000000
+--- a/src/generation/catalog.ts
++++ /dev/null
+@@ -1,67 +0,0 @@
+-import type { PoolClient } from 'pg';
+-import { migrationTable } from '../migrations/history.js';
+-
+-export interface ColumnRow {
+-  name: string;
+-  oid: string;
+-  type: string;
+-  typeSchema: string;
+-  typeKind: string;
+-  declaredOid: string;
+-  declaredType: string;
+-  declaredSchema: string;
+-  nullable: boolean;
+-  writeNullable: boolean;
+-  hasDefault: boolean;
+-  writable: boolean;
+-  choices: string[] | null;
+-}
+-export interface TableRow {
+-  oid: string;
+-  name: string;
+-  columns: ColumnRow[];
+-}
+-
+-export async function readTables(client: PoolClient, namespace: string): Promise<TableRow[]> {
+-  const tables = await client.query<{ oid: string; name: string }>(
+-    `
+-      SELECT c.oid::text AS oid, c.relname AS name
+-      FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+-      WHERE n.nspname = $1 AND c.relname <> $2 AND c.relkind IN ('r', 'p')
+-        AND NOT c.relispartition
+-      ORDER BY c.relname COLLATE "C"`,
+-    [namespace, migrationTable],
+-  );
+-  const definitions: TableRow[] = [];
+-  for (const table of tables.rows) {
+-    // Attached descendants are storage details, not separate generated models.
+-    const columns = await client.query<ColumnRow>(
+-      `
+-        WITH RECURSIVE resolved AS (
+-          SELECT a.attnum, t.oid, t.typbasetype, t.typnotnull AS domain_not_null
+-          FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+-          WHERE a.attrelid = $1::oid AND a.attnum > 0 AND NOT a.attisdropped
+-          UNION ALL
+-          SELECT r.attnum, t.oid, t.typbasetype, r.domain_not_null OR t.typnotnull
+-          FROM resolved r JOIN pg_catalog.pg_type t ON t.oid = r.typbasetype
+-        )
+-        SELECT a.attname AS name, t.oid::text AS oid, t.typname AS type, tn.nspname AS "typeSchema", t.typtype AS "typeKind",
+-          declared.oid::text AS "declaredOid", declared.typname AS "declaredType", dn.nspname AS "declaredSchema",
+-          NOT a.attnotnull AS nullable,
+-          NOT (a.attnotnull OR r.domain_not_null) AS "writeNullable",
+-          (a.atthasdef OR declared.typdefaultbin IS NOT NULL OR a.attidentity <> '') AS "hasDefault",
+-          (a.attgenerated = '' AND a.attidentity <> 'a') AS writable,
+-          (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_catalog.pg_enum e WHERE e.enumtypid = t.oid) AS choices
+-        FROM pg_catalog.pg_attribute a
+-          JOIN resolved r ON r.attnum = a.attnum AND r.typbasetype = 0
+-          JOIN pg_catalog.pg_type t ON t.oid = r.oid
+-          JOIN pg_catalog.pg_namespace tn ON tn.oid = t.typnamespace
+-          JOIN pg_catalog.pg_type declared ON declared.oid = a.atttypid
+-          JOIN pg_catalog.pg_namespace dn ON dn.oid = declared.typnamespace
+-        WHERE a.attrelid = $1::oid AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`,
+-      [table.oid],
+-    );
+-    definitions.push({ ...table, columns: columns.rows });
+-  }
+-  return definitions;
+-}
+diff --git a/src/generation/schema-summary.ts b/src/generation/schema-summary.ts
+deleted file mode 100644
+index 62a2205..0000000
+--- a/src/generation/schema-summary.ts
++++ /dev/null
+@@ -1,163 +0,0 @@
+-import type { PoolClient } from 'pg';
+-import { quote } from '../sql.js';
+-
+-interface NamedDefinition {
+-  name: string;
+-  definition: string;
+-}
+-interface IndexDefinition {
+-  definition: string;
+-  prefix: string;
+-  qualification: string;
+-  valid: boolean;
+-  ready: boolean;
+-}
+-
+-/** Include only domains reached through selected columns, base domains or arrays. */
+-export async function domainSummaries(
+-  client: PoolClient,
+-  typeOids: readonly string[],
+-): Promise<string[]> {
+-  const domains = await client.query<{
+-    oid: string;
+-    name: string;
+-    base: string;
+-    nullable: boolean;
+-    expression: string | null;
+-    collation: string | null;
+-  }>(
+-    `
+-    WITH RECURSIVE referenced(oid) AS (
+-      SELECT unnest($1::oid[])
+-      UNION
+-      SELECT child.oid FROM referenced r JOIN pg_catalog.pg_type t ON t.oid = r.oid
+-        CROSS JOIN LATERAL (VALUES (t.typbasetype), (t.typelem)) child(oid)
+-      WHERE child.oid <> 0
+-    )
+-    SELECT t.oid::text AS oid, pg_catalog.format_type(t.oid, NULL) AS name,
+-      pg_catalog.format_type(t.typbasetype, t.typtypmod) AS base,
+-      NOT t.typnotnull AS nullable, pg_catalog.pg_get_expr(t.typdefaultbin, 0, false) AS expression,
+-      CASE WHEN t.typcollation <> base.typcollation THEN t.typcollation::pg_catalog.regcollation::text END AS collation
+-    FROM referenced r JOIN pg_catalog.pg_type t ON t.oid = r.oid
+-      JOIN pg_catalog.pg_type base ON base.oid = t.typbasetype
+-    WHERE t.typtype = 'd'
+-    ORDER BY pg_catalog.format_type(t.oid, NULL) COLLATE "C"`,
 -    [typeOids],
-+    [param(typeOids, builtin.textArray)],
-   );
-   const summaries: string[] = [];
-   for (const domain of domains.rows) {
+-  );
+-  const summaries: string[] = [];
+-  for (const domain of domains.rows) {
+-    const constraints = await client.query<NamedDefinition>(
+-      `
+-      SELECT conname AS name, pg_catalog.pg_get_constraintdef(oid, false) AS definition
+-      FROM pg_catalog.pg_constraint WHERE contypid = $1::oid
+-      ORDER BY conname COLLATE "C"`,
+-      [domain.oid],
+-    );
+-    summaries.push(
+-      [
+-        `DOMAIN ${domain.name} AS ${domain.base}` +
+-          (domain.collation === null ? '' : ` COLLATE ${domain.collation}`) +
+-          (domain.expression === null ? '' : ` DEFAULT ${domain.expression}`) +
+-          (domain.nullable ? '' : ' NOT NULL'),
+-        ...constraints.rows.map(
+-          (constraint) => `  CONSTRAINT ${quote(constraint.name)} ${constraint.definition}`,
+-        ),
+-      ].join('\n'),
+-    );
+-  }
+-  return summaries;
+-}
+-
+-/** Called inside generation's read-only snapshot, with a fixed local search_path. */
+-export async function tableSummary(client: PoolClient, oid: string, name: string): Promise<string> {
+-  const columns = await client.query<NamedDefinition>(
+-    `
+-    SELECT a.attname AS name,
+-      pg_catalog.format_type(a.atttypid, a.atttypmod)
+-      || CASE WHEN a.attnotnull THEN ' NOT NULL' ELSE '' END
+-      || CASE
+-        WHEN a.attidentity <> '' THEN
+-          ' GENERATED ' || CASE a.attidentity WHEN 'a' THEN 'ALWAYS' ELSE 'BY DEFAULT' END
+-          || ' AS IDENTITY' || pg_catalog.format(
+-            ' (START WITH %s INCREMENT BY %s MINVALUE %s MAXVALUE %s CACHE %s %s)',
+-            s.seqstart, s.seqincrement, s.seqmin, s.seqmax, s.seqcache,
+-            CASE WHEN s.seqcycle THEN 'CYCLE' ELSE 'NO CYCLE' END)
+-        WHEN a.attgenerated <> '' THEN
+-          ' GENERATED ALWAYS AS (' || pg_catalog.pg_get_expr(d.adbin, d.adrelid, false)
+-          || ')' || CASE a.attgenerated WHEN 's' THEN ' STORED' WHEN 'v' THEN ' VIRTUAL' ELSE '' END
+-        WHEN d.oid IS NOT NULL THEN ' DEFAULT ' || pg_catalog.pg_get_expr(d.adbin, d.adrelid, false)
+-        ELSE ''
+-      END AS definition
+-    FROM pg_catalog.pg_attribute a
+-      LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+-      LEFT JOIN pg_catalog.pg_depend dep ON a.attidentity <> ''
+-        AND dep.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass
+-        AND dep.refobjid = a.attrelid AND dep.refobjsubid = a.attnum
+-        AND dep.classid = 'pg_catalog.pg_class'::pg_catalog.regclass AND dep.deptype = 'i'
+-      LEFT JOIN pg_catalog.pg_sequence s ON s.seqrelid = dep.objid
+-    WHERE a.attrelid = $1::oid AND a.attnum > 0 AND NOT a.attisdropped
+-    ORDER BY a.attnum`,
+-    [oid],
+-  );
+-  // Column definitions already describe NOT NULL; PostgreSQL 18 also stores it
+-  // as a table constraint, which would duplicate every required column here.
+-  const constraints = await client.query<NamedDefinition>(
+-    `
+-    SELECT conname AS name, pg_catalog.pg_get_constraintdef(oid, false) AS definition
+-    FROM pg_catalog.pg_constraint
+-    WHERE conrelid = $1::oid AND conparentid = 0 AND contype IN ('p', 'u', 'f', 'c', 'x')
+-    ORDER BY conname COLLATE "C"`,
+-    [oid],
+-  );
+-  const indexes = await client.query<IndexDefinition>(
+-    `
+-    SELECT pg_catalog.pg_get_indexdef(i.indexrelid, 0, false) AS definition,
+-      pg_catalog.format('CREATE %sINDEX %I ON %s',
+-        CASE WHEN i.indisunique THEN 'UNIQUE ' ELSE '' END, ic.relname,
+-        CASE WHEN t.relkind = 'p' THEN 'ONLY ' ELSE '' END) AS prefix,
+-      pg_catalog.quote_ident(n.nspname) || '.' AS qualification,
+-      i.indisvalid AS valid, i.indisready AS ready
+-    FROM pg_catalog.pg_index i
+-      JOIN pg_catalog.pg_class ic ON ic.oid = i.indexrelid
+-      JOIN pg_catalog.pg_class t ON t.oid = i.indrelid
+-      JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
+-    WHERE i.indrelid = $1::oid
+-    ORDER BY ic.relname COLLATE "C"`,
+-    [oid],
+-  );
+-  const lines = [
+-    `TABLE ${quote(name)}`,
+-    ...columns.rows.map((column) => `  ${quote(column.name)} ${column.definition}`),
+-    ...constraints.rows.map(
+-      (constraint) => `  CONSTRAINT ${quote(constraint.name)} ${constraint.definition}`,
+-    ),
+-    ...indexes.rows.map((index) => {
+-      // pg_get_indexdef always qualifies its target table. Remove only that
+-      // known prefix, never matching/replacing namespace text inside SQL literals.
+-      const qualifiedPrefix = index.prefix + index.qualification;
+-      if (!index.definition.startsWith(qualifiedPrefix)) {
+-        throw new Error(`Unexpected PostgreSQL index definition for ${quote(name)}.`);
+-      }
+-      const definition = index.prefix + index.definition.slice(qualifiedPrefix.length);
+-      return `  ${definition}${index.valid ? '' : ' [INVALID]'}${index.ready ? '' : ' [NOT READY]'}`;
+-    }),
+-  ];
+-  return lines.join('\n');
+-}
+-
+-export function schemaSummary(summaries: readonly string[]): string {
+-  const text = [
+-    'Schema summary — same database checkpoint as the row types below.',
+-    'Unqualified application names use the selected namespace; pg_catalog is also in the search path.',
+-    'Descriptive catalog output, not a migration script. Includes constraint-backed indexes.',
+-    ...summaries.map((summary) => `\n${summary}`),
+-  ].join('\n');
+-  // Identifiers and SQL literals can contain any JavaScript line terminator.
+-  // Prefix every physical line so catalog text always remains a comment.
+-  return (
+-    text
+-      .split(/\r\n|[\n\r\u2028\u2029]/u)
+-      .map((line) => `//${line ? ` ${line}` : ''}`)
+-      .join('\n') + '\n\n'
+-  );
+-}
 diff --git a/src/generation/table-types.ts b/src/generation/table-types.ts
-index e436514..504b2f8 100644
+deleted file mode 100644
+index e436514..0000000
 --- a/src/generation/table-types.ts
-+++ b/src/generation/table-types.ts
-@@ -33,7 +33,10 @@ function columnTypes(
-   let types: ValueTypes;
-   if (isSupportedArray(value)) {
-     const element = valueTypes(arrayTypes[value.oid]!);
++++ /dev/null
+@@ -1,118 +0,0 @@
+-import { arrayTypes, scalarTypes, valueTypes, type ValueTypes } from '../driver/types.js';
+-import type { ColumnRow, TableRow } from './catalog.js';
+-
+-// Every generated table remains accessible through Rows["exact SQL name"].
+-const reservedTypeNames = new Set(
+-  `
+-  as await break case catch class const continue debugger default delete do else enum
+-  export extends false finally for function if implements import in instanceof
+-  interface let new null package private protected public return static super
+-  switch this throw true try typeof var void while with yield any bigint boolean
+-  intrinsic never number object string symbol undefined unknown
+-  Rows globalThis PgArray
+-`
+-    .trim()
+-    .split(/\s+/),
+-);
+-
+-function canExportRowName(name: string): boolean {
+-  return (
+-    /^[$_\p{ID_Start}][$_\u200c\u200d\p{ID_Continue}]*$/u.test(name) && !reservedTypeNames.has(name)
+-  );
+-}
+-
+-function isSupportedArray(value: ColumnRow): boolean {
+-  return Object.hasOwn(arrayTypes, value.oid);
+-}
+-
+-function columnTypes(
+-  value: ColumnRow,
+-  column: string,
+-  onWarning: (message: string) => void,
+-): ValueTypes {
+-  let types: ValueTypes;
+-  if (isSupportedArray(value)) {
+-    const element = valueTypes(arrayTypes[value.oid]!);
 -    types = { read: `PgArray<${element.read}>`, write: `PgArray<${element.write}>` };
-+    types = {
-+      read: `PgArray<${element.read}>`,
-+      write: 'import("@kequtech/pgclear").Parameter | string',
-+    };
-   } else if (value.typeKind === 'e') {
-     const choice = value.choices?.map((choice) => JSON.stringify(choice)).join(' | ') || 'never';
-     types = { read: choice, write: choice };
-@@ -50,9 +53,9 @@ function columnTypes(
-           ? ''
-           : ` with underlying type ${JSON.stringify(value.typeSchema)}.${JSON.stringify(value.type)} (OID ${value.oid})`;
-       onWarning(
+-  } else if (value.typeKind === 'e') {
+-    const choice = value.choices?.map((choice) => JSON.stringify(choice)).join(' | ') || 'never';
+-    types = { read: choice, write: choice };
+-  } else {
+-    const type =
+-      value.typeSchema === 'pg_catalog' && Object.hasOwn(scalarTypes, value.type)
+-        ? scalarTypes[value.type]
+-        : undefined;
+-    if (type) {
+-      types = valueTypes(type);
+-    } else {
+-      const underlying =
+-        value.declaredOid === value.oid
+-          ? ''
+-          : ` with underlying type ${JSON.stringify(value.typeSchema)}.${JSON.stringify(value.type)} (OID ${value.oid})`;
+-      onWarning(
 -        `Column ${column} uses PostgreSQL type ${JSON.stringify(value.declaredSchema)}.${JSON.stringify(value.declaredType)} (OID ${value.declaredOid})${underlying} without a verified pg mapping; generated as unknown for reads and never for non-null writes.`,
-+        `Column ${column} uses PostgreSQL type ${JSON.stringify(value.declaredSchema)}.${JSON.stringify(value.declaredType)} (OID ${value.declaredOid})${underlying} without a specialized pgclear codec; generated as wire text for the default registry.`,
-       );
+-      );
 -      types = { read: 'unknown', write: 'never' };
-+      types = { read: 'string', write: 'string | import("@kequtech/pgclear").Parameter' };
-     }
-   }
-   // unknown already includes null, including for nullable JSON and unmapped types.
+-    }
+-  }
+-  // unknown already includes null, including for nullable JSON and unmapped types.
+-  return {
+-    read: `${types.read}${value.nullable && types.read !== 'unknown' ? ' | null' : ''}`,
+-    write: `${types.write}${value.writeNullable ? ' | null' : ''}`,
+-  };
+-}
+-
+-export function renderTableTypes(
+-  tables: readonly TableRow[],
+-  namespace: string,
+-  onWarning: (message: string) => void,
+-): string {
+-  const definitions = tables.map((table) => {
+-    const tableName = JSON.stringify(table.name);
+-    const columns = table.columns.map((column) => {
+-      const columnName = JSON.stringify(column.name);
+-      const path = `${JSON.stringify(namespace)}.${tableName}.${columnName}`;
+-      const types = columnTypes(column, path, onWarning);
+-      const requiredOnInsert = column.writable && !column.hasDefault && !column.writeNullable;
+-      const optionalInputType = column.writable ? `${types.write} | undefined` : 'never';
+-      return {
+-        row: `    ${columnName}: ${types.read};`,
+-        insert: `    ${columnName}${requiredOnInsert ? '' : '?'}: ${requiredOnInsert ? types.write : optionalInputType};`,
+-        update: `    ${columnName}?: ${optionalInputType};`,
+-      };
+-    });
+-    return { tableName, columns };
+-  });
+-  const render = (kind: 'row' | 'insert' | 'update', indent = '') =>
+-    definitions
+-      .map(
+-        ({ tableName, columns }) => `${indent}  ${tableName}: {
+-${columns.map((column) => indent + column[kind]).join('\n')}
+-${indent}  };`,
+-      )
+-      .join('\n');
+-  const aliases = tables
+-    .filter((table) => canExportRowName(table.name))
+-    .map((table) => `export type ${table.name} = Rows[${JSON.stringify(table.name)}];`);
+-  const arrays = tables.some((table) => table.columns.some(isSupportedArray))
+-    ? 'export type PgArray<T> = (T | null | PgArray<T>)[];\n\n'
+-    : '';
+-  return `${arrays}// Full database rows. Compose query types with Pick, indexed access, and intersections.
+-export type Rows = {
+-${render('row')}
+-};
+-
+-export declare namespace Rows {
+-  // Bound inputs for sql.insertValues. Missing/undefined fields use database defaults.
+-  type Insert = {
+-${render('insert', '  ')}
+-  };
+-
+-  // Bound inputs for sql.assignments. Missing/undefined fields are omitted.
+-  type Update = {
+-${render('update', '  ')}
+-  };
+-}
+-${aliases.join('\n')}
+-`;
+-}
 diff --git a/src/inspection/catalog.ts b/src/inspection/catalog.ts
 index 201d91c..66b6abd 100644
 --- a/src/inspection/catalog.ts

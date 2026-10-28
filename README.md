@@ -27,7 +27,15 @@ try {
 
 `sql` binds values only; it returns an immutable `[text, values]` tuple. `query` also accepts that
 classic tuple or the existing `{ text, values, parameterTypes }` statement form. Row annotations
-are trusted TypeScript assertions. Type generation and query checking belong in Tenon.
+are trusted TypeScript assertions. Schema type generation is a pgclear library export; query checking
+and SQL composition remain in Tenon.
+
+`generateDefinitions({ connection: pool, namespace: 'public' })` returns TypeScript source from a
+consistent read-only snapshot. It exports `Database['users']['row']`,
+`Database['users']['insert']` and `Database['users']['update']`, with relationships and indexes in
+comments. Values follow pgclear's codecs: bigint, exact numeric/temporal strings, Uint8Array and
+recursive arrays. JSON and array writes use explicit parameters or authored wire text. The caller
+owns file output and checking; supplied pools/sessions retain their ownership.
 
 `prepare` is available on held sessions and transaction/savepoint callbacks. Its handle exposes
 `description`, `query(values, options)` and idempotent `close()`. Handles expire with the exact

@@ -1,4 +1,6 @@
 export { listen } from './listener/index.js';
+export { generateDefinitions } from './generation/index.js';
+export type { GenerateOptions } from './generation/index.js';
 export { createPool } from './pool/index.js';
 export { connect } from './connection/index.js';
 export { DriverError, DatabaseError } from './errors.js';

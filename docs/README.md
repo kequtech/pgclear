@@ -39,8 +39,9 @@ the actual public declarations.
 
 ## Evidence
 
-D25 records the final driver/tooling boundary: Tenon owns generation and checking; pgclear exposes
-Describe, conversions, a value-only tag and classic query execution. The
+D34 updates D25's tooling boundary: pgclear exposes schema type generation as a library operation;
+Tenon retains checking, SQL composition, file output and migration coordination. The driver also
+exposes Describe, conversions, a value-only tag and classic query execution. The
 [tooling exploration](references/query-tooling-exploration.md) preserves superseded proposals, not
 planned driver features.
 
@@ -54,7 +55,8 @@ public contracts at the integration milestone.
 The later [typed-query review](references/tenon-typed-query-review.md) distinguishes independent
 verification of the original M4 trial from the author's newer Unicode-fix evidence. Its proposals
 inform [D22](decisions.md#d22--describe-and-decoder-contracts-support-external-type-generation) and
-the [typing assessment](tenon-integration.md#typed-query-tooling); D25 supersedes their proposed upstream tooling ownership. They do not authorize M5.
+the [typing assessment](tenon-integration.md#typed-query-tooling). D25 superseded their broad upstream
+tooling proposal; D34 now moves only schema generation into pgclear.
 
 - [PostgreSQL protocol message flow](https://www.postgresql.org/docs/18/protocol-flow.html)
 - [PostgreSQL message formats](https://www.postgresql.org/docs/18/protocol-message-formats.html)

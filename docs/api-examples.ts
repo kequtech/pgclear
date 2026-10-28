@@ -4,15 +4,25 @@ import {
   connect,
   createPool,
   defaultCodecs,
+  generateDefinitions,
   listen,
   json,
   param,
   sql,
   type Codec,
   type ConnectionOptions,
+  type GenerateOptions,
   type Pool,
   type Session,
 } from './api-contract.js';
+
+export async function schemaTypes(connection: Pool | Session): Promise<string> {
+  const options: GenerateOptions = { connection, namespace: 'public', timeoutMs: 5000 };
+  const source: string = await generateDefinitions(options);
+  // @ts-expect-error checking/file output remain consumer responsibilities
+  generateDefinitions({ connection, check: true });
+  return source;
+}
 
 export async function standalone(connectionString: string) {
   const connection = await connect({ connectionString });

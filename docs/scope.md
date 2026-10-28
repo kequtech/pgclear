@@ -5,9 +5,10 @@ authentication, protocol scheduling, sessions, pooling, value conversion, and da
 It accepts finished SQL and separate values, with a small value-binding template tag. Tenon owns SQL composition, schema inference, migrations,
 affected-row policy, and its application-facing API.
 
-Type generation and intentional query checking also belong in Tenon (D25). pgclear owns actual
-conversion and faithful PostgreSQL metadata, without a compiler integration, runtime result schema,
-fragment/expansion/chooser API or automatic catalog discovery.
+Schema type generation belongs in pgclear as a library export (D34), sharing its conversion
+knowledge and reading catalog metadata explicitly on request. Intentional query checking, SQL
+composition, file output and migration coordination remain in Tenon. The driver adds no compiler
+integration, runtime result schema, fragment/expansion/chooser API or implicit catalog discovery.
 
 ## Initial support
 
@@ -22,7 +23,7 @@ fragment/expansion/chooser API or automatic catalog discovery.
   require a direct connection or session pooling.
 
 No browser, Workers, Deno-specific, native libpq, Kerberos/GSS, multi-host failover, logical
-replication, ORM, schema generator, or pg/Postgres.js compatibility layer is promised for 0.1.
+replication, ORM, migration engine, or pg/Postgres.js compatibility layer is promised for 0.1.
 There is no application account system or deployment service to provision.
 
 ## First release

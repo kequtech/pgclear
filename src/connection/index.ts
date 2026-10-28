@@ -129,7 +129,7 @@ export class PhysicalConnection {
   }
   commit(options: ExecutionOptions): Promise<QueryResult<object>> {
     return this.#execute(
-      { kind: 'query', phase: 'parse', result: rows(), commit: true },
+      { kind: 'query', phase: 'parse', result: rows(this.#config.codecs), commit: true },
       () => encodeQuery('COMMIT'),
       options,
       result,
@@ -137,6 +137,9 @@ export class PhysicalConnection {
   }
   get dispatchCount(): number {
     return this.#dispatches;
+  }
+  get codecs(): Configuration['codecs'] {
+    return this.#config.codecs;
   }
   get usable(): boolean {
     return !this.#dead && !this.#closing;
@@ -344,7 +347,7 @@ export class PhysicalConnection {
             decodeRow(
               message.values,
               work.result.fields,
-              this.#config.codecs,
+              work.result.codecs,
               work.result.arrayMode,
             ),
           );
@@ -622,9 +625,10 @@ export class PhysicalConnection {
   query(
     statement: QueryInput<object>,
     options: ExecutionOptions = { lifetime: new Lifetime() },
+    codecs: Configuration['codecs'] = this.#config.codecs,
   ): Promise<QueryResult<object>> {
     return this.#execute(
-      { kind: 'query', phase: 'parse', result: rows(options.rowMode === 'array') },
+      { kind: 'query', phase: 'parse', result: rows(codecs, options.rowMode === 'array') },
       () => encodeQuery(statement),
       options,
       result,
@@ -689,7 +693,11 @@ export class PhysicalConnection {
     options: ExecutionOptions,
   ): Promise<QueryResult<object>> {
     return this.#execute(
-      { kind: 'query', phase: 'bind', result: rows(options.rowMode === 'array') },
+      {
+        kind: 'query',
+        phase: 'bind',
+        result: rows(this.#config.codecs, options.rowMode === 'array'),
+      },
       () => encodePreparedQuery(name, values, description.parameterTypes),
       options,
       result,
@@ -710,7 +718,12 @@ export class PhysicalConnection {
     text: string,
     options: ExecutionOptions = { lifetime: new Lifetime() },
   ): Promise<readonly QueryResult[]> {
-    const work: Work = { kind: 'script', phase: 'script', result: rows(), results: [] };
+    const work: Work = {
+      kind: 'script',
+      phase: 'script',
+      result: rows(this.#config.codecs),
+      results: [],
+    };
     return this.#execute(
       work,
       () => encodeScript(text),
@@ -723,7 +736,7 @@ export class PhysicalConnection {
     const work: Work = {
       kind: 'stream',
       phase: 'parse',
-      result: rows(options.rowMode === 'array'),
+      result: rows(this.#config.codecs, options.rowMode === 'array'),
       output: stream,
       batchSize,
       metadataBytes: 0,

@@ -177,7 +177,8 @@ before extending breadth. A need for intentional consumer/API migration is not i
 driver contract: prefer the simpler standalone design and adapt or retire compatibility-specific
 tests instead of recreating pg/Postgres.js machinery merely to satisfy the baseline.
 
-The final scope decision D25 leaves generation, checking and SQL composition tooling in Tenon.
+At that checkpoint D25 left generation, checking and SQL composition tooling in Tenon. D34 later
+moves schema generation into pgclear while keeping checking and composition in Tenon.
 pgclear adds only a value-binding tag and a classic text/values entrypoint through the existing
 execution path. No compiler integration, generator, checker, fragments, expansion or chooser is
 part of this driver plan. A future minimal codec-description contract requires a demonstrated need;
@@ -305,6 +306,12 @@ license notices. The public-API status now correctly identifies listeners as imp
 Pipelining is now explicitly deferred, without a public option or scheduler changes.
 Benchmark documentation/results, runners, comparator dependencies, trials and raw generated
 artifacts remain repository-only; the package README links to the benchmark evidence on GitHub.
+
+D34 adds the maintainer-requested generation library export during readiness. It returns
+`Database[table]['row' | 'insert' | 'update']`, with relationships and indexes in comments. Generation
+shares native codec registrations and read-only transaction ownership. The isolated Tenon candidate
+delegates to the packed export, keeping migration locks and checking/file workflows in Tenon.
+This changes generation ownership, not the remaining full consumer-adoption or 16/18 gates.
 
 Remaining work, in order:
 

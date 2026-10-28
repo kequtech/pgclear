@@ -33,26 +33,38 @@ export function snapshotCodec<T>(codec: Codec<T>): Codec<T> {
   });
 }
 type Decoder = ((value: string) => unknown) | undefined;
-const scalars: ReadonlyMap<number, Decoder> = new Map([
-  ...[
-    builtin.bool,
-    builtin.int2,
-    builtin.int4,
-    builtin.int8,
-    builtin.float4,
-    builtin.float8,
-    builtin.numeric,
-    builtin.text,
-    builtin.uuid,
-    builtin.bytea,
-    builtin.json,
-    builtin.jsonb,
-    builtin.date,
-    builtin.timestamp,
-    builtin.timestamptz,
-    oidCodec,
-  ].map((codec) => [codec.oid, codec.text!.decode] as const),
-]);
+// Generation and decoding share these registrations; unknown OIDs remain wire text.
+const scalarTypes = [
+  [builtin.bool, 'boolean'],
+  [builtin.int2, 'number'],
+  [builtin.int4, 'number'],
+  [builtin.int8, 'bigint'],
+  [builtin.float4, 'number'],
+  [builtin.float8, 'number'],
+  [builtin.numeric, 'string'],
+  [builtin.text, 'string'],
+  [builtin.uuid, 'string'],
+  [builtin.bytea, 'globalThis.Uint8Array'],
+  [builtin.json, 'unknown'],
+  [builtin.jsonb, 'unknown'],
+  [builtin.date, 'string'],
+  [builtin.timestamp, 'string'],
+  [builtin.timestamptz, 'string'],
+  [oidCodec, 'number'],
+] as const;
+const scalars: ReadonlyMap<number, Decoder> = new Map(
+  scalarTypes.map(([codec]) => [codec.oid, codec.text!.decode]),
+);
+const knownTypes = new Map<NonNullable<Decoder>, string>(
+  scalarTypes.map(([codec, type]) => [codec.text!.decode, type]),
+);
+for (const codec of Object.values(builtin)) {
+  const element = arrayElements.get(codec.oid);
+  if (element !== undefined && codec.text) {
+    const decode = scalars.get(element);
+    knownTypes.set(codec.text.decode, `PgArray<${decode ? knownTypes.get(decode) : 'string'}>`);
+  }
+}
 // PostgreSQL field bytes are data, not a BOM-prefixed document.
 const utf8 = new TextDecoder('utf8', { fatal: true, ignoreBOM: true });
 
@@ -67,6 +79,19 @@ class Registry implements CodecRegistry {
       next = new Map(this.#overrides);
     next.set(snapshot.oid, snapshot.text?.decode);
     return new Registry(next);
+  }
+  /** Custom decoder functions have erased return types; generation must not guess. */
+  typescript(oid: number): string | undefined {
+    if (this.#overrides.has(oid)) {
+      const decode = this.#overrides.get(oid);
+      return decode ? knownTypes.get(decode) : 'string';
+    }
+    const decode = scalars.get(oid);
+    if (decode) return knownTypes.get(decode);
+    const element = arrayElements.get(oid);
+    if (element === undefined) return 'string';
+    const type = this.typescript(element);
+    return type === undefined ? undefined : `PgArray<${type}>`;
   }
   text(oid: number, value: string): unknown {
     const selected = this.#overrides.has(oid) ? this.#overrides.get(oid) : scalars.get(oid);

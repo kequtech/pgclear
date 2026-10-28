@@ -281,14 +281,30 @@ test(
         `CREATE TABLE "${name}".models(big bigint NOT NULL,decimals numeric[] NOT NULL,at timestamptz NOT NULL,bytes bytea NOT NULL)`,
       );
       const source = await generateDefinitions({ connection: settings(name), namespace: name });
+      if (clear) {
+        const { generateDefinitions: generateDriverDefinitions } =
+          await import('@kequtech/pgclear');
+        assert.equal(
+          source,
+          await generateDriverDefinitions({
+            connection: db.native,
+            namespace: name,
+            excludeTables: ['__tenon_migrations'],
+          }),
+        );
+      }
       const directory = await mkdtemp(join(process.cwd(), 'generated-'));
       try {
         await writeFile(join(directory, 'schema.d.ts'), source);
         await writeFile(
           join(directory, 'consumer.ts'),
           `
-        import type {Rows, PgArray} from './schema.js';
-        declare const row:Rows['models'];
+        import type {${clear ? 'Database' : 'Rows'}} from './schema.js';
+        import type {PgArray} from '@kequtech/pgclear';
+        import {sql} from '@kequtech/tenon-orm';
+        type Model=${clear ? "Database['models']['row']" : "Rows['models']"};
+        declare const row:Model;
+        const query=sql<Model>\`SELECT * FROM models\`;
         const big:${clear ? 'bigint' : 'string'}=row.big;
         const decimals:PgArray<${clear ? 'string' : 'number'}>=row.decimals;
         const at:${clear ? 'string' : 'Date | number'}=row.at;

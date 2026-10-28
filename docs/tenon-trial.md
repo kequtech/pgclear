@@ -103,6 +103,16 @@ discovery, input normalization, pg-shaped native facade or new upstream API.
 
 ## Evidence and remaining adoption work
 
+D34 moves schema type generation into pgclear. The candidate's `generateDefinitions` delegates to
+that library export while retaining Tenon's shared migration lock, history-table exclusion,
+file writing and checking. Its three local generation modules are removed from the candidate.
+The fixture compiles `Database['models']['row']` with Tenon's typed SQL under TypeScript 6/7 and
+compares the delegated source with a direct pgclear generation call. The pg baseline retains its
+original `Rows` API. This changes the isolated candidate; the active Tenon checkout remains intact.
+This boundary passed all 20 candidate cases and TypeScript 6/7 consumers in
+`.trial-dist/tenon-m4-QHPqtq/report.json`; the separate pg baseline passed its 180 tests and 15 shared
+cases. The report records a dirty pgclear working tree containing the generation implementation.
+
 On 2026-10-28 the refreshed runner packed the M6 driver checkpoint `0d31732` with the expanded
 consumer fixture. The pg baseline passed **180 tests**. The fixture has **20 cases**: 15 shared and
 five candidate-only. All **20 candidate cases** passed; **15 baseline cases** passed with five
