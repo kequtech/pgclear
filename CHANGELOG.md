@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.3.1
+
+- Reject incompatible SQL tags in `pool.query()` before acquiring or opening a connection, so
+  local tag errors report `PGCLEAR_ENCODE` even when the database is unavailable.
+
 ## 0.3.0
 
 - Breaking: remove `generateDefinitions`, `GenerateOptions` and the schema generator. Move schema

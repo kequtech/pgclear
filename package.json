@@ -1,6 +1,6 @@
 {
   "name": "@kequtech/pgclear",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A standalone TypeScript PostgreSQL driver with explicit session ownership",
   "type": "module",
   "license": "ISC",

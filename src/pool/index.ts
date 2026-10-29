@@ -9,6 +9,7 @@ import {
 import { openConnection, type PhysicalConnection } from '../connection/index.js';
 import { CLEANUP_TIMEOUT_MS, deadline, Lifetime } from '../connection/timing.js';
 import { DriverError } from '../errors.js';
+import { taggedQuery } from '../query.js';
 import {
   callback,
   drain,
@@ -340,6 +341,11 @@ class ConnectionPool implements Pool {
     statement: SqlQuery<object>,
     options: QueryOptions | ArrayQueryOptions = {},
   ): Promise<QueryResult<object>> {
+    try {
+      taggedQuery(statement);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     return this.#query(options, (lease, actual) =>
       actual.rowMode === 'array' ? lease.query(statement, actual) : lease.query(statement, actual),
     );

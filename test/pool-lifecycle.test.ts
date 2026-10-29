@@ -28,6 +28,29 @@ function command(tag: string, status = 'I', sync = true): Buffer {
 }
 const within = { timeout: 10000 };
 
+test('incompatible SQL tags reject before pool connection acquisition', within, async () => {
+  let attempts = 0;
+  const server = await fakeServer(async (peer) => {
+    attempts++;
+    peer.socket.destroy();
+  });
+  const pool = createPool({ host: server.host, port: server.port, maxConnections: 1 });
+  try {
+    for (const statement of ['SELECT 1', ['SELECT 1', []], { text: 'SELECT 1', values: [] }]) {
+      let result: ReturnType<typeof pool.query> | undefined;
+      assert.doesNotThrow(() => {
+        result = pool.query(statement as never);
+      });
+      await assert.rejects(result!, { code: 'PGCLEAR_ENCODE', outcome: 'not-sent' });
+      assert.deepEqual(pool.stats, { total: 0, idle: 0, leased: 0, waiting: 0 });
+    }
+  } finally {
+    await pool.close();
+    await server.close();
+  }
+  assert.equal(attempts, 0);
+});
+
 test(
   'COMMIT loss is unknown, ROLLBACK tag fails, and a received COMMIT survives ReadyForQuery loss',
   within,
