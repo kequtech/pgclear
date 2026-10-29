@@ -271,7 +271,7 @@ test(
         assert.equal(cause.errors[1].message, 'cleanup');
         return true;
       });
-      await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_CLOSED' });
+      await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_CLOSED' });
     } finally {
       await client.close();
       await server.close();
@@ -339,7 +339,7 @@ test(
     });
     const client = await connect({ host: server.host, port: server.port });
     try {
-      const blocking = client.query('SELECT 0');
+      const blocking = client.queryClassic('SELECT 0', []);
       const stream = client.copyTo('COPY fixture TO STDOUT');
       await stream.close();
       assert.deepEqual(await stream.completion, { status: 'closed' });
@@ -632,7 +632,7 @@ test(
         assert.equal(cause.errors[1].code, 'PGCLEAR_TIMEOUT');
         return true;
       });
-      await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_CLOSED' });
+      await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_CLOSED' });
     } finally {
       await client.close();
       await server.close();

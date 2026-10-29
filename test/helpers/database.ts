@@ -26,8 +26,9 @@ export async function testConnection(options: ConnectionOptions = {}) {
     applicationName = ownedName();
   const client = await connect({ connectionString: url, applicationName, ...options });
   try {
-    const result = await client.query<{ database: string }>(
+    const result = await client.queryClassic<{ database: string }>(
       'SELECT current_database() AS database',
+      [],
     );
     assert.equal(result.rows[0]!.database, decodeURIComponent(new URL(url).pathname.slice(1)));
     return { client, applicationName };

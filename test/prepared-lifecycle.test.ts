@@ -135,7 +135,10 @@ for (const boundary of ['submitted', 'parsed', 'parameters', 'described'] as con
             code: 'PGCLEAR_CONNECTION_LOST',
             outcome: boundary === 'described' ? 'confirmed' : 'unknown',
           }),
-          assert.rejects(client.query('SELECT 2'), { code: 'PGCLEAR_CLOSED', outcome: 'not-sent' }),
+          assert.rejects(client.queryClassic('SELECT 2', []), {
+            code: 'PGCLEAR_CLOSED',
+            outcome: 'not-sent',
+          }),
         ]);
       } finally {
         await client.close();
@@ -187,7 +190,10 @@ for (const response of [ready, Buffer.concat([packet('1'), packet('t', Buffer.fr
     try {
       await Promise.all([
         assert.rejects(client.prepare('SELECT 1'), { code: 'PGCLEAR_PROTOCOL' }),
-        assert.rejects(client.query('SELECT 2'), { code: 'PGCLEAR_CLOSED', outcome: 'not-sent' }),
+        assert.rejects(client.queryClassic('SELECT 2', []), {
+          code: 'PGCLEAR_CLOSED',
+          outcome: 'not-sent',
+        }),
       ]);
     } finally {
       await client.close();
@@ -287,7 +293,10 @@ test('failed explicit Close rejects queued work before dispatch', within, async 
     const prepared = await client.prepare('SELECT 1');
     await Promise.all([
       assert.rejects(prepared.close(), { code: 'XX000' }),
-      assert.rejects(client.query('SELECT 2'), { code: 'PGCLEAR_CLOSED', outcome: 'not-sent' }),
+      assert.rejects(client.queryClassic('SELECT 2', []), {
+        code: 'PGCLEAR_CLOSED',
+        outcome: 'not-sent',
+      }),
     ]);
   } finally {
     await client.close();

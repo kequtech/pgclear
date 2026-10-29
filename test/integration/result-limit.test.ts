@@ -9,10 +9,13 @@ test(
     for (const projection of ['NULL::text', "''::text"]) {
       const { client } = await testConnection({ maxResultBytes: 128 });
       try {
-        await assert.rejects(client.query(`SELECT ${projection} FROM generate_series(1, 100)`), {
-          code: 'PGCLEAR_RESULT_LIMIT',
-          outcome: 'unknown',
-        });
+        await assert.rejects(
+          client.queryClassic(`SELECT ${projection} FROM generate_series(1, 100)`, []),
+          {
+            code: 'PGCLEAR_RESULT_LIMIT',
+            outcome: 'unknown',
+          },
+        );
       } finally {
         await client.close();
       }

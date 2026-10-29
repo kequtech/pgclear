@@ -23,7 +23,6 @@ Do not point tests at application data. Test scripts load `.env`; the driver its
 | `npm run build`            | JavaScript, declarations and self-contained JS maps in dist/        |
 | `npm pack`                 | Build and create a local package archive; does not publish          |
 | `npm run test:compat`      | Disposable native TLS/Unix/PgBouncer fixtures                       |
-| `npm run trial:tenon`      | Optional pinned consumer regression trial                           |
 | `npm run benchmark`        | Optional benchmark matrix                                           |
 
 ## Compatibility tests
@@ -47,11 +46,10 @@ TLS, two backend connections per pool and `max_prepared_statements=0`. Session t
 COPY, streams and notifications. Transaction tests cover unnamed queries, pinned transactions,
 savepoint recovery and cancellation; they do not promise session persistence or LISTEN.
 
-## Consumer trial and benchmarks
+## Benchmarks
 
-See [the Tenon trial](tenon-trial.md) for the pinned source, adapted regressions and reproduction.
-It runs from isolated snapshots without editing Tenon's checkout. It is optional and separate from
-`npm run check`. See [benchmarks](../benchmarks/README.md) for performance commands and measurements.
+See [benchmarks](../benchmarks/README.md) for reproduction commands, workloads and measurements.
+The harness and comparator dependencies are repository-only and are not required to use pgclear.
 
 ## Package and release
 
@@ -68,11 +66,10 @@ verifies a pinned source checksum and does not run during installation or applic
 
 ## Recorded validation
 
-The [0.1.0 checkpoint](release-0.1.0-validation.json) records candidate revision, artifact hash and
-local PostgreSQL 16.15/18.0 results: 232 driver tests, three compatibility workflows, 180 adapted
-Tenon tests and 20 packed candidate contracts on each version, with no candidate skips. The original
-pg baseline passes separately. These are checkpoint results, not a claim that subsequent commits
-ran CI. GitHub Actions is configured for Node 24 and PostgreSQL 16/18.
+The [0.1.0 checkpoint](release-0.1.0-validation.json) records the revision, artifact hash and local
+PostgreSQL 16.15/18.0 results. It also preserves results from the retired consumer-adoption fixture.
+These are historical checkpoints, not a claim that subsequent commits ran CI. Current test commands
+are listed above; GitHub Actions is configured for Node 24 and PostgreSQL 16/18.
 
 The [earlier implementation checkpoint](validation-2026-10-29.json) and benchmark result files retain
 historical provenance. Raw reports, generated packages and logs stay in ignored `.trial-dist` and

@@ -11,13 +11,15 @@ test(
   async () => {
     const { client } = await testConnection();
     try {
-      const result =
-        await client.query(`SELECT ARRAY[9007199254740993.25,NULL]::numeric[] AS decimals,
+      const result = await client.queryClassic(
+        `SELECT ARRAY[9007199254740993.25,NULL]::numeric[] AS decimals,
       ARRAY[9007199254740993,NULL]::bigint[] AS bigs,
       '[0:1][-2:-1]={{1,NULL},{2,3}}'::integer[] AS nested,
       ARRAY['NULL',NULL,'','a,b','a"b','a\\b']::text[] AS texts,
       ARRAY[box(point(1,1),point(0,0)),NULL] AS boxes,
-      ARRAY[true,NULL,false] AS flags, ARRAY['infinity'::date,NULL] AS dates`);
+      ARRAY[true,NULL,false] AS flags, ARRAY['infinity'::date,NULL] AS dates`,
+        [],
+      );
       assert.deepEqual(result.rows, [
         {
           decimals: ['9007199254740993.25', null],
@@ -34,30 +36,24 @@ test(
       ]);
       assert.deepEqual(
         (
-          await client.query({
-            text: 'SELECT $1::numeric[] AS a, $2::text[] AS b',
-            values: [
-              param(['9007199254740993.25', null], builtin.numericArray),
-              param(['NULL', null, 'a,b', 'a\\"b'], builtin.textArray),
-            ],
-          })
+          await client.queryClassic('SELECT $1::numeric[] AS a, $2::text[] AS b', [
+            param(['9007199254740993.25', null], builtin.numericArray),
+            param(['NULL', null, 'a,b', 'a\\"b'], builtin.textArray),
+          ])
         ).rows,
         [{ a: ['9007199254740993.25', null], b: ['NULL', null, 'a,b', 'a\\"b'] }],
       );
       assert.deepEqual(
         (
-          await client.query({
-            text: 'SELECT $1 AS nested',
-            values: [
-              param(
-                [
-                  [1, null],
-                  [2, 3],
-                ],
-                builtin.int4Array,
-              ),
-            ],
-          })
+          await client.queryClassic('SELECT $1 AS nested', [
+            param(
+              [
+                [1, null],
+                [2, 3],
+              ],
+              builtin.int4Array,
+            ),
+          ])
         ).rows,
         [
           {
@@ -95,17 +91,19 @@ test(
       ] as const) {
         const { client } = await testConnection({ codecs });
         try {
-          const row = (await client.query('SELECT 1::int AS n, ARRAY[1,NULL,2]::int[] AS a'))
-            .rows[0]!;
+          const row = (
+            await client.queryClassic('SELECT 1::int AS n, ARRAY[1,NULL,2]::int[] AS a', [])
+          ).rows[0]!;
           assert.equal(row.n, 'int:1');
           assert.deepEqual(row.a, expected);
         } finally {
           await client.close();
         }
       }
-      assert.deepEqual((await ordinary.query('SELECT 1 AS n, ARRAY[1,NULL]::int[] AS a')).rows, [
-        { n: 1, a: [1, null] },
-      ]);
+      assert.deepEqual(
+        (await ordinary.queryClassic('SELECT 1 AS n, ARRAY[1,NULL]::int[] AS a', [])).rows,
+        [{ n: 1, a: [1, null] }],
+      );
     } finally {
       await ordinary.close();
     }
@@ -119,12 +117,12 @@ test(
     const { client } = await testConnection();
     try {
       const row = (
-        await client.query({
-          text: `SELECT $1::jsonb IS NULL AS sql_null,
+        await client.queryClassic(
+          `SELECT $1::jsonb IS NULL AS sql_null,
       $2::jsonb IS NULL AS typed_null, $3::jsonb IS NULL AS json_is_sql_null,
       jsonb_typeof($3::jsonb) AS json_kind, $4::jsonb AS string, $5::json AS array,
       $6::jsonb AS object, $7::jsonb AS number, $8::jsonb AS boolean`,
-          values: [
+          [
             null,
             param(null, builtin.jsonb),
             json(null),
@@ -134,7 +132,7 @@ test(
             json(42),
             json(false),
           ],
-        })
+        )
       ).rows[0];
       assert.deepEqual(row, {
         sql_null: true,
@@ -148,9 +146,9 @@ test(
         boolean: false,
       });
       const results = await Promise.allSettled([
-        client.query({ text: 'SELECT $1::jsonb AS value', values: [json({ tag: 'first' })] }),
-        client.query({ text: 'SELECT $1::jsonb AS value', values: [json({ bad: 1n })] }),
-        client.query({ text: 'SELECT $1::jsonb AS value', values: [json({ tag: 'third' })] }),
+        client.queryClassic('SELECT $1::jsonb AS value', [json({ tag: 'first' })]),
+        client.queryClassic('SELECT $1::jsonb AS value', [json({ bad: 1n })]),
+        client.queryClassic('SELECT $1::jsonb AS value', [json({ tag: 'third' })]),
       ]);
       assert.equal(results[1]!.status, 'rejected');
       if (results[1]!.status === 'rejected')
@@ -176,14 +174,14 @@ test(
     });
     try {
       const row = (
-        await client.query({
-          text: 'SELECT $1::json AS exact, $2::jsonb AS value, NULL::jsonb AS missing, $3::jsonb AS token, ARRAY[$2::jsonb,NULL] AS array',
-          values: [
+        await client.queryClassic(
+          'SELECT $1::json AS exact, $2::jsonb AS value, NULL::jsonb AS missing, $3::jsonb AS token, ARRAY[$2::jsonb,NULL] AS array',
+          [
             param('{"n":9007199254740993}', builtin.jsonText),
             json(null),
             param('null', builtin.jsonbText),
           ],
-        })
+        )
       ).rows[0]!;
       assert.equal(row.exact, '{"n":9007199254740993}');
       assert.equal(row.value, 'null');
@@ -214,16 +212,21 @@ test(
     const { client } = await testConnection();
     try {
       const bytes = new Uint8Array([0, 255, 92]);
-      const pending = client.query({
-        text: 'SELECT $1 AS n, $2 AS bytes',
-        values: [param(42, integer), param(bytes, builtin.bytea, 'binary')],
-      });
+      const pending = client.queryClassic('SELECT $1 AS n, $2 AS bytes', [
+        param(42, integer),
+        param(bytes, builtin.bytea, 'binary'),
+      ]);
       bytes.fill(1);
       assert.deepEqual((await pending).rows, [{ n: 42, bytes: new Uint8Array([0, 255, 92]) }]);
-      await assert.rejects(
-        client.query({ text: 'SELECT $1', values: [param(1, integer)], parameterTypes: [25] }),
-        { code: 'PGCLEAR_ENCODE', outcome: 'not-sent' },
-      );
+      const prepared = await client.prepare({ text: 'SELECT $1', parameterTypes: [25] });
+      try {
+        await assert.rejects(prepared.query([param(1, integer)]), {
+          code: 'PGCLEAR_ENCODE',
+          outcome: 'not-sent',
+        });
+      } finally {
+        await prepared.close();
+      }
     } finally {
       await client.close();
     }
@@ -248,9 +251,9 @@ test(
     });
     try {
       const outcomes = await Promise.allSettled([
-        client.query('SELECT 1 AS n'),
-        client.query('SELECT generate_series(1,3) AS n'),
-        client.query('SELECT 3 AS n'),
+        client.queryClassic('SELECT 1 AS n', []),
+        client.queryClassic('SELECT generate_series(1,3) AS n', []),
+        client.queryClassic('SELECT 3 AS n', []),
       ]);
       assert.equal(outcomes[1]!.status, 'rejected');
       if (outcomes[1]!.status === 'rejected')
@@ -274,7 +277,7 @@ test(
         assert.equal(error.errors[0].outcome, 'confirmed');
         return true;
       });
-      assert.equal((await client.query('SELECT 3 AS n')).rows[0]!.n, 3);
+      assert.equal((await client.queryClassic('SELECT 3 AS n', [])).rows[0]!.n, 3);
     } finally {
       await client.close();
     }
@@ -287,27 +290,26 @@ test(
   async () => {
     const { client } = await testConnection();
     try {
-      await client.query('CREATE TEMP TABLE encoder_order (id serial, label text)');
+      await client.queryClassic('CREATE TEMP TABLE encoder_order (id serial, label text)', []);
       let nested: Promise<unknown> | undefined;
       const reentrant: Codec<string> = {
         oid: 25,
         text: {
           encode: (value) => {
-            nested = client.query("INSERT INTO encoder_order(label) VALUES ('second')");
+            nested = client.queryClassic("INSERT INTO encoder_order(label) VALUES ('second')", []);
             return value;
           },
           decode: (value) => value,
         },
       };
-      await client.query({
-        text: 'INSERT INTO encoder_order(label) VALUES ($1)',
-        values: [param('first', reentrant)],
-      });
-      await nested;
-      assert.deepEqual((await client.query('SELECT label FROM encoder_order ORDER BY id')).rows, [
-        { label: 'first' },
-        { label: 'second' },
+      await client.queryClassic('INSERT INTO encoder_order(label) VALUES ($1)', [
+        param('first', reentrant),
       ]);
+      await nested;
+      assert.deepEqual(
+        (await client.queryClassic('SELECT label FROM encoder_order ORDER BY id', [])).rows,
+        [{ label: 'first' }, { label: 'second' }],
+      );
       const slow: Codec<string> = {
         oid: 25,
         text: {
@@ -320,13 +322,17 @@ test(
         },
       };
       await assert.rejects(
-        client.query(
-          { text: 'INSERT INTO encoder_order(label) VALUES($1)', values: [param('expired', slow)] },
+        client.queryClassic(
+          'INSERT INTO encoder_order(label) VALUES($1)',
+          [param('expired', slow)],
           { timeoutMs: 1 },
         ),
         { code: 'PGCLEAR_TIMEOUT', outcome: 'not-sent' },
       );
-      assert.equal((await client.query('SELECT count(*) AS n FROM encoder_order')).rows[0]!.n, 2n);
+      assert.equal(
+        (await client.queryClassic('SELECT count(*) AS n FROM encoder_order', [])).rows[0]!.n,
+        2n,
+      );
     } finally {
       await client.close();
     }

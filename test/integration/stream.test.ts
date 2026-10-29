@@ -51,7 +51,7 @@ test(
         });
         await stream.close();
         await stream.close();
-        assert.equal((await client.query('SELECT 42 AS n')).rows[0]!.n, 42);
+        assert.equal((await client.queryClassic('SELECT 42 AS n', [])).rows[0]!.n, 42);
       }
       const empty = client.stream('');
       assert.deepEqual(await collect(empty), []);
@@ -78,7 +78,7 @@ test(
           break;
         }
         assert.deepEqual(await stream.completion, { status: 'closed' });
-        assert.equal((await client.query('SELECT 2 AS n')).rows[0]!.n, 2);
+        assert.equal((await client.queryClassic('SELECT 2 AS n', [])).rows[0]!.n, 2);
       }
       const stream = client.stream('SELECT generate_series(1,100) AS n', { batchSize: 2 });
       await stream.fields;
@@ -102,7 +102,7 @@ test('streams enforce one consumer, one read and exclusive scope ownership', wit
     assert.throws(() => stream[Symbol.asyncIterator](), { code: 'PGCLEAR_BUSY' });
     const first = iterator.next();
     await assert.rejects(iterator.next(), { code: 'PGCLEAR_BUSY' });
-    await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_BUSY' });
+    await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_BUSY' });
     await assert.rejects(client.describe('SELECT 1'), { code: 'PGCLEAR_BUSY' });
     await assert.rejects(client.prepare('SELECT 1'), { code: 'PGCLEAR_BUSY' });
     await assert.rejects(prepared.query(), { code: 'PGCLEAR_BUSY' });
@@ -151,7 +151,7 @@ test(
       assert.deepEqual(await collect(ordinary.stream('SELECT 42::int AS n')), [{ n: 42 }]);
       const duplicate = client.stream('SELECT 1 AS n, 2 AS n');
       await assert.rejects(collect(duplicate), { code: 'PGCLEAR_DECODE', outcome: 'confirmed' });
-      assert.equal((await client.query('SELECT 3 AS n')).rows[0]!.n, 'n:3');
+      assert.equal((await client.queryClassic('SELECT 3 AS n', [])).rows[0]!.n, 'n:3');
     } finally {
       await Promise.all([client.close(), ordinary.close()]);
     }
@@ -200,7 +200,7 @@ test(
       await assert.rejects(collect(server), { code: '22012' });
       const decode = client.stream('SELECT generate_series(1,4) AS n', { batchSize: 1 });
       await assert.rejects(collect(decode), { code: 'PGCLEAR_DECODE', outcome: 'confirmed' });
-      assert.deepEqual((await client.query('SELECT 3 AS n')).rows, [{ n: 3 }]);
+      assert.deepEqual((await client.queryClassic('SELECT 3 AS n', [])).rows, [{ n: 3 }]);
     } finally {
       await client.close();
     }
@@ -231,7 +231,7 @@ test(
           }),
           { code: '22012' },
         );
-        assert.deepEqual((await tx.query('SELECT 3 AS n')).rows, [{ n: 3 }]);
+        assert.deepEqual((await tx.queryClassic('SELECT 3 AS n', [])).rows, [{ n: 3 }]);
       });
       assert.equal(client.transactionStatus, 'idle');
     } finally {
@@ -258,17 +258,17 @@ test(
       assert.equal(pool.stats.total, 0);
       const lease = await pool.acquire();
       const pid = lease.info.backendPid;
-      await lease.query('CREATE TEMP TABLE abandoned_stream (n integer)');
+      await lease.queryClassic('CREATE TEMP TABLE abandoned_stream (n integer)', []);
       await assert.rejects(
         lease.transaction(async (tx) => {
-          await tx.query('INSERT INTO abandoned_stream VALUES (1)');
+          await tx.queryClassic('INSERT INTO abandoned_stream VALUES (1)', []);
           const stream = tx.stream('SELECT generate_series(1,10)', { batchSize: 1 });
           await stream.fields;
         }),
         { code: 'PGCLEAR_BUSY' },
       );
       assert.equal(
-        (await lease.query('SELECT count(*) AS n FROM abandoned_stream')).rows[0]!.n,
+        (await lease.queryClassic('SELECT count(*) AS n FROM abandoned_stream', [])).rows[0]!.n,
         0n,
       );
       const stream = lease.stream('SELECT generate_series(1,10)', { batchSize: 1 });
@@ -293,7 +293,7 @@ test('streams limit bytes per batch rather than total result size', within, asyn
     assert.equal(rows.length, 100);
     const oversized = client.stream("SELECT repeat('x',200) AS n", { batchSize: 1 });
     await assert.rejects(collect(oversized), { code: 'PGCLEAR_RESULT_LIMIT' });
-    await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_CLOSED' });
+    await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_CLOSED' });
   } finally {
     await client.close();
   }
@@ -316,7 +316,7 @@ for (const boundary of ['active', 'suspended'] as const)
       controller.abort();
       await failed;
       assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
-      await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_CLOSED' });
+      await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_CLOSED' });
     } finally {
       await client.close();
     }
@@ -328,7 +328,7 @@ test(
   async () => {
     const { client } = await testConnection();
     try {
-      const blocking = client.query('SELECT pg_sleep(0.05)');
+      const blocking = client.queryClassic('SELECT pg_sleep(0.05)', []);
       const queued = client.stream('SELECT 1');
       await queued.close();
       await assert.rejects(queued.fields, { code: 'PGCLEAR_ABORTED' });
@@ -352,7 +352,7 @@ test(
   async () => {
     const { client } = await testConnection();
     try {
-      await client.query('CREATE TEMP TABLE stream_writes (n integer)');
+      await client.queryClassic('CREATE TEMP TABLE stream_writes (n integer)', []);
       const stream = client.stream(
         'INSERT INTO stream_writes SELECT generate_series(1,7) RETURNING n',
         { batchSize: 1 },
@@ -362,7 +362,10 @@ test(
         break;
       }
       assert.deepEqual(await stream.completion, { status: 'closed' });
-      assert.equal((await client.query('SELECT count(*) AS n FROM stream_writes')).rows[0]!.n, 7n);
+      assert.equal(
+        (await client.queryClassic('SELECT count(*) AS n FROM stream_writes', [])).rows[0]!.n,
+        7n,
+      );
       assert.equal(client.transactionStatus, 'idle');
       const command = client.stream('UPDATE stream_writes SET n=n+10');
       assert.deepEqual(await collect(command), []);
@@ -409,7 +412,7 @@ test(
       );
       await assert.rejects(escaped!.completion, { code: 'PGCLEAR_TIMEOUT' });
       assert.equal(pool.stats.total, 0);
-      assert.equal((await pool.query('SELECT 3 AS n')).rows[0]!.n, 3);
+      assert.equal((await pool.queryClassic('SELECT 3 AS n', [])).rows[0]!.n, 3);
     } finally {
       await pool.close();
     }

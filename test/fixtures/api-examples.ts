@@ -31,10 +31,10 @@ export async function schemaTypes(connection: Pool | Session): Promise<string> {
 export async function standalone(connectionString: string) {
   const connection = await connect({ connectionString });
   try {
-    const result = await connection.query<{ id: number; balance: string }>({
-      text: 'SELECT id, balance FROM accounts WHERE id = $1',
-      values: [42],
-    });
+    const result = await connection.queryClassic<{ id: number; balance: string }>(
+      'SELECT id, balance FROM accounts WHERE id = $1',
+      [42],
+    );
     const count: bigint | null = result.rowCount;
     return { first: result.rows[0], count };
   } finally {
@@ -45,11 +45,11 @@ export async function standalone(connectionString: string) {
 export async function poolUsage(connectionString: string) {
   const pool = createPool({ connectionString, maxConnections: 4 });
   try {
-    await pool.query({
-      text: 'SELECT $1::jsonb AS payload, $2::integer[] AS values',
-      values: [param({ tag: 'example' }, builtin.jsonb), param([1, null, 3], builtin.int4Array)],
-    });
-    const result = await pool.query<readonly [number, number]>('SELECT 1 AS n, 2 AS n', {
+    await pool.queryClassic('SELECT $1::jsonb AS payload, $2::integer[] AS values', [
+      param({ tag: 'example' }, builtin.jsonb),
+      param([1, null, 3], builtin.int4Array),
+    ]);
+    const result = await pool.queryClassic<readonly [number, number]>('SELECT 1 AS n, 2 AS n', [], {
       rowMode: 'array',
     });
     const pair: readonly [number, number] | undefined = result.rows[0];
@@ -80,8 +80,16 @@ export async function queryEntryPoints(session: Session) {
   tagged.rows[0]?.secret;
   // @ts-expect-error A nested query cannot splice SQL into a value-only tag.
   sql`SELECT ${sql`1`}`;
+  // @ts-expect-error query accepts only tagged SQL, not raw SQL.
+  session.query('SELECT 1');
+  // @ts-expect-error A plain tuple is not a tag result.
+  session.query(['SELECT 1', []]);
+  // @ts-expect-error Statement objects belong to neither query entrypoint.
+  session.query({ text: 'SELECT 1', values: [] });
   // @ts-expect-error query's second argument is options, not values.
-  session.query('SELECT $1', [42]);
+  session.query(sql`SELECT 1`, [42]);
+  // @ts-expect-error queryClassic takes SQL text, not a tag result.
+  session.queryClassic(sql`SELECT 1`, []);
   return { tagged, classic, name };
 }
 
@@ -100,14 +108,14 @@ export async function descriptionAndPreparation(session: Session) {
 }
 
 export async function jsonAndExactValues(session: Session) {
-  const distinctions = await session.query({
-    text: 'SELECT $1::jsonb IS NULL AS missing, jsonb_typeof($2::jsonb) AS kind, $3::jsonb AS text',
-    values: [null, json(null), json('text')],
-  });
-  await session.query({
-    text: 'SELECT $1::numeric[] AS exact, $2::json AS payload',
-    values: [param(['9007199254740993.25', null], builtin.numericArray), json([1, 2], 'json')],
-  });
+  const distinctions = await session.queryClassic(
+    'SELECT $1::jsonb IS NULL AS missing, jsonb_typeof($2::jsonb) AS kind, $3::jsonb AS text',
+    [null, json(null), json('text')],
+  );
+  await session.queryClassic('SELECT $1::numeric[] AS exact, $2::json AS payload', [
+    param(['9007199254740993.25', null], builtin.numericArray),
+    json([1, 2], 'json'),
+  ]);
   return distinctions;
 }
 
@@ -117,10 +125,9 @@ export async function rawJsonValues(connectionString: string) {
     codecs: defaultCodecs.with(builtin.jsonText).with(builtin.jsonbText),
   });
   try {
-    return await pool.query<{ payload: string }>({
-      text: 'SELECT $1::jsonb AS payload',
-      values: [param('{"n":9007199254740993}', builtin.jsonbText)],
-    });
+    return await pool.queryClassic<{ payload: string }>('SELECT $1::jsonb AS payload', [
+      param('{"n":9007199254740993}', builtin.jsonbText),
+    ]);
   } finally {
     await pool.close();
   }
@@ -129,18 +136,15 @@ export async function rawJsonValues(connectionString: string) {
 export async function transactions(pool: Pool) {
   return pool.transaction(
     async (tx) => {
-      await tx.query({
-        text: 'UPDATE accounts SET balance = balance - $1 WHERE id = $2',
-        values: [10, 1],
-      });
+      await tx.queryClassic('UPDATE accounts SET balance = balance - $1 WHERE id = $2', [10, 1]);
       await tx.savepoint(async (child) => {
-        await child.query({
-          text: 'UPDATE accounts SET balance = balance + $1 WHERE id = $2',
-          values: [10, 2],
-        });
+        await child.queryClassic(
+          'UPDATE accounts SET balance = balance + $1 WHERE id = $2',
+          [10, 2],
+        );
       });
       // Every call inside the savepoint used its child; the parent is active again here.
-      return tx.query('SELECT current_timestamp::text AS recorded_at');
+      return tx.queryClassic('SELECT current_timestamp::text AS recorded_at', []);
     },
     { isolation: 'serializable' },
   );
@@ -148,11 +152,11 @@ export async function transactions(pool: Pool) {
 
 export async function migrationLock(pool: Pool) {
   return pool.withSession(async (session) => {
-    await session.query('SELECT pg_advisory_lock(42)');
+    await session.queryClassic('SELECT pg_advisory_lock(42)', []);
     try {
       return await session.script('CREATE TABLE IF NOT EXISTS example (id integer); SELECT 1;');
     } finally {
-      await session.query('SELECT pg_advisory_unlock(42)');
+      await session.queryClassic('SELECT pg_advisory_unlock(42)', []);
     }
   });
 }
@@ -166,7 +170,7 @@ export async function streamRows(pool: Pool) {
       if (row.id === 5) break; // Awaits portal cleanup before the next query.
     }
     await stream.completion;
-    return session.query('SELECT 1');
+    return session.queryClassic('SELECT 1', []);
   });
 }
 
@@ -200,23 +204,23 @@ export async function customCodecs(connectionString: string) {
   };
   const pool = createPool({ connectionString, codecs: defaultCodecs.with(int8AsText) });
   try {
-    return await pool.query<{ id: string }>('SELECT 42::bigint AS id');
+    return await pool.queryClassic<{ id: string }>('SELECT 42::bigint AS id', []);
   } finally {
     await pool.close();
   }
 }
 
 export async function abort(pool: Pool) {
-  return pool.query('SELECT pg_sleep(10)', { signal: AbortSignal.timeout(100) });
+  return pool.queryClassic('SELECT pg_sleep(10)', [], { signal: AbortSignal.timeout(100) });
 }
 
 export function invalidUsage(pool: Pool, session: Session) {
   // @ts-expect-error Undefined is not a parameter value.
-  void pool.query({ text: 'SELECT $1', values: [undefined] });
+  void pool.queryClassic('SELECT $1', [undefined]);
   // @ts-expect-error Objects need an explicit codec.
-  void pool.query({ text: 'SELECT $1', values: [{ enabled: true }] });
+  void pool.queryClassic('SELECT $1', [{ enabled: true }]);
   // @ts-expect-error Arrays need an explicit codec.
-  void pool.query({ text: 'SELECT $1', values: [[1, 2]] });
+  void pool.queryClassic('SELECT $1', [[1, 2]]);
   // @ts-expect-error Describe accepts type hints, never bound execution values.
   void pool.describe({ text: 'SELECT $1', values: [1] });
   // @ts-expect-error A pool cannot execute multi-statement scripts without a held session.

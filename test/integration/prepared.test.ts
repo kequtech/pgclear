@@ -41,11 +41,11 @@ test(
           outcome: 'not-sent',
         });
       assert.deepEqual((await prepared.query([json(null)])).rows, [{ value: null }]);
-      assert.equal((await client.query(countSql)).rows[0]!.n, 1n);
+      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, 1n);
       await prepared.close();
       await prepared.close();
       await assert.rejects(prepared.query([json(4)]), { code: 'PGCLEAR_EXPIRED' });
-      assert.equal((await client.query(countSql)).rows[0]!.n, 0n);
+      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, 0n);
     } finally {
       await client.close();
     }
@@ -58,7 +58,7 @@ test(
   async () => {
     const { client } = await testConnection();
     try {
-      await client.query('CREATE TEMP TABLE prepared_order (id serial, label text)');
+      await client.queryClassic('CREATE TEMP TABLE prepared_order (id serial, label text)', []);
       const prepared = await client.prepare('INSERT INTO prepared_order(label) VALUES ($1)');
       let closing: Promise<void> | undefined;
       let rejected: Promise<void> | undefined;
@@ -76,11 +76,11 @@ test(
       const first = prepared.query(['first']);
       const second = prepared.query([param('second', codec)]);
       await Promise.all([first, second, closing, rejected]);
-      assert.deepEqual((await client.query('SELECT label FROM prepared_order ORDER BY id')).rows, [
-        { label: 'first' },
-        { label: 'second' },
-      ]);
-      assert.equal((await client.query(countSql)).rows[0]!.n, 0n);
+      assert.deepEqual(
+        (await client.queryClassic('SELECT label FROM prepared_order ORDER BY id', [])).rows,
+        [{ label: 'first' }, { label: 'second' }],
+      );
+      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, 0n);
     } finally {
       await client.close();
     }
@@ -145,7 +145,7 @@ test(
       await assert.rejects(client.prepare({ text: 'SELECT 1', values: [] } as never), {
         code: 'PGCLEAR_ENCODE',
       });
-      assert.equal((await client.query(countSql)).rows[0]!.n, 0n);
+      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, 0n);
       const prepared = await client.prepare('SELECT 12 / $1::integer AS n');
       await assert.rejects(prepared.query([0]), { code: '22012' });
       await assert.rejects(prepared.query([6]), { code: 'PGCLEAR_DECODE', outcome: 'confirmed' });
@@ -173,7 +173,7 @@ test(
       await prepared.close();
       const next = await pool.acquire();
       assert.equal(next.info.backendPid, pid);
-      assert.equal((await next.query(countSql)).rows[0]!.n, 0n);
+      assert.equal((await next.queryClassic(countSql, [])).rows[0]!.n, 0n);
       await next.release();
       let escaped: PreparedStatement | undefined;
       let pending: Promise<unknown> | undefined;
@@ -183,7 +183,7 @@ test(
       });
       assert.deepEqual(((await pending) as { rows: unknown }).rows, [{ n: 7 }]);
       await assert.rejects(escaped!.query([8]), { code: 'PGCLEAR_EXPIRED' });
-      assert.equal((await pool.query(countSql)).rows[0]!.n, 0n);
+      assert.equal((await pool.queryClassic(countSql, [])).rows[0]!.n, 0n);
     } finally {
       await pool.close();
     }
@@ -208,27 +208,27 @@ test(
             await assert.rejects(transactionStatement!.query(), { code: 'PGCLEAR_BUSY' });
             childStatement = await child.prepare('SELECT $1::integer AS n');
             assert.deepEqual((await childStatement.query([3])).rows, [{ n: 3 }]);
-            if (fail) await child.query('SELECT 1/0');
+            if (fail) await child.queryClassic('SELECT 1/0', []);
           });
           if (fail) await assert.rejects(work, { code: '22012' });
           else await work;
           await assert.rejects(childStatement!.query([3]), { code: 'PGCLEAR_EXPIRED' });
-          assert.equal((await tx.query(countSql)).rows[0]!.n, 2n);
+          assert.equal((await tx.queryClassic(countSql, [])).rows[0]!.n, 2n);
         }
         assert.deepEqual((await transactionStatement.query()).rows, [{ n: 2 }]);
       });
       await assert.rejects(transactionStatement!.query(), { code: 'PGCLEAR_EXPIRED' });
-      assert.equal((await client.query(countSql)).rows[0]!.n, 1n);
+      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, 1n);
       assert.deepEqual((await parent.query()).rows, [{ n: 1 }]);
       await assert.rejects(
         client.transaction(async (tx) => {
           await tx.prepare('SELECT 4');
           await assert.rejects(tx.prepare('SELECT FROM'), { code: '42601' });
-          await tx.query('SELECT 1');
+          await tx.queryClassic('SELECT 1', []);
         }),
         { code: '25P02' },
       );
-      assert.equal((await client.query(countSql)).rows[0]!.n, 1n);
+      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, 1n);
       await parent.close();
     } finally {
       await client.close();
@@ -239,15 +239,17 @@ test(
 test('schema invalidation surfaces once without retrying a prepared write', within, async () => {
   const { client } = await testConnection();
   try {
-    await client.query('CREATE TEMP TABLE prepared_schema (n integer)');
+    await client.queryClassic('CREATE TEMP TABLE prepared_schema (n integer)', []);
     const prepared = await client.prepare('INSERT INTO prepared_schema VALUES ($1) RETURNING *');
     await prepared.query([1]);
-    await client.query('ALTER TABLE prepared_schema ADD COLUMN label text');
+    await client.queryClassic('ALTER TABLE prepared_schema ADD COLUMN label text', []);
     await assert.rejects(prepared.query([2]), { code: '0A000' });
-    assert.deepEqual((await client.query('SELECT n FROM prepared_schema')).rows, [{ n: 1 }]);
+    assert.deepEqual((await client.queryClassic('SELECT n FROM prepared_schema', [])).rows, [
+      { n: 1 },
+    ]);
     await prepared.close();
     const removed = await client.prepare('SELECT 1');
-    await client.query('DEALLOCATE ALL');
+    await client.queryClassic('DEALLOCATE ALL', []);
     await assert.rejects(removed.query(), { code: '26000' });
     await removed.close();
   } finally {
@@ -262,7 +264,7 @@ test(
     const { client } = await testConnection();
     try {
       const prepared = await client.prepare('SELECT $1::integer AS n');
-      const blocking = client.query('SELECT pg_sleep(0.1)');
+      const blocking = client.queryClassic('SELECT pg_sleep(0.1)', []);
       const controller = new AbortController();
       const aborted = assert.rejects(prepared.query([1], { signal: controller.signal }), {
         code: 'PGCLEAR_ABORTED',
@@ -308,7 +310,7 @@ test(
   async () => {
     const { client } = await testConnection();
     try {
-      await client.query('CREATE TEMP TABLE prepared_deadline (label text)');
+      await client.queryClassic('CREATE TEMP TABLE prepared_deadline (label text)', []);
       const prepared = await client.prepare('INSERT INTO prepared_deadline VALUES ($1)');
       const codec: Codec<string> = {
         oid: 25,
@@ -326,9 +328,10 @@ test(
         outcome: 'not-sent',
       });
       await prepared.query(['valid']);
-      assert.deepEqual((await client.query('SELECT label FROM prepared_deadline')).rows, [
-        { label: 'valid' },
-      ]);
+      assert.deepEqual(
+        (await client.queryClassic('SELECT label FROM prepared_deadline', [])).rows,
+        [{ label: 'valid' }],
+      );
       await prepared.close();
     } finally {
       await client.close();

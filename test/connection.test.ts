@@ -46,7 +46,7 @@ test(
       await closing;
       await server.firstClosed;
       assert.equal(server.connections, 0);
-      await assert.rejects(connection.query('SELECT 1'), {
+      await assert.rejects(connection.queryClassic('SELECT 1', []), {
         code: 'PGCLEAR_CLOSED',
         outcome: 'not-sent',
       });
@@ -314,8 +314,8 @@ test(
     try {
       const connection = await connect({ host: server.host, port: server.port });
       const outcomes = await Promise.allSettled([
-        connection.query('SELECT 1'),
-        connection.query('SELECT 2'),
+        connection.queryClassic('SELECT 1', []),
+        connection.queryClassic('SELECT 2', []),
       ]);
       assert.equal(outcomes[0]!.status, 'rejected');
       assert.equal(outcomes[1]!.status, 'rejected');

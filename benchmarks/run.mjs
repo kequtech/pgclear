@@ -82,8 +82,9 @@ const { connect } = await import(pathToFileURL(entry).href);
 const client = await connect({ connectionString: database, tls: false });
 let serverVersion;
 try {
-  const row = (await client.query('SELECT current_database() AS name,version() AS version'))
-    .rows[0];
+  const row = (
+    await client.queryClassic('SELECT current_database() AS name,version() AS version', [])
+  ).rows[0];
   if (!row.name.endsWith('_test')) throw Error('Connected to an unexpected database.');
   serverVersion = row.version;
 } finally {

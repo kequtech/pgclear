@@ -23,14 +23,15 @@ test(
         '\ufeffé😀',
         'hello\ufeff',
       ]) {
-        const result = await client.query({ text: 'SELECT $1::text AS value', values: [value] });
+        const result = await client.queryClassic('SELECT $1::text AS value', [value]);
         assert.deepEqual(result.rows, [{ value }]);
       }
-      assert.deepEqual((await client.query("SELECT chr(65279)||'hello' AS value")).rows, [
-        { value: '\ufeffhello' },
-      ]);
+      assert.deepEqual(
+        (await client.queryClassic("SELECT chr(65279)||'hello' AS value", [])).rows,
+        [{ value: '\ufeffhello' }],
+      );
       const text = 'SELECT 1 AS value, 2 AS "\ufeffvalue"';
-      const result = await client.query(text);
+      const result = await client.queryClassic(text, []);
       assert.deepEqual(result.rows, [{ value: 1, '\ufeffvalue': 2 }]);
       assert.deepEqual(
         result.fields.map((field) => field.name),
@@ -71,15 +72,15 @@ test(
         ]),
       ];
       const row = (
-        await client.query({
-          text: 'SELECT $1::text[] AS value,array_to_json($1::text[]) AS oracle',
-          values: [param(values, builtin.textArray)],
-        })
+        await client.queryClassic(
+          'SELECT $1::text[] AS value,array_to_json($1::text[]) AS oracle',
+          [param(values, builtin.textArray)],
+        )
       ).rows[0]!;
       assert.deepEqual(row.oracle, values);
       assert.deepEqual(row.value, row.oracle);
       const nested = (
-        await client.query('SELECT array_fill(chr(160),ARRAY[2,2],ARRAY[-1,0]) AS value')
+        await client.queryClassic('SELECT array_fill(chr(160),ARRAY[2,2],ARRAY[-1,0]) AS value', [])
       ).rows[0]!.value;
       assert.deepEqual(nested, [
         ['\u00a0', '\u00a0'],
@@ -106,7 +107,7 @@ test(
       }
       for (const text of literals) {
         const oracle = (
-          await client.query({ text: 'SELECT array_to_json($1::text[]) AS value', values: [text] })
+          await client.queryClassic('SELECT array_to_json($1::text[]) AS value', [text])
         ).rows[0]!.value;
         assert.deepEqual(
           parseArray(text, (value) => value),

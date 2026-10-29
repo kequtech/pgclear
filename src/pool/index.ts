@@ -32,7 +32,7 @@ import type {
   Row,
   Session,
   InputValue,
-  QueryInput,
+  SqlQuery,
   Transaction,
   TransactionOptions,
 } from '../types.js';
@@ -321,35 +321,24 @@ class ConnectionPool implements Pool {
   }
 
   query<T extends object = Row>(
-    statement: QueryInput<T>,
+    statement: SqlQuery<T>,
     options?: QueryOptions,
   ): Promise<QueryResult<T>>;
   query<T extends readonly unknown[] = readonly unknown[]>(
-    statement: QueryInput<T>,
+    statement: SqlQuery<T>,
     options: ArrayQueryOptions,
   ): Promise<QueryResult<T>>;
   query(
-    statement: QueryInput<object>,
+    statement: SqlQuery<object>,
     options: ArrayQueryOptions,
   ): Promise<QueryResult<readonly unknown[]>>;
   query(
-    statement: QueryInput<object>,
+    statement: SqlQuery<object>,
     options: QueryOptions | ArrayQueryOptions = {},
   ): Promise<QueryResult<object>> {
-    return this.#withLease(options, ['rowMode'], async (lease) => {
-      const actual = options.rowMode === 'array' ? { rowMode: 'array' as const } : {};
-      const result =
-        actual.rowMode === 'array'
-          ? await lease.query(statement, actual)
-          : await lease.query(statement, actual);
-      if (lease.transactionStatus !== 'idle')
-        throw new DriverError(
-          'PGCLEAR_SESSION_STATE',
-          'One-off pool operations must leave the session idle.',
-          'confirmed',
-        );
-      return result;
-    });
+    return this.#query(options, (lease, actual) =>
+      actual.rowMode === 'array' ? lease.query(statement, actual) : lease.query(statement, actual),
+    );
   }
   queryClassic<T extends object = Row>(
     text: string,
@@ -366,9 +355,31 @@ class ConnectionPool implements Pool {
     values: readonly InputValue[],
     options: QueryOptions | ArrayQueryOptions = {},
   ): Promise<QueryResult<object>> {
-    return options?.rowMode === 'array'
-      ? this.query([text, values], options)
-      : this.query([text, values], options);
+    return this.#query(options, (lease, actual) =>
+      actual.rowMode === 'array'
+        ? lease.queryClassic(text, values, actual)
+        : lease.queryClassic(text, values, actual),
+    );
+  }
+
+  #query(
+    options: QueryOptions | ArrayQueryOptions,
+    work: (
+      lease: Session,
+      actual: QueryOptions | ArrayQueryOptions,
+    ) => Promise<QueryResult<object>>,
+  ): Promise<QueryResult<object>> {
+    return this.#withLease(options, ['rowMode'], async (lease) => {
+      const actual = options.rowMode === 'array' ? { rowMode: 'array' as const } : {};
+      const result = await work(lease, actual);
+      if (lease.transactionStatus !== 'idle')
+        throw new DriverError(
+          'PGCLEAR_SESSION_STATE',
+          'One-off pool operations must leave the session idle.',
+          'confirmed',
+        );
+      return result;
+    });
   }
 
   describe(

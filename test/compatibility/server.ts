@@ -107,7 +107,7 @@ max_connections=100
     };
     const admin = await connect(options);
     try {
-      await admin.query('CREATE DATABASE pgclear_test');
+      await admin.queryClassic('CREATE DATABASE pgclear_test', []);
     } finally {
       await admin.close();
     }

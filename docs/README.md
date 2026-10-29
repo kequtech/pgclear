@@ -8,7 +8,6 @@ Contributor guides live in the repository:
 
 - [Development and testing](https://github.com/kequtech/pgclear/blob/main/docs/development.md)
 - [Architecture](https://github.com/kequtech/pgclear/blob/main/docs/architecture.md)
-- [Tenon regression trial](https://github.com/kequtech/pgclear/blob/main/docs/tenon-trial.md)
 - [Benchmarks](https://github.com/kequtech/pgclear/tree/main/benchmarks)
 
 The package includes this index and the API guide. Other guides and checkpoint evidence stay in

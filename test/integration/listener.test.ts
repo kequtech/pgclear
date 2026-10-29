@@ -37,11 +37,11 @@ test(
       assert.equal(listener.status.state, 'connected');
       assert.equal(statuses.length, 1);
       assert.ok(Object.isFrozen(listener.status));
-      await client.query('BEGIN');
+      await client.queryClassic('BEGIN', []);
       await client.queryClassic('SELECT pg_notify($1,$2)', [channels[0]!, '\ufeffé{}']);
       await pause(25);
       assert.equal(messages.length, 0);
-      await client.query('COMMIT');
+      await client.queryClassic('COMMIT', []);
       await client.queryClassic('SELECT pg_notify($1,$2)', [channels[1]!, '']);
       await until(() => messages.length === 2);
       assert.deepEqual(
@@ -53,9 +53,9 @@ test(
         })),
       );
       assert.ok(messages.every(Object.isFrozen));
-      await client.query('BEGIN');
+      await client.queryClassic('BEGIN', []);
       await client.queryClassic('SELECT pg_notify($1,$2)', [channels[0]!, 'rolled back']);
-      await client.query('ROLLBACK');
+      await client.queryClassic('ROLLBACK', []);
       await client.queryClassic('SELECT pg_notify($1,$2)', [channels[0]!, 'barrier']);
       await until(() => messages.length === 3);
       assert.equal(messages[2]!.payload, 'barrier');

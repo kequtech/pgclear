@@ -29,8 +29,8 @@ try {
 ```
 
 `$1` refers to the first value in the array. Pass values separately from SQL rather than inserting
-user input into the query string. `queryClassic` accepts SQL text and values; `query` also supports
-[tagged templates and other query forms](docs/public-api.md#query-execution-and-results).
+user input into the query string. `queryClassic` accepts SQL text and values. Use `query` with the
+[`sql` template tag](docs/public-api.md#query-execution-and-results) to bind interpolated values.
 
 The pool opens connections as needed. In a long-running application, reuse it across queries and
 close it when the application shuts down.
@@ -55,5 +55,6 @@ higher-level library responsibilities.
 ## Documentation
 
 - [API and usage](docs/public-api.md)
+- [Benchmarks](https://github.com/kequtech/pgclear/tree/main/benchmarks)
 - [Release notes](CHANGELOG.md)
 - [Development and testing](https://github.com/kequtech/pgclear/blob/main/docs/development.md)

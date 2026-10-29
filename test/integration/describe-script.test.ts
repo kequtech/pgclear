@@ -31,7 +31,8 @@ test(
         20,
       );
       assert.equal(
-        (await client.query('SELECT is_called FROM describe_counter')).rows[0]!.is_called,
+        (await client.queryClassic('SELECT is_called FROM describe_counter', [])).rows[0]!
+          .is_called,
         false,
       );
       assert.deepEqual(await client.describe('BEGIN'), { parameterTypes: [], fields: [] });
@@ -41,11 +42,11 @@ test(
         code: 'PGCLEAR_ENCODE',
         outcome: 'not-sent',
       });
-      await client.query('BEGIN');
+      await client.queryClassic('BEGIN', []);
       assert.equal((await client.describe('SELECT id FROM described')).fields[0]!.dataTypeOid, 23);
       assert.equal(client.transactionStatus, 'transaction');
-      await client.query('ROLLBACK');
-      assert.equal((await client.query('SELECT 4 AS n')).rows[0]!.n, 4);
+      await client.queryClassic('ROLLBACK', []);
+      assert.equal((await client.queryClassic('SELECT 4 AS n', [])).rows[0]!.n, 4);
     } finally {
       await client.close();
     }
@@ -75,11 +76,14 @@ test(
       assert.ok(Object.isFrozen(results));
       assert.ok(Object.isFrozen(results[2]!.fields));
       assert.equal((await client.script(''))[0]!.commandTag, '');
-      assert.equal((await client.query('SELECT count(*) AS n FROM scripted')).rows[0]!.n, 2n);
+      assert.equal(
+        (await client.queryClassic('SELECT count(*) AS n FROM scripted', [])).rows[0]!.n,
+        2n,
+      );
       await assert.rejects(client.script('SELECT 1 AS n, 2 AS n; SELECT 3'), {
         code: 'PGCLEAR_DECODE',
       });
-      assert.equal((await client.query('SELECT 4 AS n')).rows[0]!.n, 4);
+      assert.equal((await client.queryClassic('SELECT 4 AS n', [])).rows[0]!.n, 4);
     } finally {
       await client.close();
     }
@@ -92,16 +96,21 @@ test(
   async () => {
     const { client } = await testConnection();
     try {
-      await client.query('CREATE TEMP TABLE script_effects (n integer)');
+      await client.queryClassic('CREATE TEMP TABLE script_effects (n integer)', []);
       await assert.rejects(client.script('INSERT INTO script_effects VALUES(1); SELECT 1/0'), {
         code: '22012',
       });
-      assert.equal((await client.query('SELECT count(*) AS n FROM script_effects')).rows[0]!.n, 0n);
+      assert.equal(
+        (await client.queryClassic('SELECT count(*) AS n FROM script_effects', [])).rows[0]!.n,
+        0n,
+      );
       await assert.rejects(
         client.script('BEGIN; INSERT INTO script_effects VALUES(2); COMMIT; SELECT 1/0'),
         { code: '22012' },
       );
-      assert.deepEqual((await client.query('SELECT n FROM script_effects')).rows, [{ n: 2 }]);
+      assert.deepEqual((await client.queryClassic('SELECT n FROM script_effects', [])).rows, [
+        { n: 2 },
+      ]);
       assert.equal(client.transactionStatus, 'idle');
     } finally {
       await client.close();

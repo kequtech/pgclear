@@ -204,11 +204,11 @@ test(
         listen({host:'localhost'},{channels:['jobs']});
 
         const nested: PgArray<number> = [[1,null],[2,3]];
-        await connection.query({text:'SELECT $1, $2',values:[param(nested,builtin.int4Array),json(null)]});
+        await connection.queryClassic('SELECT $1, $2',[param(nested,builtin.int4Array),json(null)]);
         defaultCodecs.with(builtin.jsonbText);
         // @ts-expect-error Typed array parameters require the codec's scalar type.
         param([[1.25]], builtin.numericArray);
-        const result: QueryResult<{value: number}> = await connection.query<{value: number}>('SELECT 42 AS value');
+        const result: QueryResult<{value: number}> = await connection.queryClassic<{value: number}>('SELECT 42 AS value', []);
         const count: bigint | null = result.rowCount;
         type Database = {user: {id:number; name:string; secret:string}};
         type Selected = Pick<Database['user'], 'id' | 'name'>;
@@ -297,7 +297,7 @@ test(
           await tx.copyFrom('COPY fixture FROM STDIN',source);
           for await (const chunk of tx.copyTo('COPY fixture TO STDOUT')) {void chunk;}
           const owned = await tx.prepare('SELECT 1'); await owned.close();
-          await tx.savepoint(async child => { await child.query('SELECT 1'); const p = await child.prepare('SELECT 1'); await p.close(); });
+          await tx.savepoint(async child => { await child.queryClassic('SELECT 1', []); const p = await child.prepare('SELECT 1'); await p.close(); });
           // @ts-expect-error Transaction callbacks cannot release a lease.
           await tx.release();
         });

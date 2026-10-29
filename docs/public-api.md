@@ -11,14 +11,14 @@ import { connect, createPool } from '@kequtech/pgclear';
 
 const pool = createPool({ connectionString: process.env.DATABASE_URL!, maxConnections: 10 });
 try {
-  await pool.query('SELECT 1');
+  await pool.queryClassic('SELECT 1', []);
 } finally {
   await pool.close();
 }
 
 const connection = await connect(process.env.DATABASE_URL!);
 try {
-  await connection.query('SELECT 1');
+  await connection.queryClassic('SELECT 1', []);
 } finally {
   await connection.close();
 }
@@ -32,7 +32,7 @@ hold one across several operations, or `pool.acquire` for explicit ownership:
 ```ts
 const lease = await pool.acquire();
 try {
-  await lease.query('SELECT 1');
+  await lease.queryClassic('SELECT 1', []);
 } finally {
   await lease.release();
 }
@@ -96,20 +96,22 @@ import { sql } from '@kequtech/pgclear';
 
 const result = await pool.queryClassic<{ value: number }>('SELECT $1::integer AS value', [42]);
 const tagged = await pool.query(sql<{ value: number }>`SELECT ${42}::integer AS value`);
-const tuple = await pool.query(['SELECT $1::integer AS value', [42]]);
 ```
 
-`query(statement, options)` accepts SQL text, a tuple, a `sql` tag result or
-`{ text, values, parameterTypes }`. `queryClassic(text, values, options)` takes values separately.
-Both are supported on pools, connections, leases and transaction/session callbacks.
+`query(taggedQuery, options)` accepts only a result created by the `sql` tag.
+`queryClassic(text, values, options)` accepts SQL text and a separate values array; use `[]` when
+there are no parameters. Both are supported on pools, connections, leases and transaction/session
+callbacks. Plain text, manually constructed tuples and statement objects are rejected by `query`,
+including from JavaScript. Prepared handles separately use `prepared.query(values, options)`.
 
 `sql` returns a frozen `[text, values]` tuple. Each interpolation binds one value; it cannot insert
 identifiers, SQL fragments or lists. Place interpolations outside SQL quotes/comments. Use classic
 SQL for manually numbered placeholders. Bound mutable values must remain unchanged until settlement.
 
 All query forms use the extended protocol and accept one statement. SQL must be well-formed Unicode
-without NUL. Optional `parameterTypes` supplies one OID per value, with 0 for inference; conflicting
-typed-parameter OIDs reject. Ordinary queries perform no preliminary Describe or catalog lookup.
+without NUL. Use `param(value, codec)` to supply an explicit parameter type. Describe and preparation also
+accept `{ text, parameterTypes }` for OID hints without bound values. Ordinary queries perform no
+preliminary Describe or catalog lookup.
 
 A result contains:
 
@@ -120,7 +122,7 @@ A result contains:
 - `rowCount`: the command count as `bigint | null`; it is not always the number of returned rows.
 
 Rows default to objects. Duplicate column names reject; use aliases or `{ rowMode: 'array' }` to
-preserve positional values. Row annotations (`query<Row>`, `queryClassic<Row>` and `sql<Row>`) are
+preserve positional values. Row annotations (`queryClassic<Row>` and `sql<Row>`) are
 assertions, not runtime validation. Without an annotation, field values are `unknown`.
 `JSON.stringify(result)` needs an application policy for bigint counts and columns.
 
@@ -262,7 +264,8 @@ await pool.withSession(async (session) => {
 });
 ```
 
-Streams work on held sessions and transaction/savepoint handles. They expose `fields`,
+Streams accept tagged SQL, SQL text or `{ text, values, parameterTypes }` statements on held
+sessions and transaction/savepoint handles. They expose `fields`,
 `completion` and `close()`, own the execution slot, and allow one consumer. Consume or close before
 running other operations. `for await` early exit awaits cleanup. The default batch size is 100;
 `maxResultBytes` bounds each batch plus metadata, not the entire stream. Deadlines include consumer

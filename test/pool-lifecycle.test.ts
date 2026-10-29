@@ -225,8 +225,8 @@ test(
       });
       assert.equal(calls, 2);
       assert.equal(pool.stats.total, 0);
-      await assert.rejects(a.query('SELECT 1'), { code: 'PGCLEAR_EXPIRED' });
-      await assert.rejects(b.query('SELECT 1'), { code: 'PGCLEAR_EXPIRED' });
+      await assert.rejects(a.queryClassic('SELECT 1', []), { code: 'PGCLEAR_EXPIRED' });
+      await assert.rejects(b.queryClassic('SELECT 1', []), { code: 'PGCLEAR_EXPIRED' });
       await pause(20);
       assert.equal(server.connections, 0);
     } finally {
@@ -333,7 +333,7 @@ test(
           },
         );
         assert.ok(performance.now() - start < 7500, 'Rollback cleanup restarted the deadline.');
-        await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_CLOSED' });
+        await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_CLOSED' });
       } finally {
         await client.close();
       }

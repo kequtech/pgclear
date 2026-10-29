@@ -14,7 +14,7 @@ test(
     try {
       const controller = new AbortController();
       const interrupted = assert.rejects(
-        client.query('SELECT pg_sleep(30)', { signal: controller.signal }),
+        client.queryClassic('SELECT pg_sleep(30)', [], { signal: controller.signal }),
         {
           code: 'PGCLEAR_ABORTED',
           outcome: 'confirmed',
@@ -23,12 +23,12 @@ test(
       controller.abort();
       await interrupted;
       await client.close();
-      const remaining = await admin.query({
-        text: 'SELECT count(*) AS n FROM pg_stat_activity WHERE pid=$1 AND application_name=$2',
-        values: [client.info.backendPid, applicationName],
-      });
+      const remaining = await admin.queryClassic(
+        'SELECT count(*) AS n FROM pg_stat_activity WHERE pid=$1 AND application_name=$2',
+        [client.info.backendPid, applicationName],
+      );
       assert.equal(remaining.rows[0]!.n, 0n);
-      await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_CLOSED' });
+      await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_CLOSED' });
     } finally {
       await client.close();
       await admin.close();
@@ -43,13 +43,13 @@ test(
     const { client } = await testConnection({ maxResultBytes: 128 });
     try {
       assert.equal(
-        (await client.query("SELECT repeat('x', 72) AS value")).rows[0]!.value,
+        (await client.queryClassic("SELECT repeat('x', 72) AS value", [])).rows[0]!.value,
         'x'.repeat(72),
       );
-      const limited = assert.rejects(client.query("SELECT repeat('x', 73)"), {
+      const limited = assert.rejects(client.queryClassic("SELECT repeat('x', 73)", []), {
         code: 'PGCLEAR_RESULT_LIMIT',
       });
-      const queued = assert.rejects(client.query('SELECT 1'), {
+      const queued = assert.rejects(client.queryClassic('SELECT 1', []), {
         code: 'PGCLEAR_CLOSED',
         outcome: 'not-sent',
       });
@@ -78,14 +78,13 @@ test(
       },
     });
     try {
-      await client.query('CREATE TEMP TABLE observation (value text)');
+      await client.queryClassic('CREATE TEMP TABLE observation (value text)', []);
       failObserver = true;
-      const write = await client.query({
-        text: 'INSERT INTO observation VALUES ($1)',
-        values: ['query-private-value'],
-      });
+      const write = await client.queryClassic('INSERT INTO observation VALUES ($1)', [
+        'query-private-value',
+      ]);
       assert.equal(write.rowCount, 1n);
-      assert.deepEqual((await client.query('SELECT value FROM observation')).rows, [
+      assert.deepEqual((await client.queryClassic('SELECT value FROM observation', [])).rows, [
         { value: 'query-private-value' },
       ]);
       await new Promise<void>((resolve) => setImmediate(resolve));

@@ -77,10 +77,11 @@ test(
           maxConnections: 1,
         });
         try {
-          await pool.query(`CREATE SCHEMA ${namespace}`);
+          await pool.queryClassic(`CREATE SCHEMA ${namespace}`, []);
           try {
-            await pool.query(
+            await pool.queryClassic(
               `CREATE TABLE ${namespace}.items(id integer NOT NULL, document jsonb)`,
+              [],
             );
             const query = other.sql`SELECT ${other.json({ ok: true })}::jsonb AS document,
               ${other.param([1, null, 2], other.builtin.int4Array)} AS items`;
@@ -111,7 +112,7 @@ test(
             });
             try {
               assert.deepEqual(
-                (await customPool.query('SELECT 42 AS value, ARRAY[42] AS items')).rows,
+                (await customPool.queryClassic('SELECT 42 AS value, ARRAY[42] AS items', [])).rows,
                 [{ value: { value: '42' }, items: [{ value: '42' }] }],
               );
               const unresolved: string[] = [];
@@ -162,15 +163,17 @@ test(
             await assert.rejects(other.generateDefinitions({ connection: lease, namespace }), {
               code: 'PGCLEAR_EXPIRED',
             });
-            await assert.rejects(pool.query('SELECT 1/0'), (error: unknown) => {
+            await assert.rejects(pool.queryClassic('SELECT 1/0', []), (error: unknown) => {
               assert.ok(error instanceof owner.DatabaseError);
               assert.ok(error instanceof other.DatabaseError);
               assert.equal(error.code, '22012');
               return true;
             });
-            assert.deepEqual((await pool.query('SELECT 1 AS value')).rows, [{ value: 1 }]);
+            assert.deepEqual((await pool.queryClassic('SELECT 1 AS value', [])).rows, [
+              { value: 1 },
+            ]);
           } finally {
-            await pool.query(`DROP SCHEMA ${namespace} CASCADE`);
+            await pool.queryClassic(`DROP SCHEMA ${namespace} CASCADE`, []);
           }
         } finally {
           await pool.close();

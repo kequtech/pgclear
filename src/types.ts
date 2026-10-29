@@ -56,9 +56,10 @@ export interface Statement {
 /** Classic parameterized query form. Values are always binds, never SQL fragments. */
 export type QueryTuple = readonly [text: string, values: readonly InputValue[]];
 declare const sqlRow: unique symbol;
-/** A query tuple with a caller-asserted row type; the marker has no runtime value. */
-export type SqlQuery<T extends object = Row> = QueryTuple & { readonly [sqlRow]?: T };
-export type QueryInput<T extends object = Row> = string | Statement | SqlQuery<T>;
+/** A sql tag result with a caller-asserted row type. */
+export type SqlQuery<T extends object = Row> = QueryTuple & { readonly [sqlRow]: T };
+/** Row stream inputs; query() accepts only SqlQuery. */
+export type QueryInput<T extends object = Row> = string | Statement | QueryTuple | SqlQuery<T>;
 export interface DescribeStatement {
   readonly text: string;
   readonly parameterTypes?: readonly Oid[];
@@ -106,15 +107,15 @@ export interface SessionInfo {
 }
 export interface Executor {
   query<T extends object = Row>(
-    statement: QueryInput<T>,
+    statement: SqlQuery<T>,
     options?: QueryOptions,
   ): Promise<QueryResult<T>>;
   query<T extends readonly unknown[] = readonly unknown[]>(
-    statement: QueryInput<T>,
+    statement: SqlQuery<T>,
     options: ArrayQueryOptions,
   ): Promise<QueryResult<T>>;
   query(
-    statement: QueryInput<object>,
+    statement: SqlQuery<object>,
     options: ArrayQueryOptions,
   ): Promise<QueryResult<readonly unknown[]>>;
   queryClassic<T extends object = Row>(

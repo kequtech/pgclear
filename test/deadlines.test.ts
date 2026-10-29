@@ -101,12 +101,12 @@ test('elapsed queued deadlines prevent dispatch even while a decoder blocks time
   });
   const client = await connect({ host: server.host, port: server.port, codecs });
   try {
-    const first = client.query('SELECT 1');
-    const expired = assert.rejects(client.query('SELECT 2', { timeoutMs: 20 }), {
+    const first = client.queryClassic('SELECT 1', []);
+    const expired = assert.rejects(client.queryClassic('SELECT 2', [], { timeoutMs: 20 }), {
       code: 'PGCLEAR_TIMEOUT',
       outcome: 'not-sent',
     });
-    const next = client.query('SELECT 3');
+    const next = client.queryClassic('SELECT 3', []);
     await Promise.all([first, expired, next]);
     assert.deepEqual(requests, ['SELECT 1', 'SELECT 3']);
   } finally {

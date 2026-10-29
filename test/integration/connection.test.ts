@@ -15,11 +15,11 @@ test(
   async () => {
     const { client } = await testConnection();
     try {
-      const result = await client.query({
-        text: `SELECT $1::int2 AS small, $2::int4 AS integer, $3::int8 AS big,
+      const result = await client.queryClassic(
+        `SELECT $1::int2 AS small, $2::int4 AS integer, $3::int8 AS big,
         $4::float8 AS ratio, $5::bool AS yes, $6::text AS text, $7::bytea AS bytes,
         $8::text AS missing, $9::numeric AS exact, $10::date AS day, $11::jsonb AS json`,
-        values: [
+        [
           2,
           42,
           9007199254740993n,
@@ -32,7 +32,7 @@ test(
           '2026-10-28',
           '{"ok":true}',
         ],
-      });
+      );
       assert.equal(result.rowCount, 1n);
       assert.equal(result.command, 'SELECT');
       assert.deepEqual(result.rows, [
@@ -56,7 +56,7 @@ test(
       );
       assert.ok(Object.isFrozen(result.fields));
       assert.ok(Object.isFrozen(result.fields[0]));
-      assert.equal((await client.query('')).commandTag, '');
+      assert.equal((await client.queryClassic('', [])).commandTag, '');
     } finally {
       await client.close();
     }
@@ -70,10 +70,10 @@ test(
     const { client } = await testConnection();
     try {
       const results = await Promise.allSettled([
-        client.query('SELECT 1 AS value'),
-        client.query('SELECT 1 / 0'),
+        client.queryClassic('SELECT 1 AS value', []),
+        client.queryClassic('SELECT 1 / 0', []),
         client.query({ text: 'SELECT $1', values: [undefined] } as never),
-        client.query('SELECT 3 AS value'),
+        client.queryClassic('SELECT 3 AS value', []),
       ]);
       assert.equal(results[0]!.status, 'fulfilled');
       assert.equal(results[3]!.status, 'fulfilled');
@@ -88,8 +88,8 @@ test(
         assert.equal(results[1]!.reason.code, '22012');
       }
       if (results[2]!.status === 'rejected') assert.equal(results[2]!.reason.outcome, 'not-sent');
-      await assert.rejects(client.query('SELECT 1; SELECT 2'), { code: '42601' });
-      assert.equal((await client.query('SELECT 4 AS value')).rows[0]!.value, 4);
+      await assert.rejects(client.queryClassic('SELECT 1; SELECT 2', []), { code: '42601' });
+      assert.equal((await client.queryClassic('SELECT 4 AS value', [])).rows[0]!.value, 4);
     } finally {
       await client.close();
     }
@@ -103,7 +103,10 @@ test(
     const { client } = await testConnection();
     try {
       const special = (
-        await client.query('SELECT 42 AS "__proto__", 7 AS constructor, NULL AS "toString"')
+        await client.queryClassic(
+          'SELECT 42 AS "__proto__", 7 AS constructor, NULL AS "toString"',
+          [],
+        )
       ).rows[0]!;
       assert.equal(Object.getPrototypeOf(special), Object.prototype);
       assert.ok(Object.hasOwn(special, '__proto__'));
@@ -120,13 +123,14 @@ test(
           configurable: true,
         });
       }
-      await assert.rejects(client.query('SELECT 1 AS n, 2 AS n'), {
+      await assert.rejects(client.queryClassic('SELECT 1 AS n, 2 AS n', []), {
         code: 'PGCLEAR_DECODE',
         outcome: 'confirmed',
       });
-      assert.deepEqual((await client.query('SELECT 1 AS n, 2 AS n', { rowMode: 'array' })).rows, [
-        [1, 2],
-      ]);
+      assert.deepEqual(
+        (await client.queryClassic('SELECT 1 AS n, 2 AS n', [], { rowMode: 'array' })).rows,
+        [[1, 2]],
+      );
     } finally {
       await client.close();
     }
@@ -140,24 +144,24 @@ test(
     const { client } = await testConnection(),
       schema = ownedName();
     try {
-      await client.query(`CREATE SCHEMA "${schema}"`);
-      await client.query(`CREATE TABLE "${schema}".items (id integer PRIMARY KEY)`);
+      await client.queryClassic(`CREATE SCHEMA "${schema}"`, []);
+      await client.queryClassic(`CREATE TABLE "${schema}".items (id integer PRIMARY KEY)`, []);
       assert.equal(
-        (await client.query(`INSERT INTO "${schema}".items VALUES (1), (2)`)).rowCount,
+        (await client.queryClassic(`INSERT INTO "${schema}".items VALUES (1), (2)`, [])).rowCount,
         2n,
       );
-      const result = await client.query(`SELECT id FROM "${schema}".items ORDER BY id`);
+      const result = await client.queryClassic(`SELECT id FROM "${schema}".items ORDER BY id`, []);
       assert.ok(result.fields[0]!.tableOid > 0);
       assert.equal(result.fields[0]!.columnAttribute, 1);
-      await client.query('BEGIN');
+      await client.queryClassic('BEGIN', []);
       assert.equal(client.transactionStatus, 'transaction');
-      await assert.rejects(client.query('SELECT 1 / 0'), { code: '22012' });
+      await assert.rejects(client.queryClassic('SELECT 1 / 0', []), { code: '22012' });
       assert.equal(client.transactionStatus, 'failed');
-      await client.query('ROLLBACK');
+      await client.queryClassic('ROLLBACK', []);
       assert.equal(client.transactionStatus, 'idle');
     } finally {
-      await client.query('ROLLBACK');
-      await client.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+      await client.queryClassic('ROLLBACK', []);
+      await client.queryClassic(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`, []);
       await client.close();
     }
   },
@@ -170,8 +174,8 @@ test(
     const { client, applicationName } = await testConnection(),
       { client: admin } = await testConnection();
     try {
-      const active = client.query('SELECT pg_sleep(30)');
-      const queued = client.query('SELECT 2');
+      const active = client.queryClassic('SELECT pg_sleep(30)', []);
+      const queued = client.queryClassic('SELECT 2', []);
       const rejectedActive = assert.rejects(active, (error) => {
         assert.ok(error instanceof DatabaseError || error instanceof DriverError);
         return true;
@@ -180,14 +184,14 @@ test(
         code: 'PGCLEAR_CLOSED',
         outcome: 'not-sent',
       });
-      const terminated = await admin.query({
-        text: `SELECT pg_terminate_backend(pid) AS stopped
+      const terminated = await admin.queryClassic(
+        `SELECT pg_terminate_backend(pid) AS stopped
       FROM pg_stat_activity WHERE pid=$1 AND application_name=$2`,
-        values: [client.info.backendPid, applicationName],
-      });
+        [client.info.backendPid, applicationName],
+      );
       assert.equal(terminated.rows[0]?.stopped, true);
       await Promise.all([rejectedActive, rejectedQueued]);
-      await assert.rejects(client.query('SELECT 3'), { code: 'PGCLEAR_CLOSED' });
+      await assert.rejects(client.queryClassic('SELECT 3', []), { code: 'PGCLEAR_CLOSED' });
     } finally {
       await client.close();
       await admin.close();
@@ -201,14 +205,14 @@ test(
   async () => {
     const { client } = await testConnection({ maxQueuedOperations: 1 });
     try {
-      const first = client.query('SELECT pg_sleep(0.1)');
-      const expired = assert.rejects(client.query('SELECT 2', { timeoutMs: 5 }), {
+      const first = client.queryClassic('SELECT pg_sleep(0.1)', []);
+      const expired = assert.rejects(client.queryClassic('SELECT 2', [], { timeoutMs: 5 }), {
         code: 'PGCLEAR_TIMEOUT',
         outcome: 'not-sent',
       });
-      await assert.rejects(client.query('SELECT 3'), { code: 'PGCLEAR_QUEUE_FULL' });
+      await assert.rejects(client.queryClassic('SELECT 3', []), { code: 'PGCLEAR_QUEUE_FULL' });
       await Promise.all([first, expired]);
-      assert.equal((await client.query('SELECT 4 AS value')).rows[0]!.value, 4);
+      assert.equal((await client.queryClassic('SELECT 4 AS value', [])).rows[0]!.value, 4);
     } finally {
       await client.close();
     }
@@ -219,16 +223,18 @@ test('bounded close settles work without claiming server cancellation', within, 
   const { client, applicationName } = await testConnection(),
     { client: admin } = await testConnection();
   try {
-    const active = assert.rejects(client.query('SELECT pg_sleep(30)'), { outcome: 'unknown' });
+    const active = assert.rejects(client.queryClassic('SELECT pg_sleep(30)', []), {
+      outcome: 'unknown',
+    });
     await client.close({ timeoutMs: 10 });
     await active;
     // A force-disconnected backend may still be sleeping. Cancel only this test-owned backend.
-    await admin.query({
-      text: `SELECT pg_cancel_backend(pid) FROM pg_stat_activity
+    await admin.queryClassic(
+      `SELECT pg_cancel_backend(pid) FROM pg_stat_activity
       WHERE pid=$1 AND application_name=$2`,
-      values: [client.info.backendPid, applicationName],
-    });
-    await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_CLOSED' });
+      [client.info.backendPid, applicationName],
+    );
+    await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_CLOSED' });
   } finally {
     await client.close();
     await admin.close();
@@ -258,14 +264,17 @@ test(
     const { client: admin } = await testConnection();
     const url = new URL(databaseUrl());
     try {
-      await admin.query("SET password_encryption = 'scram-sha-256'");
+      await admin.queryClassic("SET password_encryption = 'scram-sha-256'", []);
       for (const [password] of passwords) {
         const role = ownedName();
-        await admin.query(`CREATE ROLE "${role}" LOGIN PASSWORD '${password}'`);
+        await admin.queryClassic(`CREATE ROLE "${role}" LOGIN PASSWORD '${password}'`, []);
         try {
           const client = await connect({ connectionString: databaseUrl(), user: role, password });
           try {
-            assert.equal((await client.query('SELECT current_user AS name')).rows[0]!.name, role);
+            assert.equal(
+              (await client.queryClassic('SELECT current_user AS name', [])).rows[0]!.name,
+              role,
+            );
           } finally {
             await client.close();
           }
@@ -288,7 +297,7 @@ test(
           );
           assert.equal(psql.stdout.trim(), role);
         } finally {
-          await admin.query(`DROP ROLE "${role}"`);
+          await admin.queryClassic(`DROP ROLE "${role}"`, []);
         }
       }
     } finally {

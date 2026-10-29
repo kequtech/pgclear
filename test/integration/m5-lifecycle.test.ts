@@ -26,7 +26,10 @@ test(
           expected.clear();
           pid = lease.info.backendPid;
         }
-        await lease.query('CREATE TEMP TABLE IF NOT EXISTS m5_sequence (n integer PRIMARY KEY)');
+        await lease.queryClassic(
+          'CREATE TEMP TABLE IF NOT EXISTS m5_sequence (n integer PRIMARY KEY)',
+          [],
+        );
         let expired: PreparedStatement | undefined;
         const value = step * 10;
         const action = choose();
@@ -93,7 +96,9 @@ test(
           continue;
         }
         assert.deepEqual(
-          (await lease.query('SELECT n FROM m5_sequence ORDER BY n')).rows.map((row) => row.n),
+          (await lease.queryClassic('SELECT n FROM m5_sequence ORDER BY n', [])).rows.map(
+            (row) => row.n,
+          ),
           [...expected].sort((a, b) => a - b),
           `step ${step}, action ${action}`,
         );
@@ -102,14 +107,17 @@ test(
         const next = await pool.acquire();
         assert.equal(
           (
-            await next.query(
+            await next.queryClassic(
               "SELECT count(*) AS n FROM pg_prepared_statements WHERE name LIKE 'pgclear_statement_%'",
+              [],
             )
           ).rows[0]!.n,
           0n,
         );
         // The inspection query itself owns the unnamed portal; no other cursor may remain.
-        assert.deepEqual((await next.query('SELECT name FROM pg_cursors')).rows, [{ name: '' }]);
+        assert.deepEqual((await next.queryClassic('SELECT name FROM pg_cursors', [])).rows, [
+          { name: '' },
+        ]);
         await next.release();
       }
     } finally {
@@ -123,8 +131,8 @@ test('unnamed stream and COPY portals support manual transactions and savepoint 
   const lease = await pool.acquire();
   const pid = lease.info.backendPid;
   try {
-    await lease.query('CREATE TEMP TABLE m5_manual (n integer)');
-    await lease.query('BEGIN');
+    await lease.queryClassic('CREATE TEMP TABLE m5_manual (n integer)', []);
+    await lease.queryClassic('BEGIN', []);
     const stream = lease.stream('SELECT generate_series(1,3) AS n', { batchSize: 2 });
     const values = [];
     for await (const row of stream) values.push(row.n);
@@ -141,7 +149,7 @@ test('unnamed stream and COPY portals support manual transactions and savepoint 
     assert.equal(Buffer.concat(chunks).toString(), '7\n');
     assert.equal(lease.transactionStatus, 'transaction');
 
-    await lease.query('SAVEPOINT recover');
+    await lease.queryClassic('SAVEPOINT recover', []);
     async function* failing() {
       yield Buffer.from('8\n');
       throw new Error('source failed inside savepoint');
@@ -150,8 +158,8 @@ test('unnamed stream and COPY portals support manual transactions and savepoint 
       code: 'PGCLEAR_COPY_SOURCE',
     });
     assert.equal(lease.transactionStatus, 'failed');
-    await lease.query('ROLLBACK TO SAVEPOINT recover');
-    await lease.query('RELEASE SAVEPOINT recover');
+    await lease.queryClassic('ROLLBACK TO SAVEPOINT recover', []);
+    await lease.queryClassic('RELEASE SAVEPOINT recover', []);
     const partial = lease.stream('SELECT generate_series(1,10)', { batchSize: 1 });
     for await (const row of partial) {
       assert.ok(row);
@@ -159,13 +167,13 @@ test('unnamed stream and COPY portals support manual transactions and savepoint 
     }
     assert.deepEqual(await partial.completion, { status: 'closed' });
     assert.equal(lease.transactionStatus, 'transaction');
-    assert.deepEqual((await lease.query('SELECT n FROM m5_manual')).rows, [{ n: 7 }]);
-    await lease.query('COMMIT');
+    assert.deepEqual((await lease.queryClassic('SELECT n FROM m5_manual', [])).rows, [{ n: 7 }]);
+    await lease.queryClassic('COMMIT', []);
     await lease.release();
     const next = await pool.acquire();
     assert.equal(next.info.backendPid, pid);
     assert.equal(next.transactionStatus, 'idle');
-    assert.deepEqual((await next.query('SELECT n FROM m5_manual')).rows, [{ n: 7 }]);
+    assert.deepEqual((await next.queryClassic('SELECT n FROM m5_manual', [])).rows, [{ n: 7 }]);
     await next.release();
   } finally {
     await pool.close();

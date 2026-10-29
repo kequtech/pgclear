@@ -68,7 +68,10 @@ test(
       const client = await connect({ host: server.host, port: server.port });
       await Promise.all([
         assert.rejects(client.describe('SELECT $1'), { code: 'PGCLEAR_PROTOCOL' }),
-        assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_CLOSED', outcome: 'not-sent' }),
+        assert.rejects(client.queryClassic('SELECT 1', []), {
+          code: 'PGCLEAR_CLOSED',
+          outcome: 'not-sent',
+        }),
       ]);
       await client.close();
     } finally {

@@ -97,7 +97,7 @@ test(
       });
       await new Promise<void>((resolve) => setImmediate(resolve));
       assert.equal(finished, false);
-      await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_BUSY' });
+      await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_BUSY' });
       allowReady.resolve();
       assert.deepEqual(await stream.completion, {
         status: 'complete',
@@ -199,7 +199,7 @@ for (const failure of [
         await assert.rejects(stream.close(), { code });
       } else await assert.rejects(collect(stream), { code });
       await assert.rejects(stream.completion, { code });
-      await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_CLOSED' });
+      await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_CLOSED' });
     } finally {
       await client.close();
       await server.close();
@@ -271,7 +271,7 @@ test(
         oid: 25,
         text: {
           encode(value: string) {
-            nested = assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_BUSY' });
+            nested = assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_BUSY' });
             throw Error(value);
           },
           decode: String,

@@ -17,10 +17,10 @@ test(
     assert.ok(values.length > 1000);
     const { client } = await testConnection();
     try {
-      const result = await client.query<{ value: string }>([
+      const result = await client.queryClassic<{ value: string }>(
         'SELECT normalize(value, NFKC) AS value FROM unnest($1::text[]) WITH ORDINALITY AS input(value, ordinal) ORDER BY ordinal',
         [param(values, builtin.textArray)],
-      ]);
+      );
       assert.deepEqual(
         result.rows.map((row) => row.value),
         values.map((value) => value.normalize('NFKC')),

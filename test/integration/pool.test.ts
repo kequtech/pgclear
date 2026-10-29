@@ -32,7 +32,10 @@ test(
       await a.release();
       const c = await third;
       assert.equal(c.info.backendPid, a.info.backendPid);
-      await assert.rejects(a.query('SELECT 1'), { code: 'PGCLEAR_EXPIRED', outcome: 'not-sent' });
+      await assert.rejects(a.queryClassic('SELECT 1', []), {
+        code: 'PGCLEAR_EXPIRED',
+        outcome: 'not-sent',
+      });
       await Promise.all([b.release(), c.release()]);
       assert.deepEqual(pool.stats, { total: 2, idle: 2, leased: 0, waiting: 0 });
     } finally {
@@ -82,11 +85,11 @@ test('release expires immediately and drains all accepted work before reuse', wi
   try {
     const lease = await pool.acquire(),
       pid = lease.info.backendPid;
-    const a = lease.query('SELECT pg_sleep(0.025), 1 AS n');
-    const b = lease.query('SELECT 2 AS n');
+    const a = lease.queryClassic('SELECT pg_sleep(0.025), 1 AS n', []);
+    const b = lease.queryClassic('SELECT 2 AS n', []);
     const release = lease.release();
     assert.equal(lease.release(), release);
-    await assert.rejects(lease.query('SELECT 3'), { code: 'PGCLEAR_EXPIRED' });
+    await assert.rejects(lease.queryClassic('SELECT 3', []), { code: 'PGCLEAR_EXPIRED' });
     const acquisition = pool.acquire();
     assert.equal((await a).rows[0]!.n, 1);
     assert.equal((await b).rows[0]!.n, 2);
@@ -111,16 +114,18 @@ test(
         pool.withSession(async (session) => {
           saved = session;
           pid = session.info.backendPid;
-          await session.query('CREATE TEMP TABLE callback_owned(n int)');
+          await session.queryClassic('CREATE TEMP TABLE callback_owned(n int)', []);
           throw Error('fixture');
         }),
         /fixture/,
       );
-      await assert.rejects(saved!.query('SELECT 1'), { code: 'PGCLEAR_EXPIRED' });
+      await assert.rejects(saved!.queryClassic('SELECT 1', []), { code: 'PGCLEAR_EXPIRED' });
       const lease = await pool.acquire();
       assert.notEqual(lease.info.backendPid, pid);
       await lease.release();
-      await assert.rejects(pool.query('SELECT * FROM callback_owned'), { code: '42P01' });
+      await assert.rejects(pool.queryClassic('SELECT * FROM callback_owned', []), {
+        code: '42P01',
+      });
       const result = await pool.withSession(async (session) =>
         session.script('SELECT 1 AS n; SELECT 2 AS n'),
       );
@@ -140,18 +145,18 @@ test(
   async () => {
     const pool = createPool({ ...poolOptions(), maxConnections: 1 });
     try {
-      await assert.rejects(pool.query('BEGIN'), {
+      await assert.rejects(pool.queryClassic('BEGIN', []), {
         code: 'PGCLEAR_SESSION_STATE',
         outcome: 'confirmed',
       });
       const lease = await pool.acquire(),
         pid = lease.info.backendPid;
-      await lease.query('BEGIN');
+      await lease.queryClassic('BEGIN', []);
       await lease.release();
       const next = await pool.acquire();
       assert.notEqual(next.info.backendPid, pid);
       await next.release();
-      assert.deepEqual((await pool.query('SELECT 4 AS n')).rows, [{ n: 4 }]);
+      assert.deepEqual((await pool.queryClassic('SELECT 4 AS n', [])).rows, [{ n: 4 }]);
       assert.deepEqual((await pool.describe('SELECT $1::integer')).parameterTypes, [23]);
     } finally {
       await pool.close();
@@ -169,7 +174,7 @@ test('idle timeout and lifetime retirement never interrupt an active lease', wit
   try {
     const held = await pool.acquire(),
       pid = held.info.backendPid;
-    await held.query('SELECT pg_sleep(0.03)');
+    await held.queryClassic('SELECT pg_sleep(0.03)', []);
     assert.equal(held.info.backendPid, pid);
     assert.equal(pool.stats.leased, 1);
     await held.release();
@@ -189,12 +194,12 @@ test(
   async () => {
     const pool = createPool({ ...poolOptions(), maxConnections: 1 });
     const lease = await pool.acquire(),
-      pending = lease.query('SELECT pg_sleep(0.02), 1 AS n');
+      pending = lease.queryClassic('SELECT pg_sleep(0.02), 1 AS n', []);
     const waiting = pool.acquire();
     const closing = pool.close();
     assert.equal(pool.close({ timeoutMs: 0 }), closing);
     await assert.rejects(waiting, { code: 'PGCLEAR_CLOSED' });
-    await assert.rejects(lease.query('SELECT 2'), { code: 'PGCLEAR_EXPIRED' });
+    await assert.rejects(lease.queryClassic('SELECT 2', []), { code: 'PGCLEAR_EXPIRED' });
     assert.equal((await pending).rows[0]!.n, 1);
     await closing;
     await assert.rejects(pool.acquire(), { code: 'PGCLEAR_CLOSED' });
@@ -231,12 +236,12 @@ test(
         } else {
           const lease = held[random() % held.length]!;
           assert.equal(
-            (await lease.query('SELECT pg_backend_pid() AS pid')).rows[0]!.pid,
+            (await lease.queryClassic('SELECT pg_backend_pid() AS pid', [])).rows[0]!.pid,
             lease.info.backendPid,
           );
         }
         if (old.length)
-          await assert.rejects(old[random() % old.length]!.query('SELECT 1'), {
+          await assert.rejects(old[random() % old.length]!.queryClassic('SELECT 1', []), {
             code: 'PGCLEAR_EXPIRED',
           });
         assert.ok(pool.stats.total <= 3, `seed=0x773ab step=${step}`);
@@ -246,7 +251,7 @@ test(
       await pool.close();
     }
     for (const lease of held)
-      await assert.rejects(lease.query('SELECT 1'), { code: 'PGCLEAR_EXPIRED' });
+      await assert.rejects(lease.queryClassic('SELECT 1', []), { code: 'PGCLEAR_EXPIRED' });
     assert.equal(pool.stats.total, 0);
   },
 );
@@ -259,19 +264,21 @@ test(
     try {
       const held = await pool.acquire(),
         oldPid = held.info.backendPid;
-      const expired = assert.rejects(pool.query('SELECT 9 AS n', { timeoutMs: 5 }), {
+      const expired = assert.rejects(pool.queryClassic('SELECT 9 AS n', [], { timeoutMs: 5 }), {
         code: 'PGCLEAR_TIMEOUT',
         outcome: 'not-sent',
       });
       await expired;
-      assert.equal((await held.query('SELECT 1 AS n')).rows[0]!.n, 1);
+      assert.equal((await held.queryClassic('SELECT 1 AS n', [])).rows[0]!.n, 1);
       await held.release();
       const controller = new AbortController();
       let activePid = 0;
       const entered = Promise.withResolvers<void>();
       const canceled = pool.withSession(async (session) => {
         activePid = session.info.backendPid;
-        const query = session.query('SELECT pg_sleep(30)', { signal: controller.signal });
+        const query = session.queryClassic('SELECT pg_sleep(30)', [], {
+          signal: controller.signal,
+        });
         entered.resolve();
         await query;
       });
@@ -282,7 +289,7 @@ test(
       const next = await pool.acquire();
       assert.equal(activePid, oldPid);
       assert.notEqual(next.info.backendPid, oldPid);
-      assert.equal((await next.query('SELECT 7 AS n')).rows[0]!.n, 7);
+      assert.equal((await next.queryClassic('SELECT 7 AS n', [])).rows[0]!.n, 7);
       await next.release();
     } finally {
       await pool.close();

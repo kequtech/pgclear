@@ -17,12 +17,12 @@ const quote = (value: string) => '"' + value.replaceAll('"', '""') + '"';
 async function fixture(work: (client: Connection, namespace: string) => Promise<void>) {
   const { client } = await testConnection();
   const namespace = ownedName();
-  await client.query(`CREATE SCHEMA ${quote(namespace)}`);
+  await client.queryClassic(`CREATE SCHEMA ${quote(namespace)}`, []);
   try {
     await work(client, namespace);
   } finally {
     try {
-      await client.query(`DROP SCHEMA ${quote(namespace)} CASCADE`);
+      await client.queryClassic(`DROP SCHEMA ${quote(namespace)} CASCADE`, []);
     } finally {
       await client.close();
     }
@@ -157,8 +157,9 @@ test(
     `,
       );
       const row = (
-        await client.query(
+        await client.queryClassic(
           `INSERT INTO ${ns}.values(decimals,times,names,enums,domains,ranges,point) VALUES('{}',ARRAY['infinity'::timestamptz],ARRAY['hello'::name],ARRAY['a'::${ns}.mood],ARRAY[8::${ns}.required],ARRAY['[1,3)'::int4range],point(1,2)) RETURNING *`,
+          [],
         )
       ).rows[0]!;
       assert.equal(row.id, 7);
@@ -177,8 +178,9 @@ test(
   within,
   async () => {
     await fixture(async (client, namespace) => {
-      await client.query(
+      await client.queryClassic(
         `CREATE TABLE ${quote(namespace)}.custom(id integer, label text, flag boolean, numbers integer[], document jsonb)`,
+        [],
       );
       const codecs = defaultCodecs
         .with({ oid: 23, text: { encode: String, decode: (value: string) => 'int:' + value } })
@@ -212,9 +214,10 @@ test(
         const document:string|null=row.document;
       `,
         );
-        assert.deepEqual((await pool.query("SELECT 42 AS n,true AS b,'value'::text AS t")).rows, [
-          { n: 'int:42', b: 'yes', t: 'text:value' },
-        ]);
+        assert.deepEqual(
+          (await pool.queryClassic("SELECT 42 AS n,true AS b,'value'::text AS t", [])).rows,
+          [{ n: 'int:42', b: 'yes', t: 'text:value' }],
+        );
         await assert.rejects(
           generateDefinitions({
             connection: pool,
@@ -225,7 +228,7 @@ test(
           }),
           /stop generation/,
         );
-        assert.equal((await pool.query('SELECT 1 AS n')).rows[0]!.n, 'int:1');
+        assert.equal((await pool.queryClassic('SELECT 1 AS n', [])).rows[0]!.n, 'int:1');
       } finally {
         await pool.close();
       }
@@ -253,13 +256,14 @@ test(
     await fixture(async (client, namespace) => {
       const ns = quote(namespace);
       await client.script(
-        `CREATE TABLE ${ns}.kept(id int); CREATE TABLE ${ns}."skip,quoted"(id int); CREATE TABLE ${ns}.__tenon_migrations(id int);`,
+        `CREATE TABLE ${ns}.kept(id int); CREATE TABLE ${ns}."skip,quoted"(id int); CREATE TABLE ${ns}.__app_migrations(id int);`,
       );
-      await client.query(`SET search_path TO ${ns},pg_catalog`);
-      await client.query('SET quote_all_identifiers TO on');
+      await client.queryClassic(`SET search_path TO ${ns},pg_catalog`, []);
+      await client.queryClassic('SET quote_all_identifiers TO on', []);
       const before = (
-        await client.query(
+        await client.queryClassic(
           "SELECT current_setting('search_path') AS path,current_setting('quote_all_identifiers') AS quoted,pg_backend_pid() AS pid",
+          [],
         )
       ).rows;
       const source = await generateDefinitions({
@@ -269,7 +273,7 @@ test(
       });
       await checkGenerated(
         source,
-        `import type {Database} from './schema.js'; ${typeAssertions} type Tables=Assert<Equal<keyof Database,'kept'|'__tenon_migrations'>>;`,
+        `import type {Database} from './schema.js'; ${typeAssertions} type Tables=Assert<Equal<keyof Database,'kept'|'__app_migrations'>>;`,
       );
       await assert.rejects(
         generateDefinitions({ connection: client, namespace: namespace + '_missing' }),
@@ -278,8 +282,9 @@ test(
       assert.equal(client.transactionStatus, 'idle');
       assert.deepEqual(
         (
-          await client.query(
+          await client.queryClassic(
             "SELECT current_setting('search_path') AS path,current_setting('quote_all_identifiers') AS quoted,pg_backend_pid() AS pid",
+            [],
           )
         ).rows,
         before,
@@ -295,8 +300,9 @@ test(
     await fixture(async (client, namespace) => {
       const table = 'odd"\nexport const injected=1;\u2028*/';
       const column = '__proto__\r\n\u2029';
-      await client.query(
+      await client.queryClassic(
         `CREATE TABLE ${quote(namespace)}.${quote(table)}(${quote(column)} text DEFAULT E'a\nb')`,
+        [],
       );
       const source = await generateDefinitions({ connection: client, namespace });
       await checkGenerated(
@@ -356,7 +362,7 @@ test(
       const pool = createPool({ connectionString: databaseUrl(), maxConnections: 1 });
       const held = await pool.acquire();
       try {
-        const work = held.query('SELECT pg_sleep(0.04),1 AS n');
+        const work = held.queryClassic('SELECT pg_sleep(0.04),1 AS n', []);
         await assert.rejects(generateDefinitions({ connection: pool, namespace, timeoutMs: 5 }), {
           code: 'PGCLEAR_TIMEOUT',
           outcome: 'not-sent',
@@ -377,7 +383,7 @@ test(
   within,
   async () => {
     await fixture(async (client, namespace) => {
-      await client.query(`CREATE TABLE ${quote(namespace)}.custom(id integer)`);
+      await client.queryClassic(`CREATE TABLE ${quote(namespace)}.custom(id integer)`, []);
       const codecs = defaultCodecs.with({
         oid: 23,
         text: { encode: String, decode: (value: string) => 'int:' + value },
@@ -414,7 +420,7 @@ test(
         await entered.promise;
         controller.abort();
         await rejected;
-        assert.equal((await pool.query('SELECT 1 AS n')).rows[0]!.n, 'int:1');
+        assert.equal((await pool.queryClassic('SELECT 1 AS n', [])).rows[0]!.n, 'int:1');
       } finally {
         controller.abort();
         await pool.close();

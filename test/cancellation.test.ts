@@ -71,10 +71,13 @@ test(
     try {
       const client = await connect({ host: server.host, port: server.port }),
         controller = new AbortController();
-      const work = assert.rejects(client.query('SELECT 1', { signal: controller.signal }), {
-        code: 'PGCLEAR_ABORTED',
-        outcome: 'unknown',
-      });
+      const work = assert.rejects(
+        client.queryClassic('SELECT 1', [], { signal: controller.signal }),
+        {
+          code: 'PGCLEAR_ABORTED',
+          outcome: 'unknown',
+        },
+      );
       await executing.promise;
       controller.abort();
       await canceling.promise;
@@ -108,7 +111,7 @@ test(
     const pool = createPool({ host: server.host, port: server.port, maxConnections: 1 });
     try {
       const controller = new AbortController(),
-        task = pool.query('SELECT 1', { signal: controller.signal });
+        task = pool.queryClassic('SELECT 1', [], { signal: controller.signal });
       const rejected = assert.rejects(task, (error) => {
         assert.ok(error instanceof AggregateError);
         assert.equal(error.errors[0].code, 'PGCLEAR_ABORTED');

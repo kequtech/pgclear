@@ -1,2 +1,0 @@
-# Unified diff context uses a single space to represent a blank source line.
-trials/tenon/*.patch -whitespace

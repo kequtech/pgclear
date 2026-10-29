@@ -1,5 +1,10 @@
 # Release notes
 
+## Unreleased
+
+- Breaking: `query` accepts only `sql` tag results. Use `queryClassic(text, values, options)` for
+  finished SQL; text, manual tuples and statement objects are no longer accepted by `query`.
+
 ## 0.1.0
 
 Initial release.

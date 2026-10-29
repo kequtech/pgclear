@@ -11,36 +11,36 @@ test(
     const { client } = await testConnection();
     let saved: Transaction | undefined;
     try {
-      await client.query('CREATE TEMP TABLE tx_values(n int)');
+      await client.queryClassic('CREATE TEMP TABLE tx_values(n int)', []);
       const result = await client.transaction(async (tx) => {
         saved = tx;
-        await tx.query('INSERT INTO tx_values VALUES(1)');
+        await tx.queryClassic('INSERT INTO tx_values VALUES(1)', []);
         return 'done';
       });
       assert.equal(result, 'done');
       assert.equal(client.transactionStatus, 'idle');
-      await assert.rejects(saved!.query('SELECT 1'), { code: 'PGCLEAR_EXPIRED' });
+      await assert.rejects(saved!.queryClassic('SELECT 1', []), { code: 'PGCLEAR_EXPIRED' });
       await assert.rejects(
         client.transaction(async (tx) => {
-          await tx.query('INSERT INTO tx_values VALUES(2)');
+          await tx.queryClassic('INSERT INTO tx_values VALUES(2)', []);
           throw Error('fixture');
         }),
         /fixture/,
       );
-      assert.deepEqual((await client.query('SELECT * FROM tx_values')).rows, [{ n: 1 }]);
+      assert.deepEqual((await client.queryClassic('SELECT * FROM tx_values', [])).rows, [{ n: 1 }]);
       await client.transaction(async (tx) => {
-        await tx.query('SAVEPOINT manual');
-        await assert.rejects(tx.query('SELECT 1/0'), { code: '22012' });
-        await tx.query('ROLLBACK TO SAVEPOINT manual');
-        await tx.query('INSERT INTO tx_values VALUES(3)');
+        await tx.queryClassic('SAVEPOINT manual', []);
+        await assert.rejects(tx.queryClassic('SELECT 1/0', []), { code: '22012' });
+        await tx.queryClassic('ROLLBACK TO SAVEPOINT manual', []);
+        await tx.queryClassic('INSERT INTO tx_values VALUES(3)', []);
       });
-      assert.deepEqual((await client.query('SELECT * FROM tx_values ORDER BY n')).rows, [
+      assert.deepEqual((await client.queryClassic('SELECT * FROM tx_values ORDER BY n', [])).rows, [
         { n: 1 },
         { n: 3 },
       ]);
       await assert.rejects(
         client.transaction(async (tx) => {
-          await assert.rejects(tx.query('SELECT 1/0'));
+          await assert.rejects(tx.queryClassic('SELECT 1/0', []));
         }),
         { code: 'PGCLEAR_TRANSACTION_STATE' },
       );
@@ -57,43 +57,43 @@ test('savepoint callbacks own the full scope and recover SQL failures', within, 
   const entered = Promise.withResolvers<void>(),
     resume = Promise.withResolvers<void>();
   try {
-    await client.query('CREATE TEMP TABLE savepoint_values(n int)');
+    await client.queryClassic('CREATE TEMP TABLE savepoint_values(n int)', []);
     await client.transaction(async (tx) => {
-      await tx.query('INSERT INTO savepoint_values VALUES(1)');
+      await tx.queryClassic('INSERT INTO savepoint_values VALUES(1)', []);
       const child = tx.savepoint(async (scope) => {
         saved = scope;
-        await scope.query('INSERT INTO savepoint_values VALUES(2)');
+        await scope.queryClassic('INSERT INTO savepoint_values VALUES(2)', []);
         entered.resolve();
         await resume.promise;
         throw Error('child');
       });
       const rejected = assert.rejects(child, /child/);
       await entered.promise;
-      await assert.rejects(tx.query('SELECT 1'), { code: 'PGCLEAR_BUSY' });
+      await assert.rejects(tx.queryClassic('SELECT 1', []), { code: 'PGCLEAR_BUSY' });
       await assert.rejects(
         tx.savepoint(async () => {}),
         { code: 'PGCLEAR_BUSY' },
       );
-      await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_BUSY' });
+      await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_BUSY' });
       resume.resolve();
       await rejected;
-      await assert.rejects(saved!.query('SELECT 1'), { code: 'PGCLEAR_EXPIRED' });
+      await assert.rejects(saved!.queryClassic('SELECT 1', []), { code: 'PGCLEAR_EXPIRED' });
       await assert.rejects(
         tx.savepoint(async (scope) => {
-          await scope.query('SELECT 1/0');
+          await scope.queryClassic('SELECT 1/0', []);
         }),
         { code: '22012' },
       );
       await tx.savepoint(async (scope) => {
         await scope.savepoint(async (nested) => {
-          await nested.query('INSERT INTO savepoint_values VALUES(3)');
+          await nested.queryClassic('INSERT INTO savepoint_values VALUES(3)', []);
         });
       });
     });
-    assert.deepEqual((await client.query('SELECT * FROM savepoint_values ORDER BY n')).rows, [
-      { n: 1 },
-      { n: 3 },
-    ]);
+    assert.deepEqual(
+      (await client.queryClassic('SELECT * FROM savepoint_values ORDER BY n', [])).rows,
+      [{ n: 1 }, { n: 3 }],
+    );
   } finally {
     resume.resolve();
     await client.close();
@@ -106,14 +106,14 @@ test(
   async () => {
     const { client } = await testConnection();
     try {
-      await client.query('CREATE TEMP TABLE poisoned(n int)');
+      await client.queryClassic('CREATE TEMP TABLE poisoned(n int)', []);
       await assert.rejects(
         client.transaction(async (tx) => {
-          await tx.query('INSERT INTO poisoned VALUES(1)');
+          await tx.queryClassic('INSERT INTO poisoned VALUES(1)', []);
           await assert.rejects(
             tx.savepoint(async (child) => {
               // Explicitly destroy the owned savepoint through SQL; recovery must fail visibly.
-              await child.query('ROLLBACK');
+              await child.queryClassic('ROLLBACK', []);
               throw Error('work failed');
             }),
             (error) => {
@@ -125,7 +125,7 @@ test(
         }),
         { code: 'PGCLEAR_TRANSACTION_STATE' },
       );
-      assert.deepEqual((await client.query('SELECT * FROM poisoned')).rows, []);
+      assert.deepEqual((await client.queryClassic('SELECT * FROM poisoned', [])).rows, []);
     } finally {
       await client.close();
     }
@@ -139,19 +139,21 @@ test(
     const { client } = await testConnection();
     let pending: Promise<unknown> | undefined;
     try {
-      await client.query('CREATE TEMP TABLE accepted_work(n int)');
+      await client.queryClassic('CREATE TEMP TABLE accepted_work(n int)', []);
       await client.transaction(async (tx) => {
-        pending = tx.query('INSERT INTO accepted_work SELECT 1 FROM pg_sleep(0.02)');
+        pending = tx.queryClassic('INSERT INTO accepted_work SELECT 1 FROM pg_sleep(0.02)', []);
       });
       await pending;
-      assert.deepEqual((await client.query('SELECT * FROM accepted_work')).rows, [{ n: 1 }]);
+      assert.deepEqual((await client.queryClassic('SELECT * FROM accepted_work', [])).rows, [
+        { n: 1 },
+      ]);
       const entered = Promise.withResolvers<void>();
       await assert.rejects(
         client.transaction(async (tx) => {
           const abandoned = tx.savepoint(async (child) => {
             entered.resolve();
             await new Promise(() => {});
-            return child.query('SELECT 1');
+            return child.queryClassic('SELECT 1', []);
           });
           void abandoned.catch(() => {});
           await entered.promise;
@@ -181,14 +183,15 @@ test(
       );
       assert.equal(pool.stats.total, 0);
       const value = await pool.transaction(
-        async (tx) => (await tx.query('SHOW transaction_isolation')).rows[0]!.transaction_isolation,
+        async (tx) =>
+          (await tx.queryClassic('SHOW transaction_isolation', [])).rows[0]!.transaction_isolation,
         { isolation: 'serializable', readOnly: true, deferrable: true },
       );
       assert.equal(value, 'serializable');
       await assert.rejects(
         pool.transaction(
           async (tx) => {
-            await tx.query('CREATE TABLE forbidden_in_readonly(n int)');
+            await tx.queryClassic('CREATE TABLE forbidden_in_readonly(n int)', []);
           },
           { readOnly: true },
         ),
@@ -215,11 +218,11 @@ test(
       late = Promise.withResolvers<unknown>();
     try {
       const work = pool.transaction(async (tx) => {
-        await tx.query('SELECT 1');
+        await tx.queryClassic('SELECT 1', []);
         entered.resolve(tx);
         await resume.promise;
         try {
-          await tx.query('SELECT 2');
+          await tx.queryClassic('SELECT 2', []);
           late.reject(Error('Expired callback succeeded.'));
         } catch (error) {
           late.resolve(error);
@@ -228,20 +231,22 @@ test(
       const rejected = assert.rejects(work, { code: 'PGCLEAR_CONNECTION_LOST' }),
         tx = await entered.promise;
       const pid = tx.info.backendPid;
-      const matches = await observer.query({
-        text: 'SELECT application_name FROM pg_stat_activity WHERE pid=$1',
-        values: [pid],
-      });
+      const matches = await observer.queryClassic(
+        'SELECT application_name FROM pg_stat_activity WHERE pid=$1',
+        [pid],
+      );
       assert.ok(String(matches.rows[0]!.application_name).startsWith('pgclear_test_'));
-      await observer.query({
-        text: 'SELECT pg_terminate_backend($1) WHERE EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND application_name=$2)',
-        values: [pid, String(matches.rows[0]!.application_name)],
-      });
+      await observer.queryClassic(
+        'SELECT pg_terminate_backend($1) WHERE EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND application_name=$2)',
+        [pid, String(matches.rows[0]!.application_name)],
+      );
       await rejected;
       resume.resolve();
       assert.equal(((await late.promise) as { code: string }).code, 'PGCLEAR_EXPIRED');
       assert.equal(
-        await pool.transaction(async (other) => (await other.query('SELECT 3 AS n')).rows[0]!.n),
+        await pool.transaction(
+          async (other) => (await other.queryClassic('SELECT 3 AS n', [])).rows[0]!.n,
+        ),
         3,
       );
     } finally {
@@ -266,14 +271,14 @@ test(
         pool.transaction(
           async (tx) => {
             late = tx;
-            await tx.query('SELECT 1');
+            await tx.queryClassic('SELECT 1', []);
             await new Promise(() => {});
           },
           { timeoutMs: 30 },
         ),
         { code: 'PGCLEAR_TIMEOUT', outcome: 'unknown' },
       );
-      await assert.rejects(late!.query('SELECT 2'), { code: 'PGCLEAR_EXPIRED' });
+      await assert.rejects(late!.queryClassic('SELECT 2', []), { code: 'PGCLEAR_EXPIRED' });
       assert.equal(pool.stats.total, 0);
       await assert.rejects(
         pool.withSession(
@@ -284,7 +289,7 @@ test(
         ),
         { code: 'PGCLEAR_TIMEOUT' },
       );
-      assert.equal((await pool.query('SELECT 3 AS n')).rows[0]!.n, 3);
+      assert.equal((await pool.queryClassic('SELECT 3 AS n', [])).rows[0]!.n, 3);
     } finally {
       await pool.close();
     }
@@ -302,32 +307,32 @@ test(
     try {
       const task = pool.transaction(async (tx) => {
         started.resolve(tx);
-        await tx.query('SELECT pg_sleep(30)');
+        await tx.queryClassic('SELECT pg_sleep(30)', []);
       });
       const rejected = assert.rejects(task),
         victim = await started.promise;
       for (let tries = 0; ; tries++) {
         const row = (
-          await observer.query({
-            text: 'SELECT state,query FROM pg_stat_activity WHERE pid=$1 AND application_name=$2',
-            values: [victim.info.backendPid, applicationName],
-          })
+          await observer.queryClassic(
+            'SELECT state,query FROM pg_stat_activity WHERE pid=$1 AND application_name=$2',
+            [victim.info.backendPid, applicationName],
+          )
         ).rows[0];
         if (row?.state === 'active' && row.query === 'SELECT pg_sleep(30)') break;
         if (tries > 100) assert.fail('Owned transaction did not dispatch.');
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
       const healthy = pool.transaction(async (tx) => {
-        await tx.query('SELECT pg_sleep(0.02)');
-        return (await tx.query('SELECT 5 AS n')).rows[0]!.n;
+        await tx.queryClassic('SELECT pg_sleep(0.02)', []);
+        return (await tx.queryClassic('SELECT 5 AS n', [])).rows[0]!.n;
       });
-      await observer.query({
-        text: 'SELECT pg_terminate_backend($1) WHERE EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND application_name=$2)',
-        values: [victim.info.backendPid, applicationName],
-      });
+      await observer.queryClassic(
+        'SELECT pg_terminate_backend($1) WHERE EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND application_name=$2)',
+        [victim.info.backendPid, applicationName],
+      );
       await rejected;
       assert.equal(await healthy, 5);
-      await assert.rejects(victim.query('SELECT 1'), { code: 'PGCLEAR_EXPIRED' });
+      await assert.rejects(victim.queryClassic('SELECT 1', []), { code: 'PGCLEAR_EXPIRED' });
     } finally {
       await Promise.all([pool.close(), observer.close()]);
     }
@@ -348,14 +353,14 @@ test(
       await assert.rejects(
         pool.transaction(async (tx) => {
           pid = tx.info.backendPid;
-          await tx.query('SELECT 1/0');
+          await tx.queryClassic('SELECT 1/0', []);
         }),
         { code: '22012' },
       );
       const lease = await pool.acquire();
       assert.equal(lease.info.backendPid, pid);
       await lease.release();
-      await assert.rejects(pool.query('SELECT 1/0'), { code: '22012' });
+      await assert.rejects(pool.queryClassic('SELECT 1/0', []), { code: '22012' });
       const next = await pool.acquire();
       assert.equal(next.info.backendPid, pid);
       await next.release();
@@ -371,11 +376,11 @@ test(
   async () => {
     const { client } = await testConnection();
     try {
-      const prior = client.query('SELECT pg_sleep(0.08), 1 AS n');
+      const prior = client.queryClassic('SELECT pg_sleep(0.08), 1 AS n', []);
       await assert.rejects(
         client.transaction(
           async (tx) => {
-            await tx.query('SELECT 2');
+            await tx.queryClassic('SELECT 2', []);
           },
           { timeoutMs: 5 },
         ),
@@ -384,7 +389,9 @@ test(
       assert.equal((await prior).rows[0]!.n, 1);
       assert.equal(client.transactionStatus, 'idle');
       assert.equal(
-        await client.transaction(async (tx) => (await tx.query('SELECT 3 AS n')).rows[0]!.n),
+        await client.transaction(
+          async (tx) => (await tx.queryClassic('SELECT 3 AS n', [])).rows[0]!.n,
+        ),
         3,
       );
     } finally {

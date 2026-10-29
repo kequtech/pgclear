@@ -24,7 +24,7 @@ test(
       const client = await connect(options);
       try {
         assert.equal(
-          (await client.query('SELECT current_database() AS name')).rows[0]!.name,
+          (await client.queryClassic('SELECT current_database() AS name', [])).rows[0]!.name,
           'pgclear_test',
         );
         const prepared = await client.prepare('SELECT $1::integer AS n');
@@ -66,7 +66,7 @@ test(
     });
     try {
       await pool.withSession(async (session) => {
-        await session.query('CREATE TEMP TABLE compat_copy (n integer)');
+        await session.queryClassic('CREATE TEMP TABLE compat_copy (n integer)', []);
         async function* source() {
           yield Buffer.from('1\n2\n3\n');
         }
@@ -88,7 +88,7 @@ test(
         const chunks = [];
         for await (const chunk of session.copyTo('COPY compat_copy TO STDOUT')) chunks.push(chunk);
         assert.equal(Buffer.concat(chunks).toString(), '1\n2\n3\n');
-        const pid = (await session.query('SELECT pg_backend_pid() AS pid')).rows[0]!.pid;
+        const pid = (await session.queryClassic('SELECT pg_backend_pid() AS pid', [])).rows[0]!.pid;
         await session.queryClassic('SELECT pg_notify($1,$2)', ['compat_channel', 'via proxy']);
         assert.deepEqual(await message.promise, {
           channel: 'compat_channel',
@@ -117,28 +117,31 @@ test(
       const pids = await Promise.all(
         [1, 2].map((n) =>
           pool.transaction(async (tx) => {
-            const pid = (await tx.query('SELECT pg_backend_pid() AS pid')).rows[0]!.pid;
+            const pid = (await tx.queryClassic('SELECT pg_backend_pid() AS pid', [])).rows[0]!.pid;
             if (++entered === 2) both.resolve();
             await both.promise;
-            await tx.query('CREATE TEMP TABLE compat_tx (n integer) ON COMMIT DROP');
+            await tx.queryClassic('CREATE TEMP TABLE compat_tx (n integer) ON COMMIT DROP', []);
             await tx.queryClassic('INSERT INTO compat_tx VALUES($1)', [n]);
             await assert.rejects(
               tx.savepoint(async (child) => {
-                await child.query('SELECT 1/0');
+                await child.queryClassic('SELECT 1/0', []);
               }),
               { code: '22012' },
             );
-            assert.deepEqual((await tx.query('SELECT n FROM compat_tx')).rows, [{ n }]);
-            assert.equal((await tx.query('SELECT pg_backend_pid() AS pid')).rows[0]!.pid, pid);
+            assert.deepEqual((await tx.queryClassic('SELECT n FROM compat_tx', [])).rows, [{ n }]);
+            assert.equal(
+              (await tx.queryClassic('SELECT pg_backend_pid() AS pid', [])).rows[0]!.pid,
+              pid,
+            );
             return pid;
           }),
         ),
       );
       assert.notEqual(pids[0], pids[1]);
-      await assert.rejects(pool.query('SELECT pg_sleep(5)', { timeoutMs: 30 }), {
+      await assert.rejects(pool.queryClassic('SELECT pg_sleep(5)', [], { timeoutMs: 30 }), {
         code: 'PGCLEAR_TIMEOUT',
       });
-      assert.deepEqual((await pool.query('SELECT 7 AS n')).rows, [{ n: 7 }]);
+      assert.deepEqual((await pool.queryClassic('SELECT 7 AS n', [])).rows, [{ n: 7 }]);
     } finally {
       await pool.close();
     }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { builtin, createPool, json, param, sql, type QueryTuple } from '../../src/index.js';
+import { builtin, createPool, json, param, sql } from '../../src/index.js';
 import { databaseUrl, ownedName, testConnection } from '../helpers/database.js';
 
 test(
@@ -12,9 +12,7 @@ test(
       for (const bad of ['\ud800', '\udc00', '\0']) {
         const text = `SELECT '${bad}' AS value`;
         for (const run of [
-          () => client.query(text),
-          () => client.query([text, []]),
-          () => client.query({ text }),
+          () => client.query(sql(Object.assign([text], { raw: [text] }))),
           () => client.queryClassic(text, []),
           () => client.describe(text),
           () => client.prepare(text),
@@ -40,7 +38,7 @@ test(
         );
         assert.equal(pulls, 0);
       }
-      assert.deepEqual((await client.query("SELECT '𐀀😀é' AS value")).rows, [{ value: '𐀀😀é' }]);
+      assert.deepEqual((await client.query(sql`SELECT '𐀀😀é' AS value`)).rows, [{ value: '𐀀😀é' }]);
     } finally {
       await client.close();
     }
@@ -48,7 +46,7 @@ test(
 );
 
 test(
-  'tagged, classic, tuple and object queries share values, codecs and result metadata',
+  'tagged and classic queries share values, codecs and result metadata',
   { timeout: 10000 },
   async () => {
     const { client } = await testConnection();
@@ -61,9 +59,6 @@ test(
     `;
       const tagged = await client.query(statement);
       const classic = await client.queryClassic(statement[0], statement[1]);
-      const tuple: QueryTuple = [statement[0], statement[1]];
-      const tupleResult = await client.query(tuple);
-      const object = await client.query({ text: statement[0], values: statement[1] });
       assert.deepEqual(tagged.rows, [
         {
           value,
@@ -71,7 +66,7 @@ test(
           payload: { unicode: '\uFEFFhello' },
         },
       ]);
-      for (const other of [classic, tupleResult, object]) assert.deepEqual(other, tagged);
+      assert.deepEqual(classic, tagged);
       assert.deepEqual(
         (
           await client.queryClassic<readonly [number, number]>(
@@ -170,3 +165,37 @@ test(
     }
   },
 );
+
+test('query rejects raw text, objects and copied tuples without executing them', async () => {
+  const { client } = await testConnection();
+  try {
+    await client.queryClassic('CREATE TEMP TABLE tag_only (id integer)', []);
+    const tagged = sql`INSERT INTO tag_only VALUES (1)`;
+    for (const input of [
+      tagged[0],
+      [tagged[0], tagged[1]],
+      { text: tagged[0], values: [] },
+      Object.freeze([tagged[0], tagged[1]]),
+      null,
+      undefined,
+    ]) {
+      await assert.rejects(client.query(input as never), {
+        code: 'PGCLEAR_ENCODE',
+        outcome: 'not-sent',
+      });
+    }
+    await assert.rejects(client.queryClassic(tagged as never, []), {
+      code: 'PGCLEAR_ENCODE',
+      outcome: 'not-sent',
+    });
+    assert.deepEqual((await client.query(sql`SELECT count(*) AS n FROM tag_only`)).rows, [
+      { n: 0n },
+    ]);
+    await client.query(tagged);
+    assert.deepEqual((await client.queryClassic('SELECT count(*) AS n FROM tag_only', [])).rows, [
+      { n: 1n },
+    ]);
+  } finally {
+    await client.close();
+  }
+});

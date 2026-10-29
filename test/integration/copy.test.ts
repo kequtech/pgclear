@@ -21,7 +21,7 @@ test(
   async () => {
     const { client } = await testConnection();
     try {
-      await client.query('CREATE TEMP TABLE copy_values (id integer, value text)');
+      await client.queryClassic('CREATE TEMP TABLE copy_values (id integer, value text)', []);
       const first = await client.copyFrom(
         'COPY copy_values FROM STDIN',
         bytes('1\t', 'one\n2\tt', 'wo\n'),
@@ -63,12 +63,18 @@ test(
   async () => {
     const { client } = await testConnection();
     try {
-      await client.query('CREATE TEMP TABLE copy_binary (n bigint, data bytea, label text)');
-      await client.query("INSERT INTO copy_binary VALUES(9007199254740993, '\\x00ff'::bytea, 'é')");
+      await client.queryClassic(
+        'CREATE TEMP TABLE copy_binary (n bigint, data bytea, label text)',
+        [],
+      );
+      await client.queryClassic(
+        "INSERT INTO copy_binary VALUES(9007199254740993, '\\x00ff'::bytea, 'é')",
+        [],
+      );
       const stream = client.copyTo('COPY copy_binary TO STDOUT (FORMAT binary)');
       const data = await output(stream);
       assert.equal(data.subarray(0, 11).toString('binary'), 'PGCOPY\n\xff\r\n\0');
-      await client.query('TRUNCATE copy_binary');
+      await client.queryClassic('TRUNCATE copy_binary', []);
       async function* fragmented() {
         for (let i = 0; i < data.length; i++) yield data.subarray(i, i + 1);
       }
@@ -77,7 +83,7 @@ test(
           .rowCount,
         1n,
       );
-      assert.deepEqual((await client.query('SELECT * FROM copy_binary')).rows, [
+      assert.deepEqual((await client.queryClassic('SELECT * FROM copy_binary', [])).rows, [
         { n: 9007199254740993n, data: new Uint8Array([0, 255]), label: 'é' },
       ]);
     } finally {
@@ -92,7 +98,7 @@ test(
   async () => {
     const { client } = await testConnection();
     try {
-      await client.query('CREATE TEMP TABLE copy_failures (n integer)');
+      await client.queryClassic('CREATE TEMP TABLE copy_failures (n integer)', []);
       let cleaned = false;
       const cause = Error('source fixture');
       async function* failing() {
@@ -108,7 +114,10 @@ test(
         return true;
       });
       assert.equal(cleaned, true);
-      assert.equal((await client.query('SELECT count(*) AS n FROM copy_failures')).rows[0]!.n, 0n);
+      assert.equal(
+        (await client.queryClassic('SELECT count(*) AS n FROM copy_failures', [])).rows[0]!.n,
+        0n,
+      );
       for (const value of ['2\n', undefined, {}]) {
         const source = {
           async *[Symbol.asyncIterator]() {
@@ -149,14 +158,14 @@ test(
       await assert.rejects(output(ordinary), { code: 'PGCLEAR_CONFIGURATION' });
       const syntax = client.copyTo('COPY');
       await assert.rejects(output(syntax), { code: '42601' });
-      await client.query('CREATE TEMP TABLE copy_direction (n integer)');
+      await client.queryClassic('CREATE TEMP TABLE copy_direction (n integer)', []);
       const input = client.copyTo('COPY copy_direction FROM STDIN');
       await assert.rejects(output(input), { code: 'PGCLEAR_CONFIGURATION' });
-      assert.equal((await client.query('SELECT 1 AS n')).rows[0]!.n, 1);
+      assert.equal((await client.queryClassic('SELECT 1 AS n', [])).rows[0]!.n, 1);
       await assert.rejects(client.copyFrom('COPY copy_direction TO STDOUT', bytes()), {
         code: 'PGCLEAR_CONFIGURATION',
       });
-      await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_CLOSED' });
+      await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_CLOSED' });
     } finally {
       await client.close();
     }
@@ -178,9 +187,9 @@ test(
         code: '42P01',
       });
       assert.equal(pulls, 0);
-      await client.query('CREATE TEMP TABLE copy_exclusive (n integer)');
+      await client.queryClassic('CREATE TEMP TABLE copy_exclusive (n integer)', []);
       const input = client.copyFrom('COPY copy_exclusive FROM STDIN', source());
-      await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_BUSY' });
+      await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_BUSY' });
       await assert.rejects(client.prepare('SELECT 1'), { code: 'PGCLEAR_BUSY' });
       await input;
       const stream = client.copyTo('COPY copy_exclusive TO STDOUT');
@@ -202,7 +211,7 @@ test(
   async () => {
     const { client } = await testConnection();
     try {
-      await client.query('CREATE TEMP TABLE copy_transaction (n integer)');
+      await client.queryClassic('CREATE TEMP TABLE copy_transaction (n integer)', []);
       await client.transaction(async (tx) => {
         const statement = await tx.prepare('SELECT 42 AS n');
         await tx.copyFrom('COPY copy_transaction FROM STDIN', bytes('1\n'));
@@ -222,7 +231,7 @@ test(
         assert.equal((await statement.query()).rows[0]!.n, 42);
       });
       assert.equal(
-        (await client.query('SELECT count(*) AS n FROM copy_transaction')).rows[0]!.n,
+        (await client.queryClassic('SELECT count(*) AS n FROM copy_transaction', [])).rows[0]!.n,
         2n,
       );
       await assert.rejects(
@@ -233,7 +242,7 @@ test(
         { message: 'rollback fixture' },
       );
       assert.equal(
-        (await client.query('SELECT count(*) AS n FROM copy_transaction')).rows[0]!.n,
+        (await client.queryClassic('SELECT count(*) AS n FROM copy_transaction', [])).rows[0]!.n,
         2n,
       );
     } finally {
@@ -254,7 +263,7 @@ test(
         break;
       }
       assert.deepEqual(await stream.completion, { status: 'closed' });
-      await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_CLOSED' });
+      await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_CLOSED' });
     } finally {
       await client.close();
     }
@@ -297,7 +306,7 @@ for (const direction of ['in', 'out'] as const)
       const { client } = await testConnection();
       const controller = new AbortController();
       try {
-        await client.query('CREATE TEMP TABLE copy_cancel (n integer)');
+        await client.queryClassic('CREATE TEMP TABLE copy_cancel (n integer)', []);
         const started = Promise.withResolvers<void>(),
           release = Promise.withResolvers<Uint8Array>();
         const source: CopySource = {
@@ -322,7 +331,7 @@ for (const direction of ['in', 'out'] as const)
         release.resolve(Buffer.from('123\n'));
         await rejected;
         assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
-        await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_CLOSED' });
+        await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_CLOSED' });
       } finally {
         await client.close();
       }
@@ -341,7 +350,7 @@ test(
     let pending: Promise<unknown> | undefined;
     try {
       await pool.withSession(async (session) => {
-        await session.query('CREATE TEMP TABLE copy_unawaited (n integer)');
+        await session.queryClassic('CREATE TEMP TABLE copy_unawaited (n integer)', []);
         pending = session.copyFrom(
           'COPY copy_unawaited FROM STDIN',
           bytes(Array.from({ length: 1000 }, (_, i) => String(i) + '\n').join('')),
@@ -349,7 +358,7 @@ test(
       });
       await pending;
       assert.equal(
-        (await pool.query('SELECT count(*) AS n FROM copy_unawaited')).rows[0]!.n,
+        (await pool.queryClassic('SELECT count(*) AS n FROM copy_unawaited', [])).rows[0]!.n,
         1000n,
       );
       await pool.withSession(async (session) => {
@@ -367,7 +376,7 @@ for (const direction of ['in', 'out'] as const)
   test(`COPY ${direction} deadline includes source/consumer idle time`, within, async () => {
     const { client } = await testConnection();
     try {
-      await client.query('CREATE TEMP TABLE copy_timeout (n integer)');
+      await client.queryClassic('CREATE TEMP TABLE copy_timeout (n integer)', []);
       if (direction === 'in') {
         const input: CopySource = {
           [Symbol.asyncIterator]() {
@@ -392,7 +401,7 @@ for (const direction of ['in', 'out'] as const)
         await stream[Symbol.asyncIterator]().next();
         await assert.rejects(stream.completion, { code: 'PGCLEAR_TIMEOUT', outcome: 'confirmed' });
       }
-      await assert.rejects(client.query('SELECT 1'), { code: 'PGCLEAR_CLOSED' });
+      await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_CLOSED' });
     } finally {
       await client.close();
     }
@@ -438,7 +447,7 @@ test(
       },
     });
     try {
-      await client.query('CREATE TEMP TABLE copy_readable_cancel (n integer)');
+      await client.queryClassic('CREATE TEMP TABLE copy_readable_cancel (n integer)', []);
       const failed = assert.rejects(
         client.copyFrom('COPY copy_readable_cancel FROM STDIN', source, {
           signal: controller.signal,
@@ -460,10 +469,10 @@ test('COPY reserves its scope before invoking source getters or iterators', with
   const { client } = await testConnection();
   const checks: Promise<void>[] = [];
   const checkOwnership = () => {
-    checks.push(assert.rejects(client.query('SELECT 99'), { code: 'PGCLEAR_BUSY' }));
+    checks.push(assert.rejects(client.queryClassic('SELECT 99', []), { code: 'PGCLEAR_BUSY' }));
   };
   try {
-    await client.query('CREATE TEMP TABLE copy_reentrant (n integer)');
+    await client.queryClassic('CREATE TEMP TABLE copy_reentrant (n integer)', []);
     const source: CopySource = {
       get [Symbol.asyncIterator]() {
         checkOwnership();
@@ -476,7 +485,9 @@ test('COPY reserves its scope before invoking source getters or iterators', with
     assert.equal((await client.copyFrom('COPY copy_reentrant FROM STDIN', source)).rowCount, 1n);
     await Promise.all(checks);
     assert.ok(checks.length >= 2);
-    assert.deepEqual((await client.query('SELECT n FROM copy_reentrant')).rows, [{ n: 1 }]);
+    assert.deepEqual((await client.queryClassic('SELECT n FROM copy_reentrant', [])).rows, [
+      { n: 1 },
+    ]);
   } finally {
     await client.close();
   }

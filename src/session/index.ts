@@ -11,6 +11,7 @@ import { DriverError } from '../errors.js';
 import { OutputStream, PortalStream } from '../connection/stream.js';
 import { PreparedHandle } from './prepared.js';
 import { sharedWeakMap } from '../identity.js';
+import { taggedQuery } from '../query.js';
 import type {
   ArrayQueryOptions,
   CloseOptions,
@@ -26,6 +27,7 @@ import type {
   Session,
   InputValue,
   QueryInput,
+  SqlQuery,
   Transaction,
   TransactionOptions,
   RowStream,
@@ -178,23 +180,26 @@ class ExecutorHandle {
     return this.scope.connection.transactionStatus;
   }
   query<T extends object = Row>(
-    statement: QueryInput<T>,
+    statement: SqlQuery<T>,
     options?: QueryOptions,
   ): Promise<QueryResult<T>>;
   query<T extends readonly unknown[] = readonly unknown[]>(
-    statement: QueryInput<T>,
+    statement: SqlQuery<T>,
     options: ArrayQueryOptions,
   ): Promise<QueryResult<T>>;
   query(
-    statement: QueryInput<object>,
+    statement: SqlQuery<object>,
     options: ArrayQueryOptions,
   ): Promise<QueryResult<readonly unknown[]>>;
   query(
-    statement: QueryInput<object>,
+    statement: SqlQuery<object>,
     options: QueryOptions | ArrayQueryOptions = {},
   ): Promise<QueryResult<object>> {
     return this.scope.call(() => {
-      return this.scope.connection.query(statement, this.scope.options(options, ['rowMode']));
+      return this.scope.connection.query(
+        taggedQuery(statement),
+        this.scope.options(options, ['rowMode']),
+      );
     });
   }
   queryClassic<T extends object = Row>(
@@ -212,9 +217,9 @@ class ExecutorHandle {
     values: readonly InputValue[],
     options: QueryOptions | ArrayQueryOptions = {},
   ): Promise<QueryResult<object>> {
-    return options?.rowMode === 'array'
-      ? this.query([text, values], options)
-      : this.query([text, values], options);
+    return this.scope.call(() =>
+      this.scope.connection.query([text, values], this.scope.options(options, ['rowMode'])),
+    );
   }
 
   stream<T extends object = Row>(statement: QueryInput<T>, options?: StreamOptions): RowStream<T>;
