@@ -46,6 +46,25 @@ See [M8](implementation-plan.md#m8--initial-release-gate) for the remaining adop
 
 ## Current verification and limits
 
+The prepared 0.1.0 candidate at `4201c09f29a0630acde0d5a712283637926d228c` passes the complete local
+PostgreSQL 16.15/18.0 matrix: 232 driver tests, three native compatibility workflows, 180 adapted
+Tenon tests and 20 packed candidate contract cases on each version. The original pg baseline's
+180 tests pass separately; its additional contract fixture passes 15 and skips five candidate-only
+cases. Candidate tests have no skips. Both runs used the same clean candidate and packed artifact,
+SHA256 `6d575d0406afaeb3c964ce8b7ce29ee8c5250871a8d6314e698be71d371546c6`.
+
+The runtime source is unchanged from 52a587e. Release preparation simplifies documentation and
+package contents, embeds sources in JavaScript maps, removes declaration maps and adapts the
+packed-consumer regression. The tested tarball is 164,681 bytes compressed, 674,769 bytes unpacked,
+with 108 files. [Release evidence](release-0.1.0-validation.json) retains the revision and matrix;
+the archive is kept locally at `.trial-dist/release-0.1.0/kequtech-pgclear-0.1.0.tgz`.
+
+Publication is not authorized by this preparation. Repository visibility remains private, Tenon's
+active checkout is unchanged, and no new GitHub CI run or push is claimed. Before publication,
+run CI on the chosen release revision and resolve public access to the linked repository resources.
+
+### Earlier implementation and benchmark verification
+
 Validated runtime revision: `52a587e37ffd49e5f0d6e63562f4fbf2e975a8b1`, with a clean working tree.
 PostgreSQL 16.15 and 18.0 runs used the identical packed driver artifact, SHA256
 `dc9380e9dbf0b876ed052f6ebf5e4dfa2265ab3c0fe71054c2ad97f8ff40beaf`.

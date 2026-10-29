@@ -1,0 +1,115 @@
+{
+  "package": "@kequtech/pgclear@0.1.0",
+  "candidateRevision": "4201c09f29a0630acde0d5a712283637926d228c",
+  "workingTreeDirty": false,
+  "runtimeSourceTree": "34578b99bd999dae8db73db42e25bfde647d21ff",
+  "runtimeUnchangedFrom": "52a587e37ffd49e5f0d6e63562f4fbf2e975a8b1",
+  "artifact": {
+    "sha256": "6d575d0406afaeb3c964ce8b7ce29ee8c5250871a8d6314e698be71d371546c6",
+    "size": 164681,
+    "unpackedSize": 674769,
+    "files": 108,
+    "localPath": ".trial-dist/release-0.1.0/kequtech-pgclear-0.1.0.tgz"
+  },
+  "node": "v24.4.1",
+  "commands": ["npm run check", "npm run test:compat", "npm run trial:tenon"],
+  "matrix": [
+    {
+      "postgres": "16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)",
+      "status": "passed",
+      "driver": {
+        "unit": 123,
+        "integration": 109
+      },
+      "nativeCompatibility": 3,
+      "tenon": {
+        "version": "0.3.1",
+        "commit": "4d6cb977a4c7fa71ee836ca056bdf95986d4ab3a",
+        "checks": [
+          {
+            "label": "baseline-full-check",
+            "status": "passed",
+            "tests": 180,
+            "pass": 180,
+            "fail": 0,
+            "skipped": 0
+          },
+          {
+            "label": "candidate-full-check",
+            "status": "passed",
+            "tests": 180,
+            "pass": 180,
+            "fail": 0,
+            "skipped": 0
+          },
+          {
+            "label": "baseline-contracts",
+            "status": "passed",
+            "tests": 20,
+            "pass": 15,
+            "fail": 0,
+            "skipped": 5
+          },
+          {
+            "label": "candidate-contracts",
+            "status": "passed",
+            "tests": 20,
+            "pass": 20,
+            "fail": 0,
+            "skipped": 0
+          }
+        ]
+      },
+      "localReport": ".trial-dist/tenon-m4-gvqjDo/report.json"
+    },
+    {
+      "postgres": "18.0",
+      "status": "passed",
+      "driver": {
+        "unit": 123,
+        "integration": 109
+      },
+      "nativeCompatibility": 3,
+      "tenon": {
+        "version": "0.3.1",
+        "commit": "4d6cb977a4c7fa71ee836ca056bdf95986d4ab3a",
+        "checks": [
+          {
+            "label": "baseline-full-check",
+            "status": "passed",
+            "tests": 180,
+            "pass": 180,
+            "fail": 0,
+            "skipped": 0
+          },
+          {
+            "label": "candidate-full-check",
+            "status": "passed",
+            "tests": 180,
+            "pass": 180,
+            "fail": 0,
+            "skipped": 0
+          },
+          {
+            "label": "baseline-contracts",
+            "status": "passed",
+            "tests": 20,
+            "pass": 15,
+            "fail": 0,
+            "skipped": 5
+          },
+          {
+            "label": "candidate-contracts",
+            "status": "passed",
+            "tests": 20,
+            "pass": 20,
+            "fail": 0,
+            "skipped": 0
+          }
+        ]
+      },
+      "localReport": ".trial-dist/tenon-m4-Bc3IIa/report.json"
+    }
+  ],
+  "scope": "Local validation only. No publication, push, new GitHub CI run, repository visibility change or change to the active Tenon checkout."
+}
