@@ -13,8 +13,11 @@ import { createPool } from '@kequtech/pgclear';
 
 const pool = createPool({ connectionString: process.env.DATABASE_URL! });
 try {
-  const result = await pool.queryClassic<{ value: number }>('SELECT $1::integer AS value', [42]);
-  console.log(result.rows[0]?.value);
+  const text = 'SELECT $1 AS message';
+  const values = ['Hello, PostgreSQL!'];
+
+  const result = await pool.queryClassic(text, values);
+  console.log(result.rows[0]?.message);
 } finally {
   await pool.close();
 }
