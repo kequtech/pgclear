@@ -14,7 +14,7 @@ import {
   type GenerateOptions,
   type Pool,
   type Session,
-} from './api-contract.js';
+} from '../../src/index.js';
 
 export function decoderRepresentation(oid: number): string | undefined {
   return defaultCodecs.typescript(oid);

@@ -1,282 +1,104 @@
-# Driver benchmarks
+# Benchmarks
 
-M7a measures the packed pgclear driver against pinned `pg` 8.23.1 and Postgres.js 3.4.9. Comparator
-dependencies live here, outside the driver's runtime dependencies. These are local exploratory
-measurements, not release gates or universal rankings.
+The runner compares packed pgclear with pinned pg 8.23.1 and Postgres.js 3.4.9. Comparator
+dependencies stay outside the driver. Results are local exploratory measurements, not production
+capacity estimates or universal driver rankings.
 
-## Reproduce
+## Run
 
-Run from the repository checkout with Node 24+, the root npm dependencies, `tar`, and the existing `PGCLEAR_TEST_DATABASE_URL` in
-`.env`. The runner accepts only a TCP database whose name ends in `_test`, with TLS disabled and
-no URL options other than `sslmode=disable`. It creates no tables or persistent database objects.
-Benchmark documentation, retained results, scripts and comparator dependencies belong to the
-repository checkout and are available on GitHub.
+Use Node 24+, root dependencies, tar and `PGCLEAR_TEST_DATABASE_URL` in the root `.env`. The database
+must be a TCP `_test` database with TLS disabled and no URL options except `sslmode=disable`.
+The runner creates no tables or persistent database objects. Run without concurrent tests or load.
 
 ```sh
 npm ci --prefix benchmarks --ignore-scripts --no-audit --no-fund
 npm run benchmark
-# Quick adapter/correctness smoke test:
+# Short correctness/adapter check:
 npm run benchmark -- --iterations 30 --samples 1 --latencies 0,10
 ```
 
-Defaults: 1,000 operations, three repetitions and 0/10 ms added round-trip delay. Large results use
-50 operations and transactions use 100; `--iterations` scales these counts. Workload order is fixed;
-driver order rotates each repetition. Run on a quiet machine without concurrent tests or consumers.
-Each worker has a 180-second limit; reduce operation counts when testing larger RTTs.
-The runner builds and packs pgclear once, verifies the test database, and starts a fresh Node process
-for each driver/workload/repetition/profile. Connection establishment, type discovery, preparation,
-warmup and cleanup occur outside the measured interval.
+Defaults are 1,000 operations, three samples and 0/10 ms added RTT. Large results use 50 queries;
+transactions use 100. `--iterations` scales those counts. Driver order rotates across samples.
+Each worker has a 180-second limit. Build, connection setup, discovery, preparation, warmup and
+cleanup are outside the measured interval.
 
-Output goes to ignored `.benchmark-dist/run-*`; `.benchmark-dist/latest.json` points to the last
-finished attempt. Individual JSON files retain every measured latency. `report.json` contains all
-per-repetition metrics, cross-repetition summaries, exact comparator versions/lock hash, packed-driver
-hash, Git revision/dirty flag, machine, Node and PostgreSQL versions. Credentials are passed only in
-the worker environment and are not written to results. Failed attempts remain marked as failed.
+Output goes to ignored `.benchmark-dist/run-*`; `.benchmark-dist/latest.json` points to the latest
+attempt. Reports retain raw latencies, configuration, versions, Git revision/dirty flag, artifact
+hashes, machine and Node/PostgreSQL versions. Failed attempts remain marked failed. Database
+credentials are passed through the worker environment and omitted from results.
 
-## Workloads and equivalence
+## Workloads
 
-| Workload         | Operation and admission                                                             |
-| ---------------- | ----------------------------------------------------------------------------------- |
-| `small`          | Sequential unnamed extended-protocol `SELECT $1::integer`                           |
-| `prepared`       | Same SELECT with a warmed explicitly named/prepared statement                       |
-| `large`          | 1,000 integer object rows per sequential query                                      |
-| `arrays-json`    | Round-trip an int4 array and JSON object using native binding helpers               |
-| `transaction`    | Sequential public transaction callback containing one SELECT; pool limit four       |
-| `pool`           | Sixteen concurrent callers, four connections, one operation per acquired connection |
-| `pipeline-probe` | One connection, warmed prepared SELECT, 32 callers; comparator pipelines enabled    |
+| Name             | Operation                                            |
+| ---------------- | ---------------------------------------------------- |
+| `small`          | Sequential unnamed parameterized integer SELECT      |
+| `prepared`       | The same SELECT with a warmed prepared statement     |
+| `large`          | 1,000 integer object rows per query                  |
+| `arrays-json`    | Native int4-array and JSON round trip                |
+| `transaction`    | Transaction callback with one SELECT; pool size four |
+| `pool`           | Sixteen callers sharing four connections             |
+| `pipeline-probe` | Thirty-two callers on one warmed prepared connection |
 
-The six baseline workloads use object rows with matching native integer, array and JSON results and
-one active operation per connection. Each operation asserts the returned values, including array
-and JSON contents. pgclear uses `queryClassic`, `param`/`json`, explicit `prepare`, and its pool and
-transaction APIs. pg uses extended queries, named statements, and explicit BEGIN/COMMIT on an
-acquired client. Postgres.js uses `unsafe` with extended protocol, preparation enabled only in the
-prepared/probe workloads, and `begin` for transactions. Each driver's public API can incur different
-control/description round trips; this measures those APIs rather than rewriting their internals.
+The six baseline workloads use object rows, matching native values and one active operation per
+connection. Each operation checks its returned values. pgclear uses queryClassic and its native
+parameter/session APIs; pg uses extended queries and acquired transaction clients; Postgres.js uses
+extended unsafe queries and begin/reserve APIs. API-specific round trips are part of the measurement.
+Postgres.js discovery finishes before timing. Its pool baseline reserves sessions explicitly because
+`max_pipeline: 1` alone does not prevent a second operation being sent.
 
-Postgres.js's `max_pipeline: 1` alone does not prevent a second queued operation from being sent;
-its queue count excludes the active query. Setting zero also prevents its transaction reservation
-callback. The baseline pool case therefore uses its public `reserve`/`release`; other baseline
-cases submit sequentially. Array type discovery completes before creating typed array parameters.
-The fixture does not patch either comparator.
+The pipeline probe deliberately enables comparator pipelining while pgclear remains sequential.
+It compares different schedulers and must not be used as a baseline ranking. Pipelining can reduce
+round-trip waits for independent requests available ahead of time; it does not make one PostgreSQL
+backend execute queries simultaneously. pgclear does not implement it.
 
-The separate pipeline probe enables `pipeline: true` in pg and `max_pipeline: 32` in Postgres.js.
-pgclear retains its sequential scheduler. This diagnostic intentionally compares different
-schedulers to estimate potential pipeline benefit; it is not a baseline performance ranking.
+## Reading metrics
 
-## Metrics and limits
+A common bounded TCP relay adds half the requested RTT in each direction and applies backpressure.
+Even 0 ms includes relay overhead. It does not emulate bandwidth limits, packet loss, TLS or a real
+remote server. Timer scheduling adds noise.
 
-Each profile uses the same bounded TCP relay. Added RTT means half the configured delay in each
-direction, scheduled from chunk arrival, with backpressure and a 1 MiB pause threshold per direction.
-It preserves ordered bytes and half-close behavior; it does not emulate bandwidth limits, packet
-loss, TLS, or a real remote server. The 0 ms profile still includes relay overhead. Timer scheduling
-and the underlying local network add noise, so 10 ms is not a claim of exact total network latency.
+Throughput counts completed operations: a large operation returns 1,000 rows, and a transaction
+includes BEGIN/SELECT/COMMIT. Latencies include client queueing and correctness assertions. Per-run
+percentiles use nearest rank; summaries take medians across repetitions, not pooled distributions.
+Three short samples do not establish precise tails or attribute small performance changes.
 
-Throughput is completed operations/second; a transaction is one operation containing three
-statements, and a large query contains 1,000 rows. Latency includes client queueing and common
-correctness assertions. p50/p95/p99 use nearest-rank percentiles of raw samples; summary medians are
-medians across repetitions, not pooled request distributions. With only three repetitions and 50
-large-result operations, tails are descriptive, not precise statistical estimates.
+CPU is the worker process's user/system delta, excluding PostgreSQL and relay CPU. RSS includes the
+runtime baseline and is sampled every 10 ms, so peaks can be missed. It is not an allocation profile.
+Use longer repetitions and representative application workloads before drawing performance claims.
+Harness checks run with the unit tests; benchmarks themselves are opt-in and outside CI timing gates.
 
-Client CPU is the measured process's user+system delta. It excludes relay/PostgreSQL CPU and process
-startup. RSS/heap start/end and RSS sampled every 10 ms are retained; sampled peak RSS can miss brief
-peaks and includes the worker/runtime baseline. These are not allocation profiles. Performance
-changes need longer runs, repetitions across environments and a representative consumer workload.
+## Recorded results
 
-The benchmark harness's numeric-percentile and byte-preserving relay checks run in `npm run check`.
-Benchmark execution itself is opt-in and stays outside CI timing gates.
-
-## What pipelining buys
-
-Sequential execution sends one query and waits for its response before sending the next. Pipelining
-sends several queries ahead on the same connection, then associates the ordered responses with their
-callers. PostgreSQL still executes them in order; a pool instead uses several server connections.
-Pipelining is useful for many small operations over a higher-latency network when the client can
-construct subsequent requests without reading earlier results. Long server computations and
-client-dependent query chains gain less. Prefer set-based SQL or COPY where they fit the operation.
-See [PostgreSQL's pipeline documentation](https://www.postgresql.org/docs/18/libpq-pipeline-mode.html).
-
-It also expands the driver's recovery responsibilities: several requests may already be sent when
-an error, cancellation or shutdown occurs. Correct result ownership, sent-queue limits and explicit
-transaction boundaries must survive those cases. The maintainer deferred M7b outside the first
-release because that maintenance cost is not justified by a current consumer requirement
-([D33](../docs/decisions.md#d33--defer-pipelining-and-proceed-to-release-readiness)). The probe remains
-useful evidence for a future decision; M8 release readiness is the next milestone.
-
-## Profiling
-
-The follow-up used Node's native `--cpu-prof --cpu-prof-interval=500` against the existing worker,
-with 100,000 configured iterations, 100 warmup operations and the same 0 ms relay. This means 5,000
-large queries (five million rows) or 100,000 pool operations. CPU profiles include startup, warmup
-and cleanup, so their timing is diagnostic rather than a replacement for uninstrumented benchmarks.
-Raw profiles and worker metrics remain in ignored `.benchmark-dist/profiles-before/` and
-`.benchmark-dist/profiles-after/` in the producing checkout.
-
-Before changes, row mapping accounts for about 33% of sampled active time inclusively, and expiry
-error construction alone accounts for about 14% in the pool profile. Numeric readers also allocate
-short-lived Buffer views; ordinary packet handling creates a promise/microtask for each row.
-Row mapping combines decoding and entry construction in one map for `Object.fromEntries`.
-Numeric readers use bounded direct reads, and ordinary packets process synchronously. Scope expiry
-signals/errors are lazy, unconstrained lifetimes avoid abort composition, and empty cleanup drains
-return immediately. Authentication, recovery,
-stream/COPY backpressure, strict UTF8 and copied payload ownership retain their existing rules.
-No generated row functions, decoder cache, alternative pool scheduler or runtime dependency is added.
-
-For a direct CPU exploration without the relay, build once, then profile either worker workload:
-
-```sh
-npm run build
-mkdir -p .benchmark-dist/profiles
-node --env-file-if-exists=.env --cpu-prof --cpu-prof-interval=500 \
-  --cpu-prof-dir=.benchmark-dist/profiles --input-type=module - pool <<'JS'
-import { resolve } from 'node:path';
-process.env.PGCLEAR_BENCH_DATABASE_URL = process.env.PGCLEAR_TEST_DATABASE_URL;
-process.env.PGCLEAR_BENCH_PACKAGE = resolve('dist/index.js');
-process.argv[2] = JSON.stringify({
-  driver: 'pgclear', workload: process.argv[2], iterations: 100000, warmup: 100,
-  poolSize: 4, concurrency: 16, batchSize: 32, sample: 0, addedRttMs: 0,
-  output: '.benchmark-dist/profiles/worker.json'
-});
-await import('./benchmarks/worker.mjs');
-JS
-```
-
-Replace `pool` with `large` for result decoding. Load the generated `.cpuprofile` in a V8-compatible
-CPU profile viewer. Keep uninstrumented benchmark runs separate and compare the same configuration.
-
-## Profiled follow-up results
-
-Runtime changes were committed before measurement: `37b38df`, followed by the simpler native row
-mapping in `990ac77`. The working tree was clean for the full matrix, the alternating comparison
-and the final packed Tenon trial. No benchmark settings or runtime dependencies changed.
-
-The full matrix passed **126 measurements** with the original 1,000-iteration/three-repetition
-configuration. On the 0 ms profile, large-result throughput moved from 506 to 621 queries/second
-and pool throughput from 4,366 to 6,481. Median client CPU fell from 2.27 to 1.78 ms per large query
-and from 0.322 to 0.230 ms per pool operation. The unchanged comparison drivers also moved by
-roughly 10% in these workloads, so a longer alternating comparison checked the result under closer
-conditions. At 10 ms added RTT, sequential/pool throughput remains largely network-bound.
-
-The alternating comparison reuses the exact initial and new packed pgclear artifacts with the
-same worker and 0 ms relay. Each workload has **five repetitions per artifact**, with phase order
-reversed on odd repetitions. It configures 10,000 iterations and 100 warmup operations: 500 queries
-of 1,000 rows, or 10,000 pool queries with four connections and 16 callers. These longer runs are
-separate from the shorter matrix; their absolute rates should not be compared across configurations.
-
-Medians across those five repetitions:
-
-| Metric                   | Large result, before → after | Pool contention, before → after |
-| ------------------------ | ---------------------------: | ------------------------------: |
-| Queries/second           |         569 → 693 (**+22%**) |       6,001 → 11,582 (**+93%**) |
-| Client CPU per operation |  1.726 → 1.341 ms (**−22%**) |     0.205 → 0.103 ms (**−50%**) |
-| p50 latency              |               1.68 → 1.36 ms |                  2.39 → 1.20 ms |
-| p95 latency              |               2.28 → 1.90 ms |                  4.26 → 2.26 ms |
-| p99 latency              |               2.83 → 2.39 ms |                  6.69 → 3.35 ms |
-| Sampled peak worker RSS  |              84.3 → 83.2 MiB |                196.2 → 85.6 MiB |
-
-Every paired repetition has higher throughput in both workloads. RSS includes the runtime baseline and GC behavior;
-the reduction indicates lower pressure in these runs, not a proof of a memory leak or a general
-allocation profile. These remain local, exploratory measurements rather than production guarantees.
-
-Evidence:
-
-- [Full matrix metrics](results/profiled-2026-10-28.csv) and
-  [configuration/provenance](results/profiled-2026-10-28.json).
-- [Alternating old/new metrics](results/paired-2026-10-28.csv) and
-  [configuration/artifact hashes](results/paired-2026-10-28.json).
-- [CPU profile summaries and hashes](results/profiles-2026-10-28.json).
-
-Complete raw samples/reports remain in `.benchmark-dist/run-5BmYiu/` and
-`.benchmark-dist/paired-tK1TlZ/`. Diagnostic launch scripts are retained with the ignored profile and
-paired artifacts. The original artifact has the M6 runtime source; its dirty flag reflects the
-then-uncommitted benchmark/consumer fixture and documentation. The new runtime is `990ac77`.
-
-Validation at that checkpoint passes **219 driver/harness tests**, **three native compatibility
-tests**, the original Tenon pg baseline's **180 tests**, and all **20 candidate consumer cases**.
-The final Tenon report is `.trial-dist/tenon-m4-kVzHLC/report.json`; its packed driver SHA256 matches
-the full benchmark's artifact. All follow-up runs here use PostgreSQL 16.15. PostgreSQL 18 CI
-evidence remains the earlier M6 checkpoint; full Tenon adoption remains open and M7b is deferred.
-
-## Initial measurements
-
-The 2026-10-28 run passed all **126 measurements**: seven workloads, three drivers, three
-repetitions, two added-RTT profiles. Node 24.4.1 and PostgreSQL 16.15 ran on Linux/WSL2 with an AMD
-Threadripper 3970X. Runtime driver sources match M6 `0d31732`; the working tree contains this new
-harness, consumer fixture and documentation. The packed artifact hash identifies the measured build.
-
-Checked-in evidence: [per-repetition metrics](results/local-2026-10-28.csv) and
-[configuration/provenance](results/local-2026-10-28.json). Complete per-request latency arrays and
-the original report remain in `.benchmark-dist/run-o9qK8H/` in the producing checkout.
-
-Median completed operations/second across the three repetitions:
-
-| Baseline workload  | Added RTT | pgclear |    pg | Postgres.js |
-| ------------------ | --------- | ------: | ----: | ----------: |
-| Small unnamed      | 0 ms      |   2,612 | 2,873 |       1,610 |
-| Prepared           | 0 ms      |   2,605 | 2,689 |       2,695 |
-| Large (1,000 rows) | 0 ms      |     506 |   979 |         876 |
-| Arrays/JSON        | 0 ms      |   2,346 | 2,621 |       1,530 |
-| Transaction        | 0 ms      |     753 |   998 |         790 |
-| Pool contention    | 0 ms      |   4,366 | 9,232 |       5,072 |
-| Small unnamed      | 10 ms     |      89 |    89 |          45 |
-| Prepared           | 10 ms     |      89 |    90 |          91 |
-| Large (1,000 rows) | 10 ms     |      79 |    83 |          83 |
-| Arrays/JSON        | 10 ms     |      87 |    90 |          45 |
-| Transaction        | 10 ms     |      30 |    30 |          23 |
-| Pool contention    | 10 ms     |     334 |   336 |         172 |
-
-pgclear is close on local prepared single-row queries, but trails pg on large results and pool
-contention. Median client CPU per 1,000-row operation is approximately 2.27 ms versus pg's 1.19 ms;
-pool-operation CPU is 0.322 ms versus 0.142 ms. These observations justify profiling the result and
-pool paths; they do not locate the cause. In those local workloads, pgclear's median p95 latency is
-2.59/6.10 ms versus pg's 1.99/2.83 ms. Sampled peak RSS is 74.7/83.7 MiB versus 73.5/72.5 MiB;
-RSS includes the entire worker/runtime baseline. All repetitions and tail/memory metrics are in the CSV.
-
-With 10 ms added RTT, pgclear and pg converge on roughly 89 sequential small queries/second. The
-pinned Postgres.js unnamed API performs a description round trip before binding parameterized
-queries, explaining its different network ceiling here; warmed preparation brings all three close.
-
-The separate **pipeline diagnostic**, with 32 callers on one prepared connection, gives:
-
-| Added RTT | pgclear sequential | pg pipeline enabled | Postgres.js pipeline enabled |
-| --------- | -----------------: | ------------------: | ---------------------------: |
-| 0 ms      |              2,930 |              20,561 |                       31,585 |
-| 10 ms     |                 90 |               2,594 |                        1,998 |
-
-At 10 ms the median p95 latency is 360.30 ms for queued sequential pgclear, 13.08 ms for pg's
-pipeline and 22.82 ms for Postgres.js's pipeline. This demonstrates an opportunity for requests
-available ahead of time; it does not predict pgclear's eventual pipeline throughput. Existing code
-that awaits each response before submitting another query would still be sequential.
-
-These initial measurements motivated the profiled follow-up above. M7b is deferred pending a
-demonstrated consumer need. Full Tenon adoption and the M8 release
-checks remain separate correctness work. No benchmark result justifies weakening ownership rules.
-
-## Adoption regression check — 2026-10-29
-
-Runtime revision 52a587e, clean tree, Node 24.4.1 and PostgreSQL 16.15; the packed artifact is the
-same one used for the full PostgreSQL 16/18 driver and Tenon validation. Reproduce with:
+The latest retained run used clean runtime revision 52a587e, Node 24.4.1 and PostgreSQL 16.15, with
+1,000 configured iterations, three samples and only the 0 ms added-RTT profile:
 
 ```sh
 npm run benchmark -- --iterations 1000 --samples 3 --latencies 0
 ```
 
-[Metadata and summaries](results/adoption-2026-10-29.json) and
-[63 measurements](results/adoption-2026-10-29.csv) retain all seven existing workloads and three
-drivers. This check repeats only the local 0 ms added-RTT profile. Compare the matching rows in the
-previous profiled-2026-10-28.csv, whose other profile adds 10 ms.
+Median operations/second:
 
-| pgclear workload    | Previous ops/s | Current ops/s | Observed change |
-| ------------------- | -------------: | ------------: | --------------: |
-| Small               |          2,736 |         2,860 |           +4.5% |
-| Prepared            |          2,892 |         3,077 |           +6.4% |
-| 1,000-row result    |            621 |           632 |           +1.8% |
-| Arrays/JSON         |          2,369 |         2,356 |           -0.6% |
-| Transaction         |            738 |           814 |          +10.4% |
-| Pool                |          6,481 |         6,831 |           +5.4% |
-| Pipeline diagnostic |          3,283 |         3,355 |           +2.2% |
+| Baseline workload | pgclear |    pg | Postgres.js |
+| ----------------- | ------: | ----: | ----------: |
+| Small             |   2,860 | 2,911 |       1,637 |
+| Prepared          |   3,077 | 3,130 |       3,146 |
+| 1,000-row result  |     632 |   939 |         970 |
+| Arrays/JSON       |   2,356 | 2,487 |       1,420 |
+| Transaction       |     814 |   979 |         776 |
+| Pool              |   6,831 | 9,119 |       4,659 |
 
-Values are medians of three repetitions. Large-result client CPU is 88 ms versus 89 ms previously;
-its sampled peak RSS is 71.1 versus 73.5 MiB. Pool CPU is 221 versus 230 ms and sampled peak RSS is
-76.8 versus 80.4 MiB. These short, separate runs show no material regression; they do not isolate
-the changes or establish an optimization benefit. The pipeline diagnostic still uses different
-schedulers across drivers and is not a baseline ranking. Pipelining remains deferred.
+[Full measurements](results/adoption-2026-10-29.csv) and
+[configuration/summaries](results/adoption-2026-10-29.json) include the separate pipeline diagnostic,
+latencies, CPU and RSS. Matching prior samples showed no material regression; these short separate
+runs do not isolate an optimization benefit.
+
+Earlier evidence remains available for reproduction and comparison:
+
+- [Initial matrix](results/local-2026-10-28.json) and [measurements](results/local-2026-10-28.csv).
+- [Profiled matrix](results/profiled-2026-10-28.json) and [measurements](results/profiled-2026-10-28.csv).
+- [Alternating old/new comparison](results/paired-2026-10-28.json) and [measurements](results/paired-2026-10-28.csv).
+- [CPU profile summaries and hashes](results/profiles-2026-10-28.json).
+
+These checkpoints use different revisions/configurations. Compare their recorded settings rather
+than treating the sequence as a continuous performance trend. Full raw artifacts remain in ignored
+benchmark directories in the producing checkout.

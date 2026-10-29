@@ -1,316 +1,92 @@
 # Architecture
 
-## Module boundaries
+pgclear is one TypeScript package using Node networking, TLS, crypto and streams. It has no runtime
+dependencies. Public entry points are in `src/index.ts`; internal modules are not package exports.
 
-One npm package. Node net/tls/crypto/stream provide transport, authentication primitives, and stream
-integration. PostgreSQL-compatible password preparation uses fixed generated stringprep tables
-and native NFKC normalization, with no runtime dependencies. Write the small protocol core in TypeScript;
-do not embed pg, fork Postgres.js, or publish separate internal packages.
+## Responsibilities
 
-| Module                                       | Owns                                                               | Must not own                                            |
-| -------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------- |
-| `config/`                                    | URI parsing, precedence, validation, safe credential access        | sockets or global mutable options                       |
-| `protocol/`                                  | framing, encoders, discriminated backend messages                  | SQL building, retries, JS type policy                   |
-| `auth/`                                      | SCRAM/MD5/password exchanges, proof and channel-binding validation | pooling or reconnect supervision                        |
-| `transport/`                                 | socket/TLS lifecycle, backpressure, cancellation transport         | request-to-result ownership                             |
-| `codecs/`                                    | text/binary conversions, immutable registry, typed parameters      | catalog fetching or network I/O                         |
-| `query.ts`                                   | value-only SQL tag and immutable text/values tuples                | SQL composition, generation or checking                 |
-| `connection/`                                | physical session, operation queue, protocol state, metadata        | automatic session resurrection                          |
-| `session/`                                   | expiring capabilities, preparation, transaction/savepoint scopes   | replacing physical connections                          |
-| `pool/`                                      | FIFO acquisition, capacity, leases, retirement and close           | SQL rewriting or write retries                          |
-| `connection/stream.ts`, `connection/copy.ts` | bounded row/byte handoff, COPY source/write lifecycle              | bypassing the connection scheduler                      |
-| `listener/`                                  | dedicated LISTEN connection, registrations, optional supervision   | sharing a query pool connection                         |
-| `generation/`                                | explicit read-only catalogs and TypeScript schema declarations     | file output, checking or migration coordination         |
-| `errors.ts`, `events.ts`                     | public diagnostics and safe observation                            | automatic logging of SQL/values                         |
-| `index.ts`                                   | intentional public exports                                         | accidental exports of internal socket/message machinery |
+| Module                    | Responsibility                                                         |
+| ------------------------- | ---------------------------------------------------------------------- |
+| `config/`                 | URI/options validation and configuration snapshots                     |
+| `protocol/`               | Framing, frontend encoding and backend message decoding                |
+| `auth/`                   | Password, MD5, SCRAM and channel-binding verification                  |
+| `transport/`              | Socket/TLS lifecycle, backpressure and cancellation transport          |
+| `codecs/`                 | Value conversion, immutable registries and explicit parameters         |
+| `query.ts`                | Value-binding tag and text/values tuples                               |
+| `connection/`             | Physical connection, operation queue and protocol recovery             |
+| `session/`                | Expiring handles, prepared statements and transaction/savepoint scopes |
+| `pool/`                   | FIFO acquisition, capacity, leases, retirement and shutdown            |
+| `listener/`               | Dedicated LISTEN connection and optional reconnect                     |
+| `generation/`             | Read-only catalogs and TypeScript schema rendering                     |
+| `errors.ts`, `observe.ts` | Diagnostics and isolated observation callbacks                         |
 
-Layer communication is ordinary functions, discriminated unions and small responsibility-specific
-interfaces. Avoid a plugin framework, generic event bus, dependency injection container, or public
-raw-protocol escape hatch. Add an internal adapter only where a real boundary benefits testing.
+SQL composition, query checking, migrations, file output and application row policies belong to
+consumers. `query` and `queryClassic` share the same encoding and execution path.
 
-`identity.ts` shares versioned weak maps across package installations in one realm for parameters,
-registries, decoder representations, executor scopes and errors. They retain no keys strongly and
-do not share connection schedulers or change ownership. Foreign handles still execute through the
-creating copy's scope and methods. Incompatible internal identity contracts require new keys.
+## Ownership and recovery
 
-M1–M6 implement these boundaries. Transport owns socket/TLS lifetime; the connection owns
-authentication and protocol/request state. Cancellation reuses that transport boundary for a separate
-verified connection without startup/authentication. Codecs own value conversion;
-`connection/query.ts` builds frontend operations. Stream/COPY helpers remain inside the connection
-module, where their protocol lifecycle is owned; listeners add one dedicated supervision task.
+A physical connection executes one operation at a time. An operation reserves its queue slot before
+calling user encoders, validates/encodes before sending bytes, and settles after protocol recovery.
+Decoder failures do not stop draining the server response. Malformed protocol data closes the
+connection. Byte limits cover frames/results; public byte values do not borrow recycled buffers.
 
-## Physical connection state
+Lease, transaction, savepoint and prepared handles belong to an exact scope. Scope exit fences new
+calls before asynchronous cleanup and never reactivates an expired handle. Savepoints reserve the
+parent for their whole callback and recovery. Cleanup shares an absolute five-second budget across
+statement disposal, rollback and release.
 
-```mermaid
-stateDiagram-v2
-  [*] --> connecting
-  connecting --> authenticating
-  authenticating --> ready
-  ready --> executing
-  executing --> ready: ReadyForQuery
-  executing --> streaming
-  streaming --> ready: protocol recovery complete
-  ready --> closing
-  executing --> closing
-  streaming --> closing
-  connecting --> closed: error or deadline
-  authenticating --> closed: error or deadline
-  ready --> closed: unexpected transport loss
-  executing --> closed: unexpected transport loss
-  streaming --> closed: unexpected transport loss
-  closing --> closed
-  closed --> [*]
-```
+Pool capacity includes connecting and retiring sessions. Release returns only a safely idle session;
+it does not reset arbitrary SQL state. A pool can establish a new connection for later work, but a
+closed connection or expired handle never reconnects itself.
 
-There is deliberately no `closed -> connecting` edge. Reconnection creates a new object, new local
-session ID, new backend identity, and new capability generation. Protocol transaction state (I/T/E)
-is a separate field updated by every ReadyForQuery. Session status is not inferred from SQL strings.
+## Protocol operations
 
-A capability has `active -> expiring -> expired` state and a captured owner/generation. Expiring
-fences new calls synchronously before asynchronous cleanup. A physical connection becoming closed
-expires all child handles immediately. A pool lease generation changes on every checkout, even when
-the same physical socket is retained. Every lease and child scope is a fresh, permanently expiring object. M3 uses object ownership
-instead of a reusable numeric generation; a returned connection never reactivates its previous
-capability. Prepared handles follow the same ownership rule.
+Ordinary queries use unnamed Parse/Bind/Describe/Execute/Sync. Describe omits Bind/Execute. Explicit
+preparation creates a named statement, waits for confirmation and disposes it with its creating
+scope. Scripts use the simple protocol and preserve PostgreSQL's transaction semantics.
 
-## Operation ownership and dispatch
+Row streams hold one operation across demand-driven Execute/Flush batches on the unnamed portal.
+Completion or early close reaches ReadyForQuery before reuse. COPY shares exclusive ownership and
+bounded row/byte handoff. Input pulls run independently of backend message processing, respect write
+backpressure and fence late source results. COPY output early close cancels and retires the session.
 
-Each accepted operation records its owner/generation, local ID, deadline, encoded request buffers,
-phase (`queued`, `sent`, `recovering`, `settled`), resolver/rejector, expected response state, and
-completion evidence. Store no secret values in enumerable error/event properties.
+Cancellation before dispatch removes queued work. Active cancellation uses a separate transport and
+retires the original session, preventing a late cancel from affecting another request. Error outcome
+records observed evidence, not a guess about rollback. Lost COMMIT acknowledgement is distinct from
+a confirmed COMMIT followed by connection loss. Work and cleanup failures are preserved together.
 
-1. Validate input and owner; reject already aborted or expired calls.
-2. Reserve a bounded FIFO slot before calling user encoders, since an encoder may reenter the
-   connection. Encoding is an unsent operation phase, not an independent scheduler.
-3. Resolve parameter encoders and serialize the complete operation before writing its first byte.
-   A failure settles only this operation as not-sent and releases its slot. Recheck the deadline
-   after synchronous encoding, which may have prevented timer callbacks from running.
-4. Write complete framed buffers with socket backpressure. A partial write failure destroys the
-   connection; it cannot safely retry or reclaim the request as not-sent.
-5. Route backend messages only to the active operation. Notices, parameter status, notifications and
-   fatal errors are handled independently at any permitted point.
-6. Capture command/error evidence, drain to ReadyForQuery, update transaction state, then settle and
-   release the slot. A decoder exception cannot stop reading the recovery messages.
+Close permanently fences admission, stops waiters/retries, drains permitted work and disposes all
+owned resources within its deadline. It cannot stop arbitrary application JavaScript or prove that
+a remote backend stopped executing.
 
-Use this one settlement path for query, description, preparation and future operation variants.
-It owns timer disposal, abort-listener removal, queue release and exactly-once promise completion;
-metadata delivery cannot bypass it. Child-process tests verify that completed Describe operations
-leave no referenced timer or socket, including when server errors, aborts or deadlines occur.
+## Values and tooling
 
-Frame decoding handles all header/payload split points and multiple frames per TCP chunk. Validate
-lengths before allocation, bound frames, preserve NULL distinct from empty bytes, reject invalid
-counts and offsets, and bound NUL-string scans to the current frame. Unsupported or malformed
-messages close the connection with a protocol error. Decoder byte views are internal and cannot
-outlive recycled backing memory; public byte values are stable copies initially.
+Stable built-in OIDs select decoders without catalog queries. Arrays derive element decoding from
+the same immutable registry; explicit array overrides win. Unknown OIDs remain text. Codec registrations
+also supply the known TypeScript representations used by schema generation; custom function return
+types cannot be recovered at runtime.
 
-Protocol 3.0 is explicit. The codec understands raw field bytes and format codes even though ordinary
-results request text initially. This avoids pg-protocol's current string-only DataRow constraint.
-No dependency on another driver's unexported connection API is introduced.
+`generation/` uses read-only repeatable-read scopes. Internal catalog reads use default codecs;
+application types use the selected registry. Generation borrows supplied handles and owns only the
+connections it creates. It performs no file I/O, checking or migration coordination.
 
-## Query, description, preparation and scripts
+`identity.ts` uses versioned weak maps for compatible package copies in one realm. Parameters,
+registries, borrowed scopes and errors retain their creating copy's behavior and ownership. There
+is no shared scheduler or strong retention of keys. Incompatible identity contracts need new keys.
 
-Ordinary execution: Parse(unnamed), Bind(unnamed portal), Describe(portal), Execute, Sync. Values and
-OID hints are known before send; do not add a preliminary Describe network round trip. Parse infers
-unknown parameter OIDs. The protocol rejects multiple statements in Parse.
+## Authentication and listeners
 
-Description: Parse(unnamed), Describe(statement), Sync. Collect ParameterDescription and
-RowDescription/NoData, then await ReadyForQuery. No Bind/Execute is sent. Named preparation follows
-the same description cycle using a driver-generated name; explicit close sends Close(statement),
-Sync. Each preparation handle stores field/OID metadata, never permanently cached parser functions.
-Codecs belong to the immutable connection configuration. Dispose all lease-owned preparations before
-returning its connection; failed disposal discards it. M5a implements this cleanup for exact session, transaction and savepoint owners (D27). External SQL that deallocates statements is
-caller-owned and invalidates those handles on the subsequent server error.
+Password preparation follows PostgreSQL's fixed stringprep tables, mapped-input checks and original
+password fallback, using native NFKC. An offline checksum-pinned generator owns the tables. SCRAM
+validates server proof and channel binding; TLS verifies trust and hostname.
 
-Named statement records distinguish submitting, confirmed, closing and expired states. Publish a
-usable handle only after its creation operation succeeds. An encode error during reuse is a local
-operation failure, not a reason to close or delete the previously confirmed statement. If creation
-parses successfully but later description fails, close the unpublished statement during recovery
-or discard the connection when that cleanup cannot be confirmed.
+A listener owns its connection and reconnect task independently of query pools. Reconnect is opt-in,
+re-registers fixed channels and exposes generations/gaps. It provides no replay. Observation callbacks
+are isolated and not awaited. Closing stops both retries and unfinished connection attempts.
 
-Row streaming keeps one scheduler operation active across batches on the unnamed portal. Parse/Bind/
-Describe/Execute/Flush starts execution; subsequent consumer demand sends Execute/Flush. A
-PortalSuspended boundary exposes one decoded batch without prefetch, and its byte budget includes
-retained metadata. After the final rows are consumed, Sync/ReadyForQuery completes the operation.
-Early close discards buffered rows, reaches the in-flight batch boundary, then sends Close(portal)/
-Sync and requires CloseComplete/ReadyForQuery. Server errors recover with a single Sync/ReadyForQuery.
-There is no second portal cleanup cycle after completion or an error.
+## Verification
 
-COPY uses the same unnamed portal and exclusive scheduler slot. CopyInResponse starts an independent
-async producer task, so a pending source pull cannot block backend errors. `copy.ts` owns input
-iteration and fences late results. Writes split into bounded frames and await transport callbacks
-before another write or source pull. CopyDone/Flush obtains the command tag, then Sync/ReadyForQuery
-finishes input. Source errors send CopyFail/Sync, recover to ReadyForQuery and observe iterator cleanup.
-A real iterator-return promise remains pending if user code stalls; the cleanup deadline retires the
-physical session and releases its caller instead of pretending that iterator cleanup finished.
-
-`stream.ts` supplies a single bounded handoff for row batches and COPY byte chunks. Message draining
-awaits consumption or demand; close, interruption and failure release the handoff. COPY output early
-close cancels and retires the session, resolving closed only after server recovery and cancellation
-transport cleanup. Cancellation also sends CopyFail for active input.
-
-`operation.ts` separates queue status and final outcome from a discriminated union of protocol work.
-Each operation carries only its own phases and data. Physical connection code retains scheduling,
-protocol transitions and settlement; the indexed message queue clears consumed slots without shifting
-all remaining entries. Scope ownership uses one reservation, acquired before user codecs or source
-getters. Public option validation occurs at the scope boundary, and Bind encoding is shared.
-
-A five-second absolute cleanup deadline survives scope expiry, statement disposal, rollback and lease
-release. No Sync is sent between stream batches: it would end an implicit transaction. Inside an
-explicit transaction, Sync preserves that transaction, and the next Bind replaces the unnamed portal;
-commit/rollback also ends its lifetime. Named statements retain explicit scope ownership and disposal.
-See [D30](decisions.md#d30--exclusive-execution-needs-no-named-portal-resource-layer).
-
-Built-in array metadata maps array OIDs to element OIDs and delimiters. The immutable codec registry
-derives default array decoders from the selected scalar decoder, so scalar overrides apply without
-capturing a stale default parser. Explicit array-OID overrides take precedence. Handle SQL NULL before
-element decoding. JSON-bound descriptions distinguish a JSON-null token from typed SQL NULL; they
-share ordinary parameter preflight and never inject SQL expressions. Raw JSON text codecs preserve
-server text without JSON.parse.
-
-The buffered byte budget charges complete row, field/parameter-description, command and empty-query
-frames across the entire operation. Metadata-only description and scripts with many zero-row
-commands therefore remain bounded. This is a wire-byte budget, not an exact heap measurement.
-
-Scripts use Query(text), collect all successful result sets in order, then ReadyForQuery. On an error
-reject the script, preserving the DatabaseError and prior command evidence; never silently return
-partial success. This does not imply preceding effects were rolled back. Detailed partial results
-are deferred as a public API until a concrete need, so 0.1 preserves command evidence internally and
-does not promise a new public error property.
-
-## Pool and release
-
-The pool maintains connecting, idle, leased, and retiring sets plus a bounded FIFO waiter queue.
-Connecting and retiring sockets count against the physical limit until fully disposed. Canceled
-waiters are removed without consuming future capacity. A late connection goes to another valid
-waiter or idle capacity; after close it is destroyed, never published. Timers are removed when their
-owner settles. Idle timers may be unref'ed so an unused pool does not keep Node running.
-
-Release expires the lease, finishes accepted work, disposes prepared handles, checks idle protocol
-state, and either returns or destroys the connection. It does not reset arbitrary SQL session state.
-withSession discards on callback failure rather than guessing whether session cleanup succeeded.
-Active-session errors are delivered to their operations/callback capability, while idle disconnects
-remove capacity and emit an observation event. Neither path requires the application to attach a
-Node EventEmitter `error` listener to avoid process termination.
-
-All externally visible operations, including acquisition and release, settle once. An unavailable
-database must not leave reserved requests orphaned. Capacity accounting and waiter completion are
-owned by the pool; socket callbacks cannot mutate them without going through the pool's state change.
-
-## Transactions and child scopes
-
-Only idle sessions enter managed transactions. BEGIN options come from enumerated values. A
-transaction callback receives an expiring capability; it does not receive the pool, release, or
-transport. Callback completion fences further calls before cleanup, waits for accepted operations,
-and validates the server state before COMMIT. A server ROLLBACK tag is never reported as commit.
-
-Savepoint scopes reserve exclusive ownership of the transaction queue for their entire callback and
-cleanup. Work through a parent or sibling scope while a child is active rejects immediately. Child
-failure runs ROLLBACK TO and RELEASE, bounded by cleanup timeout. Successful recovery leaves the
-parent usable; failed recovery poisons it. SQL errors recovered by explicit manual savepoints do not
-poison it merely because an earlier promise rejected. Expired capabilities reject before queueing.
-
-No wrapper can stop user JavaScript or undo external side effects. On abort or connection loss,
-expire the handle immediately, observe the still-running callback promise, and bound protocol
-cleanup. A lost COMMIT acknowledgement is a distinct unknown-outcome error. A received COMMIT command tag
-already establishes commit even if ReadyForQuery is subsequently lost; discard the connection
-while preserving that successful transaction result. If work and cleanup
-both fail, preserve both in ordered AggregateError; do not hide the original failure.
-
-Internal execution options carry a `Lifetime` rather than a recomputed timeout. A child inherits the
-absolute deadline and parent interruption, creating a timer only for a shorter local limit. Check the
-clock before dispatch and before publishing a checkout: synchronous user code can postpone timer
-callbacks while protocol microtasks continue. Pool operations share one lease wrapper and scope
-finalizer; transaction/savepoint SQL and recovery policies stay explicit around shared child-scope
-admission and cleanup. See [D31](decisions.md#d31--share-lifecycle-ownership-and-enforce-deadlines-at-admission-boundaries).
-
-## Cancellation and close
-
-Cancellation before send removes only the queued operation. Once sent, the request's recorded
-backend key is used on a separate bounded transport. Keep that key private. Its transport uses the same verified TLS/Unix/TCP implementation, without
-a password exchange. At most one cancellation attempt belongs to a retiring session. Main and
-auxiliary transports both remain owned through shutdown and force-disposal. Record an interrupt
-intent separately from evidence of server completion. A canceled connection retires regardless of
-whether the original query finishes before the cancellation arrives, preventing late cancellation
-from affecting a subsequent lease. Waiting unsent operations reject; already sent operations retain
-individual confirmed/unknown evidence.
-
-Close sets a permanent closing fence before doing asynchronous work. Stop waiter acceptance, idle
-timers and listener retries; drain allowed work until its fixed deadline; destroy remaining sockets;
-dispose resources and settle every waiter/request. A late password, DNS, TLS or socket completion
-checks the fence before publishing resources. Use remaining absolute deadlines instead of restarting
-timeouts at every stage. Whole-scope deadlines include acquisition and synchronous encoder time.
-A transaction waiting behind pre-existing session work can expire without canceling that earlier
-work. Callback/loss listeners are removed on settlement; arbitrary late callback rejections remain
-observed even after its capability expires. Client-side disposal is distinct from remote backend termination.
-
-Pool close attempts cleanup of every owned connection/attempt even if one disposer fails. Collect
-cleanup errors after all attempts instead of allowing the first rejection to abandon other resources.
-Unfinished establishment belongs to the pool from its creation, not from its checkout event.
-
-## Streaming, COPY, and listeners
-
-Portal streaming owns an exclusive execution slot and performs bounded Execute/Flush batches. Early
-close sends Close(portal)/Sync; full completion sends Sync. Both await ReadyForQuery before reuse. A transport failure
-invalidates the whole stream and its metadata/completion promises. An abandoned stream fails managed
-callback success; it is not silently left alive after lease release.
-
-COPY uses separate connection substates. Input respects source/socket backpressure; source errors
-send CopyFail and recover to ReadyForQuery. Output hands off one CopyData frame at a time; early
-exit cancels and retires the connection. No CSV or binary-record interpretation occurs in transport.
-
-A listener supervisor owns immutable channel registrations and a replaceable physical connection.
-Its public handle survives reconnect only when explicitly configured, but each connection generation
-is observable. One sequential supervision task owns startup, channel validation/registration,
-loss observation, disposal and backoff. Re-register all channels after authentication, then report
-connected. Query/session handles keep their existing no-reconnect behavior. The physical connection
-only forwards decoded notifications and terminal loss evidence; it owns no retry policy.
-
-A close promise establishes the permanent fence before invoking user status callbacks. Closing
-aborts backoff and pending startup, disposes unfinished registration, or closes an established idle
-session through its existing deadline. Ending that dedicated session releases LISTEN registrations.
-Notifications dispatch only for the current connected generation, and callbacks share the isolated,
-non-awaiting observer helper. Notifications during gaps are not replayable. See
-[D32](decisions.md#d32--listeners-supervise-a-dedicated-connection-with-explicit-delivery-gaps).
-
-## Schema type generation
-
-`generation/` reads explicit catalog metadata and renders `Database[table]` with row/insert/update
-types and descriptive relationship/index comments. It reuses read-only repeatable-read transactions
-and normal scope admission. Catalog queries choose an internal default codec snapshot per operation;
-application type rendering uses the connection's selected registry. This keeps catalog control data
-independent of user decoder overrides without mutating the registry or adding public query options.
-Ordinary operations retain their configured codecs.
-
-Codec registrations supply both native decoders and their known TypeScript representations.
-Unknown OIDs remain strings; erased custom decoder functions remain unknown for generation.
-The generator owns no migration lock, history-table policy, file I/O, compiler or checking command.
-Consumers can exclude their own bookkeeping tables and keep output/checking workflows themselves.
-See [D34](decisions.md#d34--generate-schema-types-in-pgclear-keep-checking-in-tenon).
-
-## Deferred pipelining
-
-M7b is deferred outside the first release by
-[D33](decisions.md#d33--defer-pipelining-and-proceed-to-release-readiness). The current scheduler
-executes one operation at a time per physical connection; there is no pipeline configuration or
-reserved API. The following are constraints for a future proposal, not planned implementation work.
-
-If reconsidered, initially limit pipelining to exclusive sessions and ordinary queries. Encode each
-request before adding it to a sent queue; assign one Sync/error boundary per independent
-operation and track ReadyForQuery for that boundary. Never combine independent operations into an
-implicit shared transaction just to save Sync messages. Keep managed transactions, streaming, COPY,
-description and preparation sequential/exclusive until each combination has a demonstrated need and
-specific recovery tests. Pipelining cannot execute two queries simultaneously on a single backend.
-
-## Evidence and tests
-
-Use byte-level protocol tests, scripted fake-server scenarios, real PostgreSQL integration tests,
-and an optional network fault proxy. Prefer controlled barriers (observed backend IDs, protocol
-messages, server locks) over sleeps. Test user-visible results and resource ownership, not private
-method names or documentation wording. Track accepted/settled operation counts and live resources
-in test-only harnesses. Verify packed-package declarations and exports before publishing.
-
-Add small, repeatable seeded operation sequences as pooling and preparation arrive. Check result
-ownership, permanent lease expiration, complete settlement and irreversible close across generated
-interleavings; log the seed and sequence on failure. Keep this in the existing Node test harness
-until a demonstrated need warrants a fuzzing dependency. The
-[Tenon report](references/tenon-driver-migration-report.md) supplies concrete regression seeds.
+Tests cover framed bytes, scripted server failures, real PostgreSQL workflows, packed consumers,
+compile-only examples and resource disposal through natural child-process exit. Use observable
+barriers rather than timing guesses. Test ownership, outcomes and cleanup through public behavior.
+Pipelining, binary results and automatic catalog-driven decoding are outside the current runtime.

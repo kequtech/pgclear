@@ -11,3 +11,6 @@ Never configure these credentials outside the test harness. Regenerate with Open
 streaming, COPY and pool cleanup. It loads the built package from `dist/`. The parent tests use
 `helpers/subprocess.ts` to require natural exit despite hour-long operation deadlines, and the
 shared fake-session helper retains startup and backend-key cancellation assertions.
+
+`api-examples.ts` contains compile-only public API examples and rejected usage assertions. It is
+included in typechecking but is not executed as a runtime test.

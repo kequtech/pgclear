@@ -1,4 +1,4 @@
-/** Implemented runtime API. Later milestones remain proposals in docs/. */
+/** Public types and capabilities exposed by pgclear. */
 export type Oid = number;
 export type WireFormat = 'text' | 'binary';
 export type Row = Readonly<Record<string, unknown>>;

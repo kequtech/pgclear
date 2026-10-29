@@ -1,16 +1,15 @@
 # Documentation
 
-The [public API](public-api.md) describes 0.1.0 configuration, ownership, results, type conversions,
-errors, prepared statements, streaming, COPY, listeners and schema generation. The package also
-includes the root README, release notes, license and executable JavaScript/TypeScript declarations.
+[API and usage](public-api.md) covers configuration, queries/results, types, transactions, prepared
+statements, streaming, COPY, notifications and schema generation. Start with the root
+[README](../README.md) for a complete first query.
 
-Contributor references and design history stay in the repository:
+Contributor guides live in the repository:
 
-- [Development and validation](https://github.com/kequtech/pgclear/blob/main/docs/development.md)
+- [Development and testing](https://github.com/kequtech/pgclear/blob/main/docs/development.md)
 - [Architecture](https://github.com/kequtech/pgclear/blob/main/docs/architecture.md)
-- [Scope and supported environments](https://github.com/kequtech/pgclear/blob/main/docs/scope.md)
-- [Accepted decisions](https://github.com/kequtech/pgclear/blob/main/docs/decisions.md)
-- [Tenon trial](https://github.com/kequtech/pgclear/blob/main/docs/tenon-trial.md)
+- [Tenon regression trial](https://github.com/kequtech/pgclear/blob/main/docs/tenon-trial.md)
 - [Benchmarks](https://github.com/kequtech/pgclear/tree/main/benchmarks)
 
-The repository currently requires access. Package preparation does not change repository visibility.
+The package includes this index and the API guide. Other guides and checkpoint evidence stay in
+the repository, which currently requires access.
