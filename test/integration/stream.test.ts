@@ -20,7 +20,7 @@ async function collect<T>(stream: RowStream<T>): Promise<T[]> {
 }
 
 test(
-  'streams span bounded portal batches and return metadata and final native counts',
+  'streams span bounded portal batches and return metadata and total row counts',
   within,
   async () => {
     const { client } = await testConnection();
@@ -29,6 +29,7 @@ test(
         [0, 2],
         [1, 2],
         [2, 2],
+        [6, 2],
         [7, 2],
         [201, 100],
       ]) {
@@ -46,7 +47,7 @@ test(
           result: {
             command: 'SELECT',
             commandTag: `SELECT ${count! % batchSize!}`,
-            rowCount: BigInt(count! % batchSize!),
+            rowCount: count!,
           },
         });
         await stream.close();
@@ -58,6 +59,53 @@ test(
       assert.deepEqual(await empty.completion, {
         status: 'complete',
         result: { command: '', commandTag: '', rowCount: null },
+      });
+    } finally {
+      await client.close();
+    }
+  },
+);
+
+test(
+  'stream totals include zero-column rows, commands without counts and RETURNING rows',
+  within,
+  async () => {
+    const { client } = await testConnection();
+    try {
+      const zeroColumns = client.stream('SELECT FROM generate_series(1,7)', { batchSize: 2 });
+      assert.deepEqual(await zeroColumns.fields, []);
+      assert.deepEqual(
+        await collect(zeroColumns),
+        Array.from({ length: 7 }, () => ({})),
+      );
+      assert.deepEqual(await zeroColumns.completion, {
+        status: 'complete',
+        result: { command: 'SELECT', commandTag: 'SELECT 1', rowCount: 7 },
+      });
+      const show = client.stream('SHOW server_version', { batchSize: 2 });
+      assert.equal((await collect(show)).length, 1);
+      assert.deepEqual(await show.completion, {
+        status: 'complete',
+        result: { command: 'SHOW', commandTag: 'SHOW', rowCount: 1 },
+      });
+      await client.queryClassic('CREATE TEMP TABLE stream_counts (id integer)');
+      const insert = client.stream(
+        'INSERT INTO stream_counts SELECT generate_series(1,7) RETURNING id',
+        { batchSize: 2 },
+      );
+      assert.deepEqual(
+        await collect(insert),
+        Array.from({ length: 7 }, (_, i) => ({ id: i + 1 })),
+      );
+      assert.deepEqual(await insert.completion, {
+        status: 'complete',
+        result: { command: 'INSERT', commandTag: 'INSERT 0 1', rowCount: 7 },
+      });
+      const update = client.stream('UPDATE stream_counts SET id = id + 1', { batchSize: 2 });
+      assert.deepEqual(await collect(update), []);
+      assert.deepEqual(await update.completion, {
+        status: 'complete',
+        result: { command: 'UPDATE', commandTag: 'UPDATE 7', rowCount: 7 },
       });
     } finally {
       await client.close();
@@ -269,7 +317,7 @@ test(
       );
       assert.equal(
         (await lease.queryClassic('SELECT count(*) AS n FROM abandoned_stream', [])).rows[0]!.n,
-        0n,
+        '0',
       );
       const stream = lease.stream('SELECT generate_series(1,10)', { batchSize: 1 });
       await stream.fields;
@@ -364,14 +412,14 @@ test(
       assert.deepEqual(await stream.completion, { status: 'closed' });
       assert.equal(
         (await client.queryClassic('SELECT count(*) AS n FROM stream_writes', [])).rows[0]!.n,
-        7n,
+        '7',
       );
       assert.equal(client.transactionStatus, 'idle');
       const command = client.stream('UPDATE stream_writes SET n=n+10');
       assert.deepEqual(await collect(command), []);
       assert.deepEqual(await command.completion, {
         status: 'complete',
-        result: { command: 'UPDATE', commandTag: 'UPDATE 7', rowCount: 7n },
+        result: { command: 'UPDATE', commandTag: 'UPDATE 7', rowCount: 7 },
       });
     } finally {
       await client.close();

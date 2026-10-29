@@ -20,6 +20,42 @@ import {
 const within = { timeout: 5000 };
 
 test(
+  'an unsafe command count rejects without rounding and retires the connection',
+  within,
+  async () => {
+    const server = await fakeServer(async (peer) => {
+      await peer.startup();
+      peer.socket.write(startupReady);
+      for (const type of ['P', 'B', 'D', 'E', 'S']) assert.equal((await peer.message()).type, type);
+      peer.socket.write(
+        Buffer.concat([
+          packet('1'),
+          packet('2'),
+          packet('n'),
+          packet('C', z('UPDATE 9007199254740992')),
+          ready,
+        ]),
+      );
+    });
+    try {
+      const client = await connect({ host: server.host, port: server.port });
+      try {
+        await assert.rejects(client.queryClassic('UPDATE events SET id = id'), {
+          code: 'PGCLEAR_RESULT_LIMIT',
+          outcome: 'confirmed',
+        });
+        await server.firstClosed;
+        await assert.rejects(client.queryClassic('SELECT 1'), { code: 'PGCLEAR_CLOSED' });
+      } finally {
+        await client.close();
+      }
+    } finally {
+      await server.close();
+    }
+  },
+);
+
+test(
   'trust startup waits for ReadyForQuery, reports identity and closes its transport',
   within,
   async () => {

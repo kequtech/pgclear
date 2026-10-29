@@ -42,7 +42,7 @@ async function stream(client: Connection) {
 async function copy(client: Connection) {
   if (scenario === 'input') {
     const source = Readable.from([Buffer.from('bytes')]);
-    assert.equal((await client.copyFrom('COPY fixture FROM STDIN', source, options)).rowCount, 1n);
+    assert.equal((await client.copyFrom('COPY fixture FROM STDIN', source, options)).rowCount, 1);
     assert.equal(source.destroyed, true);
   } else if (scenario === 'source-error' || scenario === 'source-timeout') {
     let stopped = false;

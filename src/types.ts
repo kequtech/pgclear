@@ -10,7 +10,7 @@ declare const parameterBrand: unique symbol;
 export interface Parameter {
   readonly [parameterBrand]: true;
 }
-export type InputValue = null | string | number | bigint | boolean | Uint8Array | Parameter;
+export type InputValue = null | string | number | boolean | Uint8Array | Parameter;
 export interface TextCodec<T> {
   readonly encode: (value: T) => string;
   readonly decode: (value: string) => T;
@@ -42,7 +42,8 @@ export interface Field {
 export interface CommandResult {
   readonly command: string;
   readonly commandTag: string;
-  readonly rowCount: bigint | null;
+  /** Command count, or total returned rows for a fully consumed row stream. */
+  readonly rowCount: number | null;
 }
 export interface QueryResult<T = Row> extends CommandResult {
   readonly rows: readonly T[];

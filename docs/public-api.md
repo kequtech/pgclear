@@ -120,13 +120,13 @@ A result contains:
 - `fields`: ordered column metadata, including name, type OID, table/column origin and wire format.
 - `command`: the parsed command name, such as `SELECT`.
 - `commandTag`: the server's full command tag, such as `SELECT 1`.
-- `rowCount`: the command count as `bigint | null`; it is not always the number of returned rows.
+- `rowCount`: the command count as `number | null`; it is not always the number of returned rows.
 
 Rows default to objects. Duplicate column names reject; use aliases or `{ rowMode: 'array' }` to
 preserve positional values. Row annotations (`queryClassic<Row>` and `sql<Row>`) are
 assertions, not runtime validation. Without an annotation, field values are `unknown`.
-`JSON.stringify(result)` needs an application policy for bigint counts and columns; see
-[bigint and JSON](#bigint-and-json).
+Counts above `Number.MAX_SAFE_INTEGER` reject with `PGCLEAR_RESULT_LIMIT` and retire the connection
+rather than rounding. Command confirmation is preserved in the error outcome.
 
 `describe(textOrStatement, options)` returns `{ parameterTypes, fields }` without executing the
 statement. PostgreSQL still parses it and takes normal analysis locks. It does not infer nullability
@@ -136,9 +136,10 @@ a failure rejects, and earlier effects may have committed. No automatic query or
 
 ## Codecs and parameters
 
-Plain binds accept `null`, string, finite number, bigint, boolean or `Uint8Array`. Unsafe integer
-numbers reject. Strings/numbers use server type inference; bigint defaults to int8, booleans to bool,
-and bytes to bytea. `undefined`, plain objects, arrays and `Date` reject. Choose explicit encoding:
+Plain binds accept `null`, string, finite number, boolean or `Uint8Array`. Unsafe integer numbers
+reject. Strings/numbers use server type inference, booleans default to bool, and bytes to bytea.
+Use decimal strings for int8 values; `param(value, builtin.int8)` supplies an explicit int8 type.
+`bigint`, `undefined`, plain objects, arrays and `Date` reject. Choose explicit encoding:
 
 ```ts
 import { builtin, json, param } from '@kequtech/pgclear';
@@ -161,7 +162,7 @@ Cycles, bigint and values that produce no JSON text reject before dispatch.
 | PostgreSQL type                                                   | Default JavaScript value                  |
 | ----------------------------------------------------------------- | ----------------------------------------- |
 | smallint/int2, integer/int4, smallserial/serial, oid              | number                                    |
-| bigint/int8, bigserial                                            | bigint                                    |
+| bigint/int8, bigserial                                            | string                                    |
 | numeric/decimal                                                   | string, including NaN/infinity spellings  |
 | real/float4, double precision/float8                              | number, including NaN/infinities          |
 | boolean/bool                                                      | boolean                                   |
@@ -174,9 +175,9 @@ Cycles, bigint and values that produce no JSON text reject before dispatch.
 | SQL NULL                                                          | null, before any decoder                  |
 
 Temporal strings retain precision and supported infinity values without JS Date interpretation.
-Query expressions use their result OID: `count(*)` produces bigint. Domains reported with an
-underlying type use its decoder. Unrecognized types, including money, network addresses, ranges,
-composites, bit strings and XML, stay text unless overridden.
+Query expressions use their result OID: `count(*)` produces int8, so its column value is a string.
+Domains reported with an underlying type use its decoder. Unrecognized types, including money,
+network addresses, ranges, composites, bit strings and XML, stay text unless overridden.
 
 Arrays use recursive `PgArray<T>` values. Built-in parsing preserves null elements and rectangular
 shape but omits lower-bound metadata. Named input codecs include `int4Array`, `int8Array`,
@@ -200,25 +201,26 @@ const codecs = defaultCodecs.with(builtin.jsonText).with(builtin.jsonbText);
 ```
 
 `codecs.typescript(oid)` returns the known non-NULL text-result representation: for example
-`'bigint'`, `'PgArray<number>'` or `'globalThis.Uint8Array'`. JSON returns the known representation
+`'string'`, `'PgArray<number>'` or `'globalThis.Uint8Array'`. JSON returns the known representation
 `'unknown'`; an unfamiliar custom decoder returns `undefined`. SQL nullability, enum choices, domain
 resolution and encoder input types are separate. Use the same registry as the connection.
 
 ### Custom representations
 
-Reuse a built-in codec when its representation fits. This example reads and writes int8 as text:
+Reuse a built-in codec when its representation fits. This example reads and writes int4 as text
+instead of numbers:
 
 ```ts
 import { builtin, createPool, defaultCodecs, param, type Codec } from '@kequtech/pgclear';
 
-const int8AsText: Codec<string> = { ...builtin.text, oid: builtin.int8.oid };
-const codecs = defaultCodecs.with(int8AsText);
+const int4AsText: Codec<string> = { ...builtin.text, oid: builtin.int4.oid };
+const codecs = defaultCodecs.with(int4AsText);
 const textPool = createPool({ connectionString: process.env.DATABASE_URL!, codecs });
 try {
   const result = await textPool.queryClassic<{ id: string }>('SELECT $1 AS id', [
-    param('9007199254740993', int8AsText),
+    param('42', int4AsText),
   ]);
-  console.log(result.rows[0]?.id); // '9007199254740993'
+  console.log(result.rows[0]?.id); // '42'
 } finally {
   await textPool.close();
 }
@@ -226,37 +228,38 @@ try {
 
 The pool registry selects result decoders. `param` selects an input encoder independently; a
 registry override does not change plain-bind rules. SQL NULL bypasses codecs. Scalar overrides
-also affect their default arrays, so int8[] becomes `PgArray<string>` here. Other pools and
+also affect their default arrays, so int4[] becomes `PgArray<string>` here. Other pools and
 `defaultCodecs` are unchanged. PostgreSQL validates encoded text against the selected database type.
 
 Reusing the built-in text decoder also preserves its known TypeScript representation:
-`codecs.typescript(20)` is `'string'`, so generated row types follow this override. A newly authored
+`codecs.typescript(23)` is `'string'`, so generated row types follow this override. A newly authored
 `decode` function can return an application type; `Codec<T>` checks its signature during compilation,
 but T is erased at runtime. An unfamiliar decoder therefore has no automatic representation, and
 generation warns and uses unknown. Authored query annotations remain caller assertions. All codec
 functions must be synchronous; promise results reject without leaving an unhandled rejection.
 
-### Bigint and JSON
+### Exact integers and counts
 
-Int8 values (including bigserial IDs and `count(*)`) decode as bigint to preserve the full 64-bit
-integer range. Command `rowCount` is separately bigint or null and is unaffected by codec overrides.
-A small value such as 1 still follows that representation; types do not switch with magnitude.
+Int8 values (including bigserial IDs and `count(*)`) are always decimal strings, including small
+values such as `'1'`. This preserves the full PostgreSQL 64-bit integer range and works with
+JSON.stringify without a replacer. `builtin.int8Array` uses string elements too.
 
-JavaScript JSON.stringify rejects bigint. Serialize bigint values as decimal strings at an HTTP or
-file boundary when that matches your application's JSON contract:
+Command counts are separate metadata: `rowCount` is a number or null, unaffected by codecs.
+For example, this query returns one row containing a count of three:
 
 ```ts
-const result = await pool.queryClassic('SELECT 9007199254740993::bigint AS id');
-const body = JSON.stringify(result, (_key, value: unknown) =>
-  typeof value === 'bigint' ? value.toString() : value,
+const result = await pool.queryClassic<{ total: string }>(
+  'SELECT count(*) AS total FROM generate_series(1,3)',
 );
-// The JSON id is "9007199254740993" and rowCount is "1".
+console.log(result.rows[0]?.total); // '3'
+console.log(result.rowCount); // 1
+const body = JSON.stringify(result);
 ```
 
-Converting to Number can lose precision outside JavaScript's safe integer range. Keep bigint for
-arithmetic within the application, or select a string codec where that is the desired column
-representation. The JSON replacer is application code and does not change database decoding. Parsed JSON numbers
-still have normal JavaScript precision limits; use the raw JSON codecs when their original numeric tokens matter.
+Convert an int8 string to BigInt in application code when exact integer arithmetic is needed;
+convert back to a string to bind it. Converting to Number can lose precision outside JavaScript's
+safe integer range. Parsed JSON numeric tokens still follow JavaScript number semantics; use the
+raw JSON codecs when their original numeric tokens matter.
 
 ## Transactions and savepoints
 
@@ -308,7 +311,7 @@ uncertain cleanup discards the connection. There is no automatic cache or retry 
 
 ```ts
 await pool.withSession(async (session) => {
-  const stream = session.stream<{ id: bigint }>('SELECT id FROM events', { batchSize: 100 });
+  const stream = session.stream<{ id: string }>('SELECT id FROM events', { batchSize: 100 });
   for await (const row of stream) {
     console.log(row.id);
   }
@@ -324,9 +327,11 @@ running other operations. `for await` early exit awaits cleanup. The default bat
 waits. Manual iteration must close in a finally block if it stops early.
 
 After consumption, completion is `{ status: 'complete', result }`; early close yields
-`{ status: 'closed' }` without an invented result. Count iterated rows for a total: PostgreSQL's
-final portal command tag can describe only the last batch. Awaiting completion without consuming
-or closing may block. A transport failure rejects pending metadata, completion and iteration.
+`{ status: 'closed' }` without an invented result. For a fully consumed row result, `rowCount` is
+the total rows returned across all batches, including zero; commands without a row result retain
+their affected-row count or null. `commandTag` preserves PostgreSQL's raw tag, which can count only
+the last portal batch. Awaiting completion without consuming or closing may block. A transport
+failure rejects pending metadata, completion and iteration.
 
 ```ts
 import { createReadStream } from 'node:fs';

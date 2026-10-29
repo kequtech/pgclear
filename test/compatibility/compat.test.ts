@@ -70,10 +70,7 @@ test(
         async function* source() {
           yield Buffer.from('1\n2\n3\n');
         }
-        assert.equal(
-          (await session.copyFrom('COPY compat_copy FROM STDIN', source())).rowCount,
-          3n,
-        );
+        assert.equal((await session.copyFrom('COPY compat_copy FROM STDIN', source())).rowCount, 3);
         const prepared = await session.prepare(
           'SELECT n FROM compat_copy WHERE n >= $1 ORDER BY n',
         );

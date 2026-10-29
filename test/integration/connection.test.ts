@@ -22,7 +22,7 @@ test(
         [
           2,
           42,
-          9007199254740993n,
+          '9007199254740993',
           1.5,
           true,
           'héllo',
@@ -33,13 +33,13 @@ test(
           '{"ok":true}',
         ],
       );
-      assert.equal(result.rowCount, 1n);
+      assert.equal(result.rowCount, 1);
       assert.equal(result.command, 'SELECT');
       assert.deepEqual(result.rows, [
         {
           small: 2,
           integer: 42,
-          big: 9007199254740993n,
+          big: '9007199254740993',
           ratio: 1.5,
           yes: true,
           text: 'héllo',
@@ -148,7 +148,7 @@ test(
       await client.queryClassic(`CREATE TABLE "${schema}".items (id integer PRIMARY KEY)`, []);
       assert.equal(
         (await client.queryClassic(`INSERT INTO "${schema}".items VALUES (1), (2)`, [])).rowCount,
-        2n,
+        2,
       );
       const result = await client.queryClassic(`SELECT id FROM "${schema}".items ORDER BY id`, []);
       assert.ok(result.fields[0]!.tableOid > 0);

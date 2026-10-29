@@ -35,7 +35,7 @@ export async function standalone(connectionString: string) {
       'SELECT id, balance FROM accounts WHERE id = $1',
       [42],
     );
-    const count: bigint | null = result.rowCount;
+    const count: number | null = result.rowCount;
     return { first: result.rows[0], count };
   } finally {
     await connection.close();
@@ -198,13 +198,13 @@ export async function notifications(options: ConnectionOptions, signal: AbortSig
 }
 
 export async function customCodecs(connectionString: string) {
-  const int8AsText: Codec<string> = {
+  const int4AsText: Codec<string> = {
     ...builtin.text,
-    oid: builtin.int8.oid,
+    oid: builtin.int4.oid,
   };
-  const pool = createPool({ connectionString, codecs: defaultCodecs.with(int8AsText) });
+  const pool = createPool({ connectionString, codecs: defaultCodecs.with(int4AsText) });
   try {
-    return await pool.queryClassic<{ id: string }>('SELECT 42::bigint AS id', []);
+    return await pool.queryClassic<{ id: string }>('SELECT 42::integer AS id', []);
   } finally {
     await pool.close();
   }
@@ -215,6 +215,12 @@ export async function abort(pool: Pool) {
 }
 
 export function invalidUsage(pool: Pool, session: Session) {
+  // @ts-expect-error Int8 parameters use exact strings, not bigint values.
+  void pool.queryClassic('SELECT $1', [1n]);
+  // @ts-expect-error The built-in int8 codec accepts strings.
+  param(1n, builtin.int8);
+  // @ts-expect-error The built-in int8 array codec accepts string elements.
+  param([1], builtin.int8Array);
   // @ts-expect-error Undefined is not a parameter value.
   void pool.queryClassic('SELECT $1', [undefined]);
   // @ts-expect-error Objects need an explicit codec.

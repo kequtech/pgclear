@@ -61,8 +61,11 @@ function floatCodec(oid: number): Codec<number> {
     }),
   });
 }
-function int8(value: bigint): bigint {
-  if (typeof value !== 'bigint' || value < -9223372036854775808n || value > 9223372036854775807n)
+function int8(value: string): string {
+  if (typeof value !== 'string' || !/^[+-]?\d+$/.test(value)) throw new TypeError('Invalid int8.');
+  // Bigint is only used internally to validate PostgreSQL's range; public values stay strings.
+  const integer = BigInt(value);
+  if (integer < -9223372036854775808n || integer > 9223372036854775807n)
     throw new TypeError('Invalid int8.');
   return value;
 }
@@ -140,14 +143,11 @@ const bool: Codec<boolean> = Object.freeze({
 });
 const int2 = integerCodec(21, -32768, 32767),
   int4 = integerCodec(23, -2147483648, 2147483647);
-const big: Codec<bigint> = Object.freeze({
+const big: Codec<string> = Object.freeze({
   oid: 20,
   text: Object.freeze({
-    encode: (value: bigint) => String(int8(value)),
-    decode: (value: string) => {
-      if (!/^-?\d+$/.test(value)) throw new TypeError('Invalid int8.');
-      return int8(BigInt(value));
-    },
+    encode: int8,
+    decode: int8,
   }),
 });
 const decimal: Codec<string> = Object.freeze({

@@ -320,6 +320,7 @@ export class PhysicalConnection {
         work.result.fields = fields;
         work.phase = 'rows';
         if (work.kind === 'stream') {
+          if (message.type === 'fields') work.returnedRows = 0;
           work.metadataBytes = work.result.bytes;
           work.output.metadata(fields);
         }
@@ -339,8 +340,13 @@ export class PhysicalConnection {
       const columns = 'result' in work ? work.result.fields.length : work.columns;
       if (message.values.length !== columns)
         throw protocolError('Data row does not match its fields.');
-      if (work.kind === 'stream' && ++work.batchRows > work.batchSize)
-        throw protocolError('Portal exceeded its requested batch size.');
+      if (work.kind === 'stream') {
+        if (work.returnedRows === undefined)
+          throw protocolError('Data row has no row description.');
+        if (++work.batchRows > work.batchSize)
+          throw protocolError('Portal exceeded its requested batch size.');
+        work.returnedRows++;
+      }
       if ('result' in work && !op.error && !this.#interruption && !output(work)?.closing) {
         try {
           work.result.rows.push(
@@ -433,7 +439,10 @@ export class PhysicalConnection {
         work.phase === 'copy-start' ||
         (work.kind === 'script' && work.phase === 'script'))
     ) {
-      op.command = commandResult(message.type === 'command' ? message.tag : '');
+      op.command = commandResult(
+        message.type === 'command' ? message.tag : '',
+        work.kind === 'stream' ? work.returnedRows : undefined,
+      );
       if (work.kind === 'script') {
         if (!op.error) work.results.push(result(op));
         work.result.rows = [];

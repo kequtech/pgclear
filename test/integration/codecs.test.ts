@@ -23,7 +23,7 @@ test(
       assert.deepEqual(result.rows, [
         {
           decimals: ['9007199254740993.25', null],
-          bigs: [9007199254740993n, null],
+          bigs: ['9007199254740993', null],
           nested: [
             [1, null],
             [2, 3],
@@ -331,7 +331,7 @@ test(
       );
       assert.equal(
         (await client.queryClassic('SELECT count(*) AS n FROM encoder_order', [])).rows[0]!.n,
-        2n,
+        '2',
       );
     } finally {
       await client.close();
@@ -340,29 +340,24 @@ test(
 );
 
 test(
-  'custom int8 representation preserves precision while command counts stay bigint',
+  'int8 values and arrays stay exact strings and query results serialize as JSON',
   within,
   async () => {
-    const int8AsText: Codec<string> = { ...builtin.text, oid: builtin.int8.oid };
-    const codecs = defaultCodecs.with(int8AsText);
-    const { client } = await testConnection({ codecs });
+    const { client } = await testConnection();
     try {
       const maximum = '9223372036854775807';
-      const result = await client.queryClassic('SELECT $1 AS id, ARRAY[$1,NULL] AS ids', [
-        param(maximum, int8AsText),
-      ]);
-      assert.deepEqual(result.rows, [{ id: maximum, ids: [maximum, null] }]);
-      assert.equal(result.rowCount, 1n);
-      assert.throws(() => JSON.stringify(result), TypeError);
-      const body = JSON.stringify(result, (_key, value: unknown) =>
-        typeof value === 'bigint' ? value.toString() : value,
+      const ids = ['-9223372036854775808', null, '0', '1', maximum];
+      const result = await client.queryClassic(
+        'SELECT $1 AS id, $2 AS ids, (SELECT count(*) FROM generate_series(1,3)) AS total',
+        [param(maximum, builtin.int8), param(ids, builtin.int8Array)],
       );
-      const response = JSON.parse(body);
+      assert.deepEqual(result.rows, [{ id: maximum, ids, total: '3' }]);
+      assert.equal(result.rowCount, 1);
+      const response = JSON.parse(JSON.stringify(result));
       assert.deepEqual(response.rows, result.rows);
-      assert.equal(response.rowCount, '1');
-      assert.equal(codecs.typescript(20), 'string');
-      assert.equal(codecs.typescript(1016), 'PgArray<string>');
-      assert.equal(defaultCodecs.typescript(20), 'bigint');
+      assert.equal(response.rowCount, 1);
+      assert.equal(defaultCodecs.typescript(20), 'string');
+      assert.equal(defaultCodecs.typescript(1016), 'PgArray<string>');
     } finally {
       await client.close();
     }

@@ -112,7 +112,7 @@ test(
               [],
             )
           ).rows[0]!.n,
-          0n,
+          '0',
         );
         // The inspection query itself owns the unnamed portal; no other cursor may remain.
         assert.deepEqual((await next.queryClassic('SELECT name FROM pg_cursors', [])).rows, [

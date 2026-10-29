@@ -27,7 +27,7 @@ test(
         'SELECT count(*) AS n FROM pg_stat_activity WHERE pid=$1 AND application_name=$2',
         [client.info.backendPid, applicationName],
       );
-      assert.equal(remaining.rows[0]!.n, 0n);
+      assert.equal(remaining.rows[0]!.n, '0');
       await assert.rejects(client.queryClassic('SELECT 1', []), { code: 'PGCLEAR_CLOSED' });
     } finally {
       await client.close();
@@ -83,7 +83,7 @@ test(
       const write = await client.queryClassic('INSERT INTO observation VALUES ($1)', [
         'query-private-value',
       ]);
-      assert.equal(write.rowCount, 1n);
+      assert.equal(write.rowCount, 1);
       assert.deepEqual((await client.queryClassic('SELECT value FROM observation', [])).rows, [
         { value: 'query-private-value' },
       ]);

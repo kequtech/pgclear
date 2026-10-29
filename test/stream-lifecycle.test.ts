@@ -101,7 +101,7 @@ test(
       allowReady.resolve();
       assert.deepEqual(await stream.completion, {
         status: 'complete',
-        result: { command: 'SELECT', commandTag: 'SELECT 1', rowCount: 1n },
+        result: { command: 'SELECT', commandTag: 'SELECT 1', rowCount: 3 },
       });
       assert.deepEqual(await iterator.next(), { done: true, value: undefined });
     } finally {

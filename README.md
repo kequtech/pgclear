@@ -36,13 +36,14 @@ The pool opens connections as needed. In a long-running application, reuse it ac
 close it when the application shuts down.
 
 Returned records are in `result.rows`. Results also include column information, the server's command
-tag and a `rowCount` of type `bigint | null`.
+tag and a `rowCount` of type `number | null`.
 
 ## Values and types
 
-Large integers are returned as `bigint`; decimals and dates/times stay strings. For JSON and array
-parameters, use the explicit `json` and `param` helpers. See [values and type conversions](docs/public-api.md#codecs-and-parameters)
-for examples and the full PostgreSQL-to-JavaScript mapping.
+Large integers (`int8`/`bigserial`) and decimals are returned as strings to preserve precision.
+Dates and times also stay strings. Use the explicit `json` and `param` helpers for JSON and array
+parameters. See [values and type conversions](docs/public-api.md#codecs-and-parameters) for examples
+and the full PostgreSQL-to-JavaScript mapping.
 
 For TypeScript projects, [generateDefinitions](docs/public-api.md#schema-type-generation) produces
 row, insert and update types for database tables, with relationships and indexes in comments.

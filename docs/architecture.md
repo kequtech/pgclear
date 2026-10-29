@@ -46,6 +46,7 @@ preparation creates a named statement, waits for confirmation and disposes it wi
 scope. Scripts use the simple protocol and preserve PostgreSQL's transaction semantics.
 
 Row streams hold one operation across demand-driven Execute/Flush batches on the unnamed portal.
+Completed row streams count returned rows across all batches; the raw command tag is preserved.
 Completion or early close reaches ReadyForQuery before reuse. COPY shares exclusive ownership and
 bounded row/byte handoff. Input pulls run independently of backend message processing, respect write
 backpressure and fence late source results. COPY output early close cancels and retires the session.
@@ -62,7 +63,8 @@ a remote backend stopped executing.
 ## Values and tooling
 
 Stable built-in OIDs select decoders without catalog queries. Arrays derive element decoding from
-the same immutable registry; explicit array overrides win. Unknown OIDs remain text. Codec registrations
+the same immutable registry; explicit array overrides win. Int8 and numeric values stay exact strings;
+command counts use safe JavaScript numbers or null. Unknown OIDs remain text. Codec registrations
 also supply the known TypeScript representations used by schema generation; custom function return
 types cannot be recovered at runtime.
 

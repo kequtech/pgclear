@@ -8,7 +8,13 @@
   values argument.
 - Accidental async parameter encoders reject before dispatch and have their promise rejections
   observed, matching decoder handling.
-- Document custom codec representations, bigint/JSON serialization and the compatibility policy.
+- Breaking: int8/bigserial values and int8 array elements use exact strings instead of bigint.
+  Plain bigint binds are no longer accepted; use strings or `param(text, builtin.int8)`.
+- Breaking: query, prepared-statement, script, COPY and stream command counts use `number | null`.
+  Counts beyond JavaScript's safe integer range reject instead of rounding.
+- Completed row streams report total returned rows across all batches while preserving raw command
+  tags. Early close continues to report no final count.
+- Document custom codec representations, exact integers/counts and the compatibility policy.
 
 ## 0.1.0
 

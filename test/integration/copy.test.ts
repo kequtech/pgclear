@@ -26,7 +26,7 @@ test(
         'COPY copy_values FROM STDIN',
         bytes('1\t', 'one\n2\tt', 'wo\n'),
       );
-      assert.deepEqual(first, { command: 'COPY', commandTag: 'COPY 2', rowCount: 2n });
+      assert.deepEqual(first, { command: 'COPY', commandTag: 'COPY 2', rowCount: 2 });
       assert.equal(
         (
           await client.copyFrom(
@@ -34,13 +34,13 @@ test(
             Readable.from([Buffer.from('3\tthree\n')]),
           )
         ).rowCount,
-        1n,
+        1,
       );
       const stream = client.copyTo('COPY (SELECT * FROM copy_values ORDER BY id) TO STDOUT');
       assert.equal((await output(stream)).toString(), '1\tone\n2\ttwo\n3\tthree\n');
       assert.deepEqual(await stream.completion, {
         status: 'complete',
-        result: { command: 'COPY', commandTag: 'COPY 3', rowCount: 3n },
+        result: { command: 'COPY', commandTag: 'COPY 3', rowCount: 3 },
       });
       await stream.close();
       await stream.close();
@@ -49,7 +49,7 @@ test(
       assert.equal((await output(empty)).length, 0);
       assert.deepEqual(await empty.completion, {
         status: 'complete',
-        result: { command: 'COPY', commandTag: 'COPY 0', rowCount: 0n },
+        result: { command: 'COPY', commandTag: 'COPY 0', rowCount: 0 },
       });
     } finally {
       await client.close();
@@ -81,10 +81,10 @@ test(
       assert.equal(
         (await client.copyFrom('COPY copy_binary FROM STDIN (FORMAT binary)', fragmented()))
           .rowCount,
-        1n,
+        1,
       );
       assert.deepEqual((await client.queryClassic('SELECT * FROM copy_binary', [])).rows, [
-        { n: 9007199254740993n, data: new Uint8Array([0, 255]), label: 'é' },
+        { n: '9007199254740993', data: new Uint8Array([0, 255]), label: 'é' },
       ]);
     } finally {
       await client.close();
@@ -116,7 +116,7 @@ test(
       assert.equal(cleaned, true);
       assert.equal(
         (await client.queryClassic('SELECT count(*) AS n FROM copy_failures', [])).rows[0]!.n,
-        0n,
+        '0',
       );
       for (const value of ['2\n', undefined, {}]) {
         const source = {
@@ -134,7 +134,7 @@ test(
       });
       assert.equal(
         (await client.copyFrom('COPY copy_failures FROM STDIN', bytes('3\n'))).rowCount,
-        1n,
+        1,
       );
     } finally {
       await client.close();
@@ -232,7 +232,7 @@ test(
       });
       assert.equal(
         (await client.queryClassic('SELECT count(*) AS n FROM copy_transaction', [])).rows[0]!.n,
-        2n,
+        '2',
       );
       await assert.rejects(
         client.transaction(async (tx) => {
@@ -243,7 +243,7 @@ test(
       );
       assert.equal(
         (await client.queryClassic('SELECT count(*) AS n FROM copy_transaction', [])).rows[0]!.n,
-        2n,
+        '2',
       );
     } finally {
       await client.close();
@@ -359,7 +359,7 @@ test(
       await pending;
       assert.equal(
         (await pool.queryClassic('SELECT count(*) AS n FROM copy_unawaited', [])).rows[0]!.n,
-        1000n,
+        '1000',
       );
       await pool.withSession(async (session) => {
         const stream = session.copyTo('COPY copy_unawaited TO STDOUT');
@@ -482,7 +482,7 @@ test('COPY reserves its scope before invoking source getters or iterators', with
         };
       },
     };
-    assert.equal((await client.copyFrom('COPY copy_reentrant FROM STDIN', source)).rowCount, 1n);
+    assert.equal((await client.copyFrom('COPY copy_reentrant FROM STDIN', source)).rowCount, 1);
     await Promise.all(checks);
     assert.ok(checks.length >= 2);
     assert.deepEqual((await client.queryClassic('SELECT n FROM copy_reentrant', [])).rows, [

@@ -66,9 +66,9 @@ test(
         results.map((r) => [r.command, r.rowCount]),
         [
           ['CREATE', null],
-          ['INSERT', 2n],
-          ['SELECT', 2n],
-          ['SELECT', 1n],
+          ['INSERT', 2],
+          ['SELECT', 2],
+          ['SELECT', 1],
         ],
       );
       assert.deepEqual(results[2]!.rows, [{ n: 1 }, { n: 2 }]);
@@ -78,7 +78,7 @@ test(
       assert.equal((await client.script(''))[0]!.commandTag, '');
       assert.equal(
         (await client.queryClassic('SELECT count(*) AS n FROM scripted', [])).rows[0]!.n,
-        2n,
+        '2',
       );
       await assert.rejects(client.script('SELECT 1 AS n, 2 AS n; SELECT 3'), {
         code: 'PGCLEAR_DECODE',
@@ -102,7 +102,7 @@ test(
       });
       assert.equal(
         (await client.queryClassic('SELECT count(*) AS n FROM script_effects', [])).rows[0]!.n,
-        0n,
+        '0',
       );
       await assert.rejects(
         client.script('BEGIN; INSERT INTO script_effects VALUES(2); COMMIT; SELECT 1/0'),

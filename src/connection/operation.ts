@@ -35,6 +35,7 @@ export type Work =
       batchSize: number;
       metadataBytes: number;
       batchRows: number;
+      returnedRows?: number;
     }
   | {
       kind: 'script';

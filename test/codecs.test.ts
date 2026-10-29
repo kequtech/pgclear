@@ -37,7 +37,7 @@ test('public TypeScript representations follow the selected text decoders', () =
   for (const [oid, expected] of [
     [16, 'boolean'],
     [23, 'number'],
-    [20, 'bigint'],
+    [20, 'string'],
     [1700, 'string'],
     [17, 'globalThis.Uint8Array'],
     [1082, 'string'],
@@ -46,7 +46,7 @@ test('public TypeScript representations follow the selected text decoders', () =
     [114, 'unknown'],
     [3802, 'unknown'],
     [1007, 'PgArray<number>'],
-    [1016, 'PgArray<bigint>'],
+    [1016, 'PgArray<string>'],
     [1231, 'PgArray<string>'],
     [987654, 'string'],
   ] as const)
@@ -60,10 +60,10 @@ test('public TypeScript representations follow the selected text decoders', () =
   assert.equal(custom.with(builtin.int4Array).typescript(1007), 'PgArray<number>');
   assert.equal(custom.with(builtin.int4).typescript(23), 'number');
   assert.equal(defaultCodecs.with(builtin.jsonbText).typescript(3802), 'string');
-  const int8AsText = defaultCodecs.with({ ...builtin.text, oid: builtin.int8.oid });
-  assert.equal(int8AsText.typescript(20), 'string');
-  assert.equal(int8AsText.typescript(1016), 'PgArray<string>');
-  assert.equal(defaultCodecs.typescript(20), 'bigint');
+  const int4AsText = defaultCodecs.with({ ...builtin.text, oid: builtin.int4.oid });
+  assert.equal(int4AsText.typescript(23), 'string');
+  assert.equal(int4AsText.typescript(1007), 'PgArray<string>');
+  assert.equal(defaultCodecs.typescript(20), 'string');
   const binaryOnly = defaultCodecs.with({
     oid: 23,
     binary: { encode: () => new Uint8Array(), decode: () => 0 },
@@ -137,7 +137,13 @@ test('malformed, ragged, unterminated and excessively nested arrays reject', () 
 });
 
 test('scalar codecs retain precision and reject invalid representations', () => {
-  assert.equal(decode(20, '9007199254740993'), 9007199254740993n);
+  for (const value of ['0', '+42', '-0', '-9223372036854775808', '9223372036854775807']) {
+    assert.equal(builtin.int8.text!.encode(value), value);
+    assert.equal(decode(20, value), value);
+  }
+  for (const value of ['9223372036854775808', '-9223372036854775809', '1.5', 'oops'])
+    assert.throws(() => builtin.int8.text!.encode(value), TypeError);
+  assert.equal(decode(20, '9007199254740993'), '9007199254740993');
   assert.equal(decode(1700, '9007199254740993.25'), '9007199254740993.25');
   assert.equal(decode(1082, 'infinity'), 'infinity');
   assert.equal(decode(1114, '2026-10-28 01:02:03.123456'), '2026-10-28 01:02:03.123456');
@@ -182,8 +188,8 @@ test('registry changes are immutable and built-in arrays derive from the selecte
   }
   assert.deepEqual(decode(1231, '{9007199254740993.25,NULL}'), ['9007199254740993.25', null]);
   assert.deepEqual(decode(1016, '{{1,NULL},{2,3}}'), [
-    [1n, null],
-    [2n, 3n],
+    ['1', null],
+    ['2', '3'],
   ]);
 });
 

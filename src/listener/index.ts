@@ -101,7 +101,7 @@ class ListenerHandle implements Listener {
                    WHERE pg_catalog.octet_length(name) > pg_catalog.current_setting('max_identifier_length')::pg_catalog.int4`,
             values: [param(this.#options.channels, builtin.textArray)],
           });
-          if (invalid.rowCount !== 0n)
+          if (invalid.rowCount !== 0)
             configurationError('Notification channel exceeds the server identifier limit.');
           for (const channel of this.#options.channels)
             await execute('LISTEN "' + channel.replaceAll('"', '""') + '"');

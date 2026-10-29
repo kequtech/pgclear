@@ -70,10 +70,7 @@ function encodeValues(values: readonly InputValue[], hints?: readonly number[]) 
       bytes = Buffer.from(value);
     } else if (typeof value === 'number') {
       if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))
-        invalid('Invalid numeric parameter; use bigint or a typed codec.');
-      bytes = Buffer.from(String(value));
-    } else if (typeof value === 'bigint') {
-      oid = 20;
+        invalid('Invalid numeric parameter; use exact text or a typed codec.');
       bytes = Buffer.from(String(value));
     } else if (typeof value === 'boolean') {
       oid = 16;
@@ -174,13 +171,20 @@ export function encodeScript(text: string): Buffer {
   return frame('Q', cstring(textValue(text)));
 }
 
-export function commandResult(tag: string): CommandResult {
+export function commandResult(tag: string, returnedRows?: number): CommandResult {
   const parts = tag.split(' ');
   const command = parts[0] ?? '';
   const counted = /^(?:INSERT \d+|SELECT|UPDATE|DELETE|MERGE|MOVE|FETCH|COPY) (\d+)$/.exec(tag);
+  const rowCount = returnedRows ?? (counted ? Number(counted[1]!) : null);
+  if (rowCount !== null && (!Number.isSafeInteger(rowCount) || rowCount < 0))
+    throw new DriverError(
+      'PGCLEAR_RESULT_LIMIT',
+      'Row count exceeds the JavaScript safe integer range.',
+      'confirmed',
+    );
   return Object.freeze({
     command,
     commandTag: tag,
-    rowCount: counted ? BigInt(counted[1]!) : null,
+    rowCount,
   });
 }

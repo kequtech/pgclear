@@ -39,7 +39,7 @@ const scalarTypes = [
   [builtin.bool, 'boolean'],
   [builtin.int2, 'number'],
   [builtin.int4, 'number'],
-  [builtin.int8, 'bigint'],
+  [builtin.int8, 'string'],
   [builtin.float4, 'number'],
   [builtin.float8, 'number'],
   [builtin.numeric, 'string'],

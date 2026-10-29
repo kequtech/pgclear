@@ -32,7 +32,9 @@ test(
         outcome: 'not-sent',
       });
       const last = prepared.query([json({ last: 3 })]);
-      assert.deepEqual((await first).rows, [{ value: { first: 1 } }]);
+      const result = await first;
+      assert.deepEqual(result.rows, [{ value: { first: 1 } }]);
+      assert.equal(result.rowCount, 1);
       await invalid;
       assert.deepEqual((await last).rows, [{ value: { last: 3 } }]);
       for (const values of [[], [undefined], Array(1), [json(1), json(2)]])
@@ -41,11 +43,11 @@ test(
           outcome: 'not-sent',
         });
       assert.deepEqual((await prepared.query([json(null)])).rows, [{ value: null }]);
-      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, 1n);
+      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, '1');
       await prepared.close();
       await prepared.close();
       await assert.rejects(prepared.query([json(4)]), { code: 'PGCLEAR_EXPIRED' });
-      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, 0n);
+      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, '0');
     } finally {
       await client.close();
     }
@@ -80,7 +82,7 @@ test(
         (await client.queryClassic('SELECT label FROM prepared_order ORDER BY id', [])).rows,
         [{ label: 'first' }, { label: 'second' }],
       );
-      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, 0n);
+      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, '0');
     } finally {
       await client.close();
     }
@@ -145,7 +147,7 @@ test(
       await assert.rejects(client.prepare({ text: 'SELECT 1', values: [] } as never), {
         code: 'PGCLEAR_ENCODE',
       });
-      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, 0n);
+      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, '0');
       const prepared = await client.prepare('SELECT 12 / $1::integer AS n');
       await assert.rejects(prepared.query([0]), { code: '22012' });
       await assert.rejects(prepared.query([6]), { code: 'PGCLEAR_DECODE', outcome: 'confirmed' });
@@ -173,7 +175,7 @@ test(
       await prepared.close();
       const next = await pool.acquire();
       assert.equal(next.info.backendPid, pid);
-      assert.equal((await next.queryClassic(countSql, [])).rows[0]!.n, 0n);
+      assert.equal((await next.queryClassic(countSql, [])).rows[0]!.n, '0');
       await next.release();
       let escaped: PreparedStatement | undefined;
       let pending: Promise<unknown> | undefined;
@@ -183,7 +185,7 @@ test(
       });
       assert.deepEqual(((await pending) as { rows: unknown }).rows, [{ n: 7 }]);
       await assert.rejects(escaped!.query([8]), { code: 'PGCLEAR_EXPIRED' });
-      assert.equal((await pool.queryClassic(countSql, [])).rows[0]!.n, 0n);
+      assert.equal((await pool.queryClassic(countSql, [])).rows[0]!.n, '0');
     } finally {
       await pool.close();
     }
@@ -213,12 +215,12 @@ test(
           if (fail) await assert.rejects(work, { code: '22012' });
           else await work;
           await assert.rejects(childStatement!.query([3]), { code: 'PGCLEAR_EXPIRED' });
-          assert.equal((await tx.queryClassic(countSql, [])).rows[0]!.n, 2n);
+          assert.equal((await tx.queryClassic(countSql, [])).rows[0]!.n, '2');
         }
         assert.deepEqual((await transactionStatement.query()).rows, [{ n: 2 }]);
       });
       await assert.rejects(transactionStatement!.query(), { code: 'PGCLEAR_EXPIRED' });
-      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, 1n);
+      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, '1');
       assert.deepEqual((await parent.query()).rows, [{ n: 1 }]);
       await assert.rejects(
         client.transaction(async (tx) => {
@@ -228,7 +230,7 @@ test(
         }),
         { code: '25P02' },
       );
-      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, 1n);
+      assert.equal((await client.queryClassic(countSql, [])).rows[0]!.n, '1');
       await parent.close();
     } finally {
       await client.close();

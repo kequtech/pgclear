@@ -155,7 +155,7 @@ test(
       }
       assert.deepEqual(
         (await client.queryClassic('SELECT count(*) AS n FROM query_inputs', [])).rows,
-        [{ n: 0n }],
+        [{ n: '0' }],
       );
       await assert.rejects(client.queryClassic('SELECT 1', [], { wrong: true } as never), {
         code: 'PGCLEAR_CONFIGURATION',
@@ -189,11 +189,11 @@ test('query rejects raw text, objects and copied tuples without executing them',
       outcome: 'not-sent',
     });
     assert.deepEqual((await client.query(sql`SELECT count(*) AS n FROM tag_only`)).rows, [
-      { n: 0n },
+      { n: '0' },
     ]);
     await client.query(tagged);
     assert.deepEqual((await client.queryClassic('SELECT count(*) AS n FROM tag_only', [])).rows, [
-      { n: 1n },
+      { n: '1' },
     ]);
   } finally {
     await client.close();

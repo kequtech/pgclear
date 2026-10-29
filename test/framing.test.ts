@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { FrameDecoder, frame, startup } from '../src/protocol/framing.js';
 import { decodeMessage, Reader, type Message } from '../src/protocol/messages.js';
-import { encodeQuery } from '../src/connection/query.js';
+import { commandResult, encodeQuery } from '../src/connection/query.js';
 import { DriverError } from '../src/index.js';
 import { auth, i32, packet, ready, z } from './helpers/server.js';
 
@@ -50,6 +50,38 @@ const messages = [
   packet('I'),
   packet('A', Buffer.concat([i32(12), z('jobs'), z('ready')])),
 ];
+
+test('command counts are safe numbers or null, independently of int8 column codecs', () => {
+  for (const command of [
+    'SELECT',
+    'INSERT 0',
+    'UPDATE',
+    'DELETE',
+    'MERGE',
+    'MOVE',
+    'FETCH',
+    'COPY',
+  ]) {
+    for (const count of [0, 1, 2147483648, Number.MAX_SAFE_INTEGER])
+      assert.equal(commandResult(`${command} ${count}`).rowCount, count);
+    for (const count of ['9007199254740992', '18446744073709551615'])
+      assert.throws(() => commandResult(`${command} ${count}`), {
+        code: 'PGCLEAR_RESULT_LIMIT',
+        outcome: 'confirmed',
+      });
+  }
+  for (const tag of ['', 'CREATE TABLE', 'BEGIN', 'SHOW'])
+    assert.equal(commandResult(tag).rowCount, null);
+  assert.deepEqual(commandResult('SELECT 0', 6), {
+    command: 'SELECT',
+    commandTag: 'SELECT 0',
+    rowCount: 6,
+  });
+  assert.equal(commandResult('SHOW', 1).rowCount, 1);
+  assert.throws(() => commandResult('SELECT 0', Number.MAX_SAFE_INTEGER + 1), {
+    code: 'PGCLEAR_RESULT_LIMIT',
+  });
+});
 
 test('backend frames decode identically at every split and when coalesced or byte-fragmented', () => {
   const decode = (chunks: readonly Buffer[]) => {
@@ -181,6 +213,7 @@ test('sparse and ambiguous values reject before a request is encoded', () => {
     [NaN],
     [Infinity],
     [Number.MAX_SAFE_INTEGER + 1],
+    [1n],
     ['x\0y'],
   ];
   for (const values of bad)

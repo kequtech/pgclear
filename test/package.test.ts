@@ -160,9 +160,9 @@ test(
       const stream = client.stream('SELECT 1 WHERE false', {batchSize:2});
       assert.deepEqual(await stream.fields, []);
       for await (const row of stream) assert.fail('Unexpected row');
-      assert.deepEqual(await stream.completion, {status:'complete',result:{command:'SELECT',commandTag:'SELECT 0',rowCount:0n}});
+      assert.deepEqual(await stream.completion, {status:'complete',result:{command:'SELECT',commandTag:'SELECT 0',rowCount:0}});
       await stream.close();
-      assert.deepEqual(await client.copyFrom('COPY fixture FROM STDIN', {async *[Symbol.asyncIterator](){yield Buffer.from('bytes');}}), {command:'COPY',commandTag:'COPY 1',rowCount:1n});
+      assert.deepEqual(await client.copyFrom('COPY fixture FROM STDIN', {async *[Symbol.asyncIterator](){yield Buffer.from('bytes');}}), {command:'COPY',commandTag:'COPY 1',rowCount:1});
       const copy = client.copyTo('COPY fixture TO STDOUT');
       const chunks=[];for await(const chunk of copy)chunks.push(chunk);assert.equal(Buffer.concat(chunks).toString(),'bytes');
       assert.equal((await copy.completion).status,'complete');await copy.close();
@@ -209,7 +209,7 @@ test(
         // @ts-expect-error Typed array parameters require the codec's scalar type.
         param([[1.25]], builtin.numericArray);
         const result: QueryResult<{value: number}> = await connection.queryClassic<{value: number}>('SELECT 42 AS value', []);
-        const count: bigint | null = result.rowCount;
+        const count: number | null = result.rowCount;
         await connection.queryClassic('SELECT 1');
         const noValues: QueryResult<readonly [number]> = await connection.queryClassic<readonly [number]>('SELECT 1', undefined, {rowMode:'array'});
         type Database = {user: {id:number; name:string; secret:string}};
@@ -271,7 +271,7 @@ test(
           const n: number = row[0];
         }
         const completion: StreamCompletion = await stream.completion;
-        if(completion.status==='complete') { const count: bigint|null=completion.result.rowCount; void count; }
+        if(completion.status==='complete') { const count: number|null=completion.result.rowCount; void count; }
         else {
           // @ts-expect-error Early close has no invented final command or count.
           completion.result;

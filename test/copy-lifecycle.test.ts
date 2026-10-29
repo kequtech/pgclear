@@ -86,7 +86,7 @@ test(
       await acknowledged.promise;
       assert.equal(pulls, 0);
       proceed.resolve();
-      assert.deepEqual(await pending, { command: 'COPY', commandTag: 'COPY 1', rowCount: 1n });
+      assert.deepEqual(await pending, { command: 'COPY', commandTag: 'COPY 1', rowCount: 1 });
       assert.deepEqual(sizes, [65536, 65536, 48928]);
       assert.equal(pulls, 1);
     } finally {
@@ -137,7 +137,7 @@ test(
       assert.equal((await iterator.next()).done, true);
       assert.deepEqual(await stream.completion, {
         status: 'complete',
-        result: { command: 'COPY', commandTag: 'COPY 2', rowCount: 2n },
+        result: { command: 'COPY', commandTag: 'COPY 2', rowCount: 2 },
       });
     } finally {
       await client.close();

@@ -62,7 +62,7 @@ test(
       type Shapes = Assert<Equal<keyof Database['users'], 'row' | 'insert' | 'update'>>;
       declare const row: Database['users']['row'];
       const id: number = row.id;
-      const big: bigint | null = row.big;
+      const big: string | null = row.big;
       const balance: string = row.balance;
       const at: string | null = row.at;
       const tags: PgArray<string> | null = row.tags;
@@ -84,7 +84,7 @@ test(
       // @ts-expect-error relationships are comments, not extra row properties
       type Relation = Database['posts']['row']['user'];
       async function write(connection: Connection) {
-        const value: Database['users']['insert'] = {name:'x', big:42n};
+        const value: Database['users']['insert'] = {name:'x', big:'42'};
         await connection.queryClassic('INSERT INTO users(name,big) VALUES($1,$2)', [value.name, value.big!]);
       }
     `,
@@ -94,7 +94,7 @@ test(
           `INSERT INTO ${ns}.users(name,big,at,tags,document,bytes) VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,
           [
             'Alice',
-            9007199254740993n,
+            '9007199254740993',
             'infinity',
             param(['x', null], builtin.textArray),
             json({ ok: true }),
@@ -102,7 +102,7 @@ test(
           ],
         )
       ).rows[0]!;
-      assert.equal(row.big, 9007199254740993n);
+      assert.equal(row.big, '9007199254740993');
       assert.equal(row.balance, '0');
       assert.equal(row.at, 'infinity');
       assert.equal(row.role, 'member');
@@ -348,7 +348,7 @@ test(
             [applicationName],
           )
         ).rows[0]!.n,
-        0n,
+        '0',
       );
     });
   },
