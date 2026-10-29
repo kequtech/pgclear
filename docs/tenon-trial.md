@@ -71,8 +71,8 @@ COPY savepoint recovery, plus listener termination/reconnection alongside ORM qu
 An npm registry release is unnecessary for this boundary check. npm supports installing local
 package tarballs; the trial uses the real packed exports/declarations instead of source aliases or
 npm link. See [npm install](https://docs.npmjs.com/cli/v11/commands/npm-install/) and
-[npm pack](https://docs.npmjs.com/cli/v11/commands/npm-pack/). pgclear stays private at 0.0.0; publication
-remains a separate release decision after the applicable gates.
+[npm pack](https://docs.npmjs.com/cli/v11/commands/npm-pack/). The 0.1.0 manifest is prepared;
+publication remains a separate release decision.
 
 ## Selected contracts
 

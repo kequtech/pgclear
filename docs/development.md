@@ -3,7 +3,8 @@
 ## Current project state
 
 The repository is `git@github.com:kequtech/pgclear.git`, private, with `main` as the default
-branch. The package is `@kequtech/pgclear`, unpublished and protected by `private: true`. The stable
+branch. The package is prepared as `@kequtech/pgclear@0.1.0`, with public npm access configured,
+but remains unpublished. Publication requires a separate explicit instruction. The stable
 Kequtech source identity is `pgclear`. Node.js 24+, npm, TypeScript and Prettier are the tooling
 foundations. There are no runtime dependencies. Native Node modules handle networking, TLS and
 cryptography; fixed generated stringprep tables preserve PostgreSQL's password preparation rules.
@@ -28,16 +29,19 @@ JavaScript/TypeScript consumers, and real PostgreSQL integration tests. Set the 
 
 Fake-server tests require loopback/Unix sockets. Integration tests require `psql`; packed-consumer
 tests use `tar` and reuse only runtime dependencies declared in the packed manifest. TLS fixtures
-are explicitly public test-only keys/certificates. The package remains private; `npm pack` exercises
+are explicitly public test-only keys/certificates. The package remains unpublished; `npm pack` exercises
 distribution locally and does not publish it. The runtime exports are `connect`, `createPool`, `DriverError`, `DatabaseError`, `builtin`, `defaultCodecs`, `param`,
 `json`, `sql`, `listen` and `generateDefinitions`.
 
-The M8 package audit keeps the ISC license, ESM exports, declarations and `private: true`. PostgreSQL
+The release package keeps the ISC license, ESM exports and declarations. PostgreSQL
 attribution for the generated stringprep tables and preparation rules is included in LICENSE.
 Regenerate those tables with `node scripts/generate-saslprep.mjs /path/to/saslprep.c`; the script
 verifies the source SHA256 and does not run during installation or application execution. Benchmark
 documentation/results, runners, comparator dependencies, trials and raw generated artifacts remain
-repository-only. The package README points to the benchmark evidence on GitHub.
+repository-only. The tarball includes README, release notes, LICENSE, the public API, JavaScript,
+declarations, a short documentation index and JavaScript maps with embedded TypeScript sources. Declaration maps are omitted
+because the separate source paths are not installed. Contributor documents and design history
+stay in the repository. The package README points to the repository for those references.
 See [M8](implementation-plan.md#m8--initial-release-gate) for the remaining adoption and release decisions.
 
 ## Current verification and limits

@@ -29,7 +29,7 @@ There is no application account system or deployment service to provision.
 ## First release
 
 0.1 includes ordinary queries, description without execution, explicit sessions, bounded pooling,
-transactions/savepoints, lossless codec defaults, named preparation with explicit disposal,
+transactions/savepoints, exact integer/decimal defaults, named preparation with explicit disposal,
 cancellable operations, bounded shutdown, row streaming, COPY streams, and dedicated notification
 listeners. Pipelining is deferred outside the first release ([D33](decisions.md#d33--defer-pipelining-and-proceed-to-release-readiness)).
 Queries execute sequentially per physical connection. Reconsider pipelining only for a demonstrated
@@ -38,9 +38,10 @@ consumer need that justifies its lifecycle and recovery complexity.
 The Tenon integration gate is an earlier milestone, after query/description/session/pool/codec
 correctness. Tenon need not wait for notification supervision or performance work to trial the core.
 
-Initial publication is `@kequtech/pgclear`. The repository remains private as already configured.
-`private: true` stays in the manifest until an explicitly authorized package release. A future
-unscoped npm name or public repository is a separate decision.
+Initial publication is prepared as `@kequtech/pgclear@0.1.0`, with public npm access configured.
+Publication is pending an explicit instruction; preparing the manifest does not publish it.
+The repository remains private. Repository visibility and any future unscoped npm name are separate
+decisions; current GitHub links require repository access until visibility changes.
 
 ## Success measures
 

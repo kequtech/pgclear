@@ -103,6 +103,11 @@ test(
       assert.ok(
         !archive!.files.some((file) => /^(?:src|test|\.env|\.test-dist)(?:\/|$)/.test(file.path)),
       );
+      assert.deepEqual(
+        archive!.files.filter((file) => file.path.startsWith('docs/')).map((file) => file.path),
+        ['docs/public-api.md', 'docs/README.md'],
+      );
+      assert.ok(!archive!.files.some((file) => file.path.endsWith('.d.ts.map')));
       await mkdir(packagePath, { recursive: true });
       await run('tar', [
         '-xzf',
@@ -112,10 +117,23 @@ test(
         '--strip-components=1',
       ]);
       const manifest = JSON.parse(await readFile(join(packagePath, 'package.json'), 'utf8')) as {
-        dependencies: Record<string, string>;
-        private: boolean;
+        dependencies?: Record<string, string>;
+        private?: boolean;
+        publishConfig?: { access?: string };
       };
-      assert.equal(manifest.private, true);
+      assert.notEqual(manifest.private, true);
+      assert.equal(manifest.publishConfig?.access, 'public');
+      assert.equal(Object.keys(manifest.dependencies ?? {}).length, 0);
+      for (const file of archive!.files.filter((file) => file.path.endsWith('.js.map'))) {
+        const map = JSON.parse(await readFile(join(packagePath, file.path), 'utf8')) as {
+          sources: string[];
+          sourcesContent: string[];
+        };
+        assert.equal(map.sourcesContent.length, map.sources.length);
+        assert.ok(
+          map.sourcesContent.every((source) => typeof source === 'string' && source.length),
+        );
+      }
       // Reuse installed dependencies, but only those actually declared by the packed manifest.
       for (const dependency of [...Object.keys(manifest.dependencies ?? {}), '@types/node']) {
         const target = join(directory, 'node_modules', dependency);

@@ -335,8 +335,10 @@ pass separately. All use the same driver artifact with a clean working tree. Ten
 See development.md and validation-2026-10-29.json for exact evidence and benchmark limits.
 
 Remaining decisions are opt-in adoption into Tenon's active checkout and release/package readiness.
-Keep version 0.0.0 and private: true until an explicit release instruction. No publication or new
-GitHub CI run is implied by the local matrix. Other PostgreSQL libraries remain supported consumers
+The maintainer has authorized 0.1.0 preparation: the manifest declares public npm access, and the
+tarball keeps only runtime files, declarations, self-contained JavaScript maps, the public API and its index,
+README, release notes and license. Publication and repository visibility changes remain pending.
+No new GitHub CI run is implied by local validation. Other PostgreSQL libraries remain supported consumers
 of finished SQL and binds through queryClassic; Tenon does not own the driver's API.
 
 ## Planning envelope and order

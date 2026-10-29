@@ -1,11 +1,9 @@
 # Public API
 
-Status: M1–M6 are implemented and locally verified: connections, pools/leases, session callbacks, transactions and
-savepoints, cancellation, immutable codecs, typed/JSON parameters, arrays, description, scripts, scope-owned named preparation, portal row streams, COPY byte transfer and dedicated notification listeners.
-Actual exports/types live in `src/index.ts`; [api-contract.ts](api-contract.ts) imports implemented
-signatures, including listeners. [api-examples.ts](api-examples.ts) compiles with
-`npm run typecheck`. Queries execute sequentially per physical connection. Pipelining is deferred
-outside the first release ([D33](decisions.md#d33--defer-pipelining-and-proceed-to-release-readiness)).
+Public behavior for 0.1.0. The package ships JavaScript and TypeScript declarations for connections,
+pools/leases, transactions/savepoints, cancellation, codecs, parameters, description, scripts,
+prepared statements, row streams, byte COPY, dedicated listeners and schema type generation.
+Queries execute sequentially per physical connection. Pipelining is deferred.
 
 ## Connections, pools, and ownership
 
@@ -203,19 +201,33 @@ Unknown text OIDs stay strings. A known codec with no text decoder also leaves a
 string. Invalid data for an available decoder raises `PGCLEAR_DECODE`, drains to ReadyForQuery, and
 does not transfer the error to another operation.
 
-| PostgreSQL type                          | Default JavaScript representation                                         |
-| ---------------------------------------- | ------------------------------------------------------------------------- |
-| int2/int4/oid                            | number                                                                    |
-| int8                                     | bigint                                                                    |
-| numeric                                  | string                                                                    |
-| float4/float8                            | number, preserving PostgreSQL infinity/NaN values                         |
-| bool                                     | boolean                                                                   |
-| text/uuid/enums/unknown text OIDs        | string                                                                    |
-| date/timestamp/timestamptz/time/interval | string, including infinity spellings                                      |
-| json/jsonb                               | unknown after JSON.parse; numeric tokens follow JavaScript JSON semantics |
-| bytea                                    | Uint8Array                                                                |
-| SQL NULL                                 | null, always before a codec                                               |
-| supported built-in arrays                | nested arrays of element values or null                                   |
+| PostgreSQL type                                                                          | Default JavaScript representation                                         |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| smallint/int2, integer/int4, smallserial/serial, oid                                     | number                                                                    |
+| bigint/int8, bigserial                                                                   | bigint                                                                    |
+| numeric/decimal                                                                          | string, including NaN/infinity spellings                                  |
+| real/float4, double precision/float8                                                     | number, including NaN and infinities                                      |
+| boolean/bool                                                                             | boolean                                                                   |
+| text, varchar, char, name, uuid, enums                                                   | string                                                                    |
+| date, timestamp, timestamptz, time, timetz, interval                                     | string, including supported infinity spellings                            |
+| json/jsonb                                                                               | unknown after JSON.parse; numeric tokens follow JavaScript JSON semantics |
+| bytea                                                                                    | Uint8Array                                                                |
+| supported built-in arrays                                                                | nested arrays of element values or null                                   |
+| dynamically assigned enum/domain/extension arrays                                        | string unless a codec is supplied                                         |
+| other types, including money, network addresses, bit strings, XML, ranges and composites | string unless a codec is supplied                                         |
+| SQL NULL                                                                                 | null, always before a codec                                               |
+
+These defaults avoid decimal rounding and implicit date/time-zone interpretation. Temporal strings
+retain PostgreSQL's precision and special values without constructing a JS Date. Connections start
+with ISO DateStyle, ISO 8601 intervals and UTC; explicit SQL SET commands can change their output.
+Domains reported with their underlying type use that type's decoder. Serial types are integer
+columns with defaults, not separate runtime types. Query expressions follow the result OID:
+`count(*)`, for example, produces int8 and therefore bigint. Command `rowCount` is also bigint or null.
+
+Schema generation narrows ordinary enum columns to their string-literal choices. Arrays use the
+recursive `PgArray<T>` type, which allows null elements. JSON stays unknown until the caller supplies
+an application type. Custom decoder return types cannot be recovered from JavaScript functions;
+generation warns and uses unknown when their representation is unfamiliar.
 
 JSON defaults do not promise arbitrary numeric precision. `builtin.jsonText` (OID 114) and
 `builtin.jsonbText` (OID 3802) are string codecs: install them through the registry for raw result
@@ -287,7 +299,7 @@ prepare through the child when needed. There is no ancestor-handle borrowing. Ca
 drains accepted work and closes owned names before commit, savepoint release/recovery or session
 reuse. Named statements outlive PostgreSQL rollback, so rollback alone is insufficient cleanup.
 Explicit close after expiry/loss is harmless; it cannot reactivate the handle. An unacknowledged
-Close retires the physical session. See [D27](decisions.md#d27--prepared-statements-belong-to-their-creating-scope).
+Close retires the physical session.
 Prepared executions are ordinary queue operations. Close follows earlier accepted executions,
 rejects later ones, and releases the server statement before connection reuse. On known disconnect
 it only expires local state. Server plan-invalidated errors surface; the driver does not retry writes.
@@ -434,9 +446,7 @@ Awaiting completion without consuming or closing a stream with buffered rows can
 A second iterator or overlapping `next()` calls reject `PGCLEAR_BUSY`. Signal/deadline options cover
 both database activity and time spent waiting for the consumer. Expiry closes unfinished streams;
 a successful callback that abandons one fails `PGCLEAR_BUSY`, and managed transactions roll back.
-A raw lease with an abandoned stream is discarded. See
-[D28](decisions.md#d28--streaming-owns-one-scope-and-retains-native-completion-evidence) and
-[D30](decisions.md#d30--exclusive-execution-needs-no-named-portal-resource-layer).
+A raw lease with an abandoned stream is discarded.
 
 `copyFrom(text, asyncIterable)` and `copyTo(text)` stream protocol payloads. Uint8Array chunks and
 Node Readable sources integrate with standard platform streams. pgclear does not encode CSV or
@@ -472,7 +482,6 @@ close discards buffered/in-flight bytes, waits for cancellation cleanup and reti
 It resolves only `closed`, with no invented result/count. Transport/protocol/cleanup failures reject
 completion and close. A close while queued sends no COPY and leaves earlier work intact. Abandoned
 COPY output makes successful callbacks fail `PGCLEAR_BUSY` and is discarded on lease release.
-See [D29](decisions.md#d29--copy-shares-execution-ownership-and-separates-source-cleanup-from-protocol-recovery).
 
 `listen(connectionOptions, { channels, onNotification, onStatus, reconnect })` owns a separate
 connection, resolves after LISTEN acknowledgement, and returns one stable handle for that fixed

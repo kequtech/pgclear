@@ -1,8 +1,7 @@
 # Design decisions
 
-Accepted on 2026-10-28. These are implementation constraints; see [development](development.md)
-for the implemented subset. Superseded entries preserve historical design discussion.
-Amend details in place while the initial design is unimplemented; record a superseding decision for
+These are accepted implementation constraints; see [development](development.md) for current
+validation. Superseded entries preserve historical discussion. Record a superseding decision for
 a meaningful reversal. The engineer maintaining the project owns these decisions; no review board
 or separate approval workflow is required.
 
