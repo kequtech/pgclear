@@ -305,6 +305,18 @@ test(
   },
 );
 
+test('invalid per-query registries allocate no connection and leave no long deadline', async () => {
+  const server = await sessionServer(async () => {
+    assert.fail('Invalid registry must reject before connecting.');
+  });
+  try {
+    await runLifecycle('pool', 'invalid-codecs:false', server.port);
+    assert.equal(server.connections, 0);
+  } finally {
+    await server.close();
+  }
+});
+
 test(
   'a stalled rollback uses one cleanup deadline and preserves the callback error',
   { timeout: 10000 },

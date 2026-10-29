@@ -1,7 +1,7 @@
 import { DriverError } from '../errors.js';
 import type { Codec, CodecRegistry, Field } from '../types.js';
 import { arrayElements, parseArray } from './arrays.js';
-import { builtin, oidCodec, synchronous } from './builtin.js';
+import { builtin, oidCodec, synchronous, textValue } from './builtin.js';
 import { sharedWeakMap } from '../identity.js';
 
 export function snapshotCodec<T>(codec: Codec<T>): Codec<T> {
@@ -23,10 +23,25 @@ export function snapshotCodec<T>(codec: Codec<T>): Codec<T> {
       (!format || typeof format.encode !== 'function' || typeof format.decode !== 'function')
     )
       invalid();
+  const representation = codec.text?.typescript;
+  if (representation !== undefined) {
+    if (typeof representation !== 'string' || !representation.trim()) invalid();
+    try {
+      textValue(representation);
+    } catch {
+      invalid();
+    }
+  }
   return Object.freeze({
     oid: codec.oid,
     ...(codec.text
-      ? { text: Object.freeze({ encode: codec.text.encode, decode: codec.text.decode }) }
+      ? {
+          text: Object.freeze({
+            encode: codec.text.encode,
+            decode: codec.text.decode,
+            ...(representation === undefined ? {} : { typescript: representation }),
+          }),
+        }
       : {}),
     ...(codec.binary
       ? { binary: Object.freeze({ encode: codec.binary.encode, decode: codec.binary.decode }) }
@@ -63,7 +78,13 @@ for (const codec of Object.values(builtin)) {
   const element = arrayElements.get(codec.oid);
   if (element !== undefined && codec.text) {
     const decode = scalars.get(element);
-    knownTypes.set(codec.text.decode, `PgArray<${decode ? knownTypes.get(decode) : 'string'}>`);
+    const declared = 'typescript' in codec.text ? codec.text.typescript : undefined;
+    knownTypes.set(
+      codec.text.decode,
+      typeof declared === 'string'
+        ? declared
+        : `PgArray<${decode ? knownTypes.get(decode) : 'string'}>`,
+    );
   }
 }
 // PostgreSQL field bytes are data, not a BOM-prefixed document.
@@ -72,16 +93,24 @@ const registries = sharedWeakMap<CodecRegistry, Registry>('registries');
 
 class Registry implements CodecRegistry {
   readonly #overrides: ReadonlyMap<number, Decoder>;
-  constructor(overrides: ReadonlyMap<number, Decoder> = new Map()) {
+  readonly #representations: ReadonlyMap<number, string>;
+  constructor(
+    overrides: ReadonlyMap<number, Decoder> = new Map(),
+    representations: ReadonlyMap<number, string> = new Map(),
+  ) {
     this.#overrides = overrides;
+    this.#representations = representations;
     registries.set(this, this);
     Object.freeze(this);
   }
   with<T>(codec: Codec<T>): CodecRegistry {
     const snapshot = snapshotCodec(codec),
-      next = new Map(this.#overrides);
+      next = new Map(this.#overrides),
+      representations = new Map(this.#representations);
     next.set(snapshot.oid, snapshot.text?.decode);
-    return new Registry(next);
+    if (snapshot.text?.typescript === undefined) representations.delete(snapshot.oid);
+    else representations.set(snapshot.oid, snapshot.text.typescript);
+    return new Registry(next, representations);
   }
   /** Custom decoder functions have erased return types; generation must not guess. */
   typescript(oid: number): string | undefined {
@@ -89,7 +118,7 @@ class Registry implements CodecRegistry {
       throw new DriverError('PGCLEAR_CONFIGURATION', 'Expected a PostgreSQL type OID.');
     if (this.#overrides.has(oid)) {
       const decode = this.#overrides.get(oid);
-      return decode ? knownTypes.get(decode) : 'string';
+      return decode ? (this.#representations.get(oid) ?? knownTypes.get(decode)) : 'string';
     }
     const decode = scalars.get(oid);
     if (decode) return knownTypes.get(decode);
@@ -97,6 +126,15 @@ class Registry implements CodecRegistry {
     if (element === undefined) return 'string';
     const type = this.typescript(element);
     return type === undefined ? undefined : `PgArray<${type}>`;
+  }
+  typescriptTypes(): readonly string[] {
+    const oids = new Set([...scalars.keys(), ...arrayElements.keys(), ...this.#overrides.keys()]);
+    const types = new Set<string>();
+    for (const oid of oids) {
+      const type = this.typescript(oid);
+      if (type !== undefined) types.add(type);
+    }
+    return Object.freeze([...types]);
   }
   #textDecoder(oid: number): (value: string) => unknown {
     const overridden = this.#overrides.has(oid);

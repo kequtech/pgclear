@@ -17,11 +17,11 @@ dependencies. Public entry points are in `src/index.ts`; internal modules are no
 | `session/`                | Expiring handles, prepared statements and transaction/savepoint scopes |
 | `pool/`                   | FIFO acquisition, capacity, leases, retirement and shutdown            |
 | `listener/`               | Dedicated LISTEN connection and optional reconnect                     |
-| `generation/`             | Read-only catalogs and TypeScript schema rendering                     |
 | `errors.ts`, `observe.ts` | Diagnostics and isolated observation callbacks                         |
 
-SQL composition, query checking, migrations, file output and application row policies belong to
-consumers. `query` and `queryClassic` share the same encoding and execution path.
+SQL composition, schema catalog interpretation, declaration rendering, query checking, migrations,
+file output and application row policies belong to consumers such as Tenon. `query` and
+`queryClassic` share the same encoding and execution path.
 
 ## Ownership and recovery
 
@@ -65,8 +65,15 @@ a remote backend stopped executing.
 Stable built-in OIDs select decoders without catalog queries. Arrays derive element decoding from
 the same immutable registry; explicit array overrides win. Int8 and numeric values stay exact strings;
 command counts use safe JavaScript numbers or null. Unknown OIDs remain text. Codec registrations
-also supply the known TypeScript representations used by schema generation; custom function return
-types cannot be recovered at runtime.
+also supply the known TypeScript representations used by downstream tools; custom function return
+types can be declared on their text codec, since erased generic types cannot be recovered at runtime.
+Representation declarations belong to immutable registrations and expose a finite expression list
+for downstream type checking. Input encoding remains independent of selected output decoders.
+
+Date parameters encode as UTC text; bigint parameters remain exact decimal text. Temporal inputs
+and optional output codecs use the supplied/native implementation without a runtime dependency or
+global mutation. Temporal output choices remain explicit, preserving the same defaults on Node 24
+and runtimes with native Temporal. JSON and PostgreSQL arrays keep explicit parameter encoders.
 
 Each result description selects its column decoders once, including array element decoders. Object
 rows copy a template of own data properties and fill values directly; array rows fill a new array.
@@ -75,12 +82,13 @@ column names, strict UTF-8/value validation and synchronous custom codecs. Scrip
 decoder for each result description; streams retain it across portal batches. Compatible older
 package copies can still supply registries through their original per-value decoding method.
 
-`generation/` uses read-only repeatable-read scopes. Internal catalog reads use default codecs;
-application types use the selected registry. Generation borrows supplied handles and owns only the
-connections it creates. It performs no file I/O, checking or migration coordination.
+Executors expose their immutable selected registry. Queries can choose a result registry for one
+operation without mutating that default or changing parameter encoders. Borrowed catalog readers
+can select default codecs on the same held session and transaction; they require no private driver
+scope access or replacement connection. Catalog queries and schema rendering live in Tenon.
 
 `identity.ts` uses versioned weak maps for compatible package copies in one realm. Parameters,
-registries, borrowed scopes and errors retain their creating copy's behavior and ownership. There
+registries, query tags and errors retain their creating copy's behavior and ownership. There
 is no shared scheduler or strong retention of keys. Incompatible identity contracts need new keys.
 
 ## Authentication and listeners

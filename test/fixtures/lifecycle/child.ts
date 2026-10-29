@@ -141,17 +141,25 @@ if (kind === 'listener') {
   const pool = createPool({ ...connection, maxConnections: 1 });
   const [operation, fail] = scenario.split(':');
   try {
-    const callback = async () => {
-      if (fail === 'true') throw Error('fixture');
-      return 42;
-    };
-    const work =
-      operation === 'transaction'
-        ? pool.transaction(callback, options)
-        : pool.withSession(callback, options);
-    if (fail === 'true') await assert.rejects(work, /fixture/);
-    else assert.equal(await work, 42);
-    assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+    if (operation === 'invalid-codecs') {
+      await assert.rejects(pool.queryClassic('SELECT 1', [], { ...options, codecs: {} as never }), {
+        code: 'PGCLEAR_CONFIGURATION',
+      });
+      assert.equal(pool.stats.total, 0);
+      assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+    } else {
+      const callback = async () => {
+        if (fail === 'true') throw Error('fixture');
+        return 42;
+      };
+      const work =
+        operation === 'transaction'
+          ? pool.transaction(callback, options)
+          : pool.withSession(callback, options);
+      if (fail === 'true') await assert.rejects(work, /fixture/);
+      else assert.equal(await work, 42);
+      assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+    }
   } finally {
     await pool.close();
   }

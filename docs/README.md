@@ -1,7 +1,7 @@
 # Documentation
 
 [API and usage](public-api.md) covers configuration, queries/results, types, transactions, prepared
-statements, streaming, COPY, notifications and schema generation. Start with the root
+statements, streaming, COPY, notifications and migration of schema generation to Tenon. Start with the root
 [README](../README.md) for a complete first query.
 
 Contributor guides live in the repository:

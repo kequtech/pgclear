@@ -1,11 +1,11 @@
 export { listen } from './listener/index.js';
-export { generateDefinitions } from './generation/index.js';
-export type { GenerateOptions } from './generation/index.js';
 export { createPool } from './pool/index.js';
 export { connect } from './connection/index.js';
 export { DriverError, DatabaseError } from './errors.js';
 export { defaultCodecs, builtin } from './codecs/index.js';
 export { param, json } from './codecs/parameters.js';
+export { createTemporalCodecs } from './codecs/temporal.js';
+export type { TemporalConstructors } from './codecs/temporal.js';
 export { sql } from './query.js';
 export type { DriverErrorCode } from './errors.js';
 export type {
@@ -29,6 +29,7 @@ export type {
   DriverEvent,
   Field,
   InputValue,
+  TemporalInput,
   Oid,
   OperationOptions,
   Outcome,

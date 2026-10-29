@@ -10,10 +10,24 @@ declare const parameterBrand: unique symbol;
 export interface Parameter {
   readonly [parameterBrand]: true;
 }
-export type InputValue = null | string | number | boolean | Uint8Array | Parameter;
+/** Native Temporal values and compatible polyfills; incomplete calendar dates are excluded. */
+export type TemporalInput = {
+  readonly [Symbol.toStringTag]:
+    | 'Temporal.PlainDate'
+    | 'Temporal.PlainTime'
+    | 'Temporal.PlainDateTime'
+    | 'Temporal.Instant'
+    | 'Temporal.ZonedDateTime'
+    | 'Temporal.Duration';
+  toString(): string;
+};
+export type InputValue =
+  null | string | number | bigint | boolean | Date | TemporalInput | Uint8Array | Parameter;
 export interface TextCodec<T> {
   readonly encode: (value: T) => string;
   readonly decode: (value: string) => T;
+  /** Declared non-NULL output type expression, resolved in the generated/checking project. */
+  readonly typescript?: string;
 }
 export interface BinaryCodec<T> {
   readonly encode: (value: T) => Uint8Array;
@@ -28,6 +42,8 @@ export interface CodecRegistry {
   with<T>(codec: Codec<T>): CodecRegistry;
   /** Known non-NULL text-result type; undefined means an unrecognized custom decoder. */
   typescript(oid: Oid): string | undefined;
+  /** Known output type expressions, including derived arrays, for downstream type checking. */
+  typescriptTypes(): readonly string[];
 }
 
 export interface Field {
@@ -75,9 +91,12 @@ export interface OperationOptions {
 }
 export interface QueryOptions extends OperationOptions {
   readonly rowMode?: 'object';
+  /** Result decoding for this operation only; parameter encoders are independent. */
+  readonly codecs?: CodecRegistry;
 }
 export interface ArrayQueryOptions extends OperationOptions {
   readonly rowMode: 'array';
+  readonly codecs?: CodecRegistry;
 }
 export type StreamCompletion =
   { readonly status: 'complete'; readonly result: CommandResult } | { readonly status: 'closed' };
@@ -107,6 +126,8 @@ export interface SessionInfo {
   readonly serverVersion: string;
 }
 export interface Executor {
+  /** Immutable default result registry selected for this executor. */
+  readonly codecs: CodecRegistry;
   query<T extends object = Row>(
     statement: SqlQuery<T>,
     options?: QueryOptions,

@@ -33,6 +33,43 @@ const field = (oid: number): Field => ({
 const decode = (oid: number, text: string, codecs = defaultCodecs) =>
   registry(codecs).decode(Buffer.from(text), field(oid));
 
+test('custom representation metadata belongs to immutable registrations and follows array overrides', () => {
+  const decoder = (value: string) => ({ value });
+  const codec = {
+    oid: 23,
+    text: { encode: String, decode: decoder, typescript: '{ value: string }' },
+  };
+  const first = defaultCodecs.with(codec);
+  codec.text.typescript = 'unknown';
+  const second = defaultCodecs.with({
+    ...codec,
+    text: { ...codec.text, typescript: 'import("node:buffer").Buffer' },
+  });
+  assert.equal(first.typescript(23), '{ value: string }');
+  assert.equal(first.typescript(1007), 'PgArray<{ value: string }>');
+  assert.ok(first.typescriptTypes().includes('{ value: string }'));
+  assert.ok(first.typescriptTypes().includes('PgArray<{ value: string }>'));
+  assert.ok(Object.isFrozen(first.typescriptTypes()));
+  assert.equal(second.typescript(23), 'import("node:buffer").Buffer');
+  assert.equal(first.typescript(23), '{ value: string }');
+  assert.equal(
+    first.with({ oid: 23, text: { encode: String, decode: decoder } }).typescript(23),
+    undefined,
+  );
+  assert.equal(first.with(builtin.int4).typescript(23), 'number');
+  assert.equal(first.with(builtin.int4Array).typescript(1007), 'PgArray<number>');
+  assert.deepEqual(decode(1007, '{1,NULL,2}', first), [{ value: '1' }, null, { value: '2' }]);
+  for (const value of ['', '  ', 1, null, 'x\0y', '\ud800'])
+    assert.throws(
+      () =>
+        defaultCodecs.with({
+          oid: 23,
+          text: { encode: String, decode: Number, typescript: value },
+        } as never),
+      { code: 'PGCLEAR_CONFIGURATION' },
+    );
+});
+
 test('public TypeScript representations follow the selected text decoders', () => {
   for (const [oid, expected] of [
     [16, 'boolean'],

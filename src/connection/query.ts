@@ -9,6 +9,7 @@ import type {
 } from '../types.js';
 import { encodeParameter } from '../codecs/parameters.js';
 import { textValue } from '../codecs/builtin.js';
+import { temporalText } from '../codecs/temporal.js';
 import { cstring, frame, int16, int32, uint32 } from '../protocol/framing.js';
 
 function invalid(message: string): never {
@@ -72,6 +73,8 @@ function encodeValues(values: readonly InputValue[], hints?: readonly number[]) 
       if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))
         invalid('Invalid numeric parameter; use exact text or a typed codec.');
       bytes = Buffer.from(String(value));
+    } else if (typeof value === 'bigint') {
+      bytes = Buffer.from(String(value));
     } else if (typeof value === 'boolean') {
       oid = 16;
       bytes = Buffer.from(value ? 't' : 'f');
@@ -79,13 +82,22 @@ function encodeValues(values: readonly InputValue[], hints?: readonly number[]) 
       oid = 17;
       format = 1;
       bytes = Buffer.from(value);
+    } else if (value instanceof Date) {
+      if (!Number.isFinite(Date.prototype.getTime.call(value))) invalid('Invalid Date parameter.');
+      bytes = Buffer.from(temporalText(value));
     } else {
       const encoded =
         value && typeof value === 'object' ? encodeParameter(value as Parameter) : undefined;
-      if (!encoded) invalid('Unsupported parameter value; use an explicit codec or json().');
-      oid = encoded.oid;
-      format = encoded.format;
-      bytes = encoded.bytes === null ? undefined : encoded.bytes;
+      if (encoded) {
+        oid = encoded.oid;
+        format = encoded.format;
+        bytes = encoded.bytes === null ? undefined : encoded.bytes;
+      } else {
+        const temporal = temporalText(value);
+        if (temporal === undefined)
+          invalid('Unsupported parameter value; use an explicit codec or json().');
+        bytes = Buffer.from(temporal);
+      }
     }
     const hint = hints?.[index];
     if (hints && (hint === undefined || !Number.isInteger(hint) || hint < 0 || hint > 0xffffffff))

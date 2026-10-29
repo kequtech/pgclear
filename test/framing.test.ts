@@ -209,11 +209,10 @@ test('sparse and ambiguous values reject before a request is encoded', () => {
     Array(1),
     [[1, 2]],
     [{}],
-    [new Date()],
+    [new Date(NaN)],
     [NaN],
     [Infinity],
     [Number.MAX_SAFE_INTEGER + 1],
-    [1n],
     ['x\0y'],
   ];
   for (const values of bad)

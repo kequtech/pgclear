@@ -1,5 +1,5 @@
 import { DriverError } from '../errors.js';
-import type { OperationOptions } from '../types.js';
+import type { OperationOptions, CodecRegistry } from '../types.js';
 
 /** Fixed cleanup budget for physical resources; operation deadlines remain caller controlled. */
 export const CLEANUP_TIMEOUT_MS = 5000;
@@ -37,6 +37,7 @@ export function abortError(signal: AbortSignal): DriverError {
 /** Internal execution context. Public options are validated before constructing it. */
 export interface ExecutionOptions {
   readonly lifetime: Lifetime;
+  readonly codecs?: CodecRegistry;
   readonly rowMode?: 'object' | 'array';
   readonly batchSize?: number;
 }

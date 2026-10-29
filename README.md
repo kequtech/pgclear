@@ -45,9 +45,14 @@ Dates and times also stay strings. Use the explicit `json` and `param` helpers f
 parameters. See [values and type conversions](docs/public-api.md#codecs-and-parameters) for examples
 and the full PostgreSQL-to-JavaScript mapping.
 
-For TypeScript projects, [generateDefinitions](docs/public-api.md#schema-type-generation) produces
-row, insert and update types for database tables, with relationships and indexes in comments.
-Query result annotations are trusted declarations, not runtime validation.
+Date, bigint and supported Temporal values bind directly. Opt-in codecs can return bigint, Date,
+Temporal or application-defined values; [codec representation metadata](docs/public-api.md#custom-representations)
+keeps generated output types aligned with the selected decoders.
+
+Schema generation and query checking belong to [Tenon](https://github.com/kequtech/tenon-orm).
+Pgclear 0.3.0 removes `generateDefinitions` and `GenerateOptions`; see the
+[migration notes](docs/public-api.md#schema-generation-migration). Query result annotations remain
+trusted declarations, not runtime validation.
 
 The API also provides transactions, savepoints, prepared statements, row streaming, COPY and
 notification listeners. SQL composition, query checking and migrations remain application or

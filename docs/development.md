@@ -53,6 +53,10 @@ The harness and comparator dependencies are repository-only and are not required
 
 ## Package and release
 
+CI checks Node 24 and Node 26 on PostgreSQL 16/18. Native Temporal tests run on Node 26 and skip when
+Temporal is unavailable; real polyfill tests run on both versions alongside Date, bigint, metadata
+and default behavior. The polyfill is a development-only dependency; the driver never imports it.
+
 The package is ESM-only and has no runtime dependencies. The tarball includes README, release notes,
 LICENSE, the API guide/index, JavaScript, declarations and JS maps with embedded sources. Contributor
 documents, tests, benchmark dependencies and trial artifacts stay in the repository.
@@ -66,10 +70,16 @@ verifies a pinned source checksum and does not run during installation or applic
 
 ## Recorded validation
 
+The [0.3.0 integration checkpoint](release-0.3.0-validation.json) records the unpublished package
+hash, codec/input checks on Node 24/26 and PostgreSQL 16/18, native compatibility fixtures and
+TypeScript 6/7 packed consumers. Schema generation moved to Tenon in this release; its integration
+and release dependency validation are owned there. Remote CI results are separate from these local
+checks.
+
 The [0.1.0 checkpoint](release-0.1.0-validation.json) records the revision, artifact hash and local
 PostgreSQL 16.15/18.0 results. It also preserves results from the retired consumer-adoption fixture.
 These are historical checkpoints, not a claim that subsequent commits ran CI. Current test commands
-are listed above; GitHub Actions is configured for Node 24 and PostgreSQL 16/18.
+are listed above; GitHub Actions is configured for Node 24/26 and PostgreSQL 16/18.
 
 The [earlier implementation checkpoint](validation-2026-10-29.json) and benchmark result files retain
 historical provenance. Raw reports, generated packages and logs stay in ignored `.trial-dist` and

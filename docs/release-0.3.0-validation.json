@@ -1,0 +1,100 @@
+{
+  "status": "passed",
+  "createdAt": "2026-10-29T17:06:02.741Z",
+  "package": "@kequtech/pgclear",
+  "version": "0.3.0",
+  "artifact": {
+    "path": ".trial-dist/pgclear-0.3.0-final-EnkMdK/kequtech-pgclear-0.3.0.tgz",
+    "integrity": "sha512-OLLCRRbfUk56TfjvmFVI9d0c/R6XEt4AO8UZSM0JBFTqaWS+wXDRVLTzNCa0PpdXPe/krDDaIJc7X41jObIVXQ==",
+    "sha256": "045a63a41ccadab19f43896ebb534e60d58b9478fc5cb3a0fcca41c979ef53fa",
+    "sizeBytes": 156851,
+    "unpackedSizeBytes": 657413
+  },
+  "source": {
+    "revision": "0bdae3c11e51021272165ae1fd9605ea7eba3639",
+    "workingTreeDirty": true,
+    "description": "Validated pre-commit 0.3.0 candidate based on the recorded revision, including codec representation metadata, Date/bigint/Temporal inputs and optional output codecs, public executor/query codec access, schema-generation removal, migration documentation, tests and CI updates.",
+    "buildInputsManifestSha256": "aac9b60fd2ce08805e03b3e6b9bedf3b27c6d3d2d7cfbab33242801f665c72c0"
+  },
+  "validation": {
+    "node24": "v24.4.1",
+    "node26": "v26.13.0",
+    "postgres16": "PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit",
+    "postgres18": "18.0 (existing local fixture build)",
+    "pgbouncer": "1.26.1",
+    "checks": [
+      {
+        "name": "node24-pg16",
+        "status": "passed",
+        "tests": 247,
+        "passed": 245,
+        "skipped": 2,
+        "logSha256": "059010a3c0f6bca23a1ec4989d2d6ab397de3cf33ef32c62b6b987f49e8359c7",
+        "log": ".trial-dist/pgclear-0.3.0-final-EnkMdK/validation/node24-pg16.log"
+      },
+      {
+        "name": "node26-pg16",
+        "status": "passed",
+        "tests": 247,
+        "passed": 247,
+        "skipped": 0,
+        "logSha256": "df19e1bbea1819ca200704dfe0b16c1dc94e3a0239a5c8f0d39340636fe8bfaf",
+        "log": ".trial-dist/pgclear-0.3.0-final-EnkMdK/validation/node26-pg16.log"
+      },
+      {
+        "name": "node24-pg18",
+        "status": "passed",
+        "tests": 114,
+        "passed": 113,
+        "skipped": 1,
+        "logSha256": "7b5495873af0a8c058bdfd7bacf59a820d98699183507589226a1b1512973116",
+        "log": ".trial-dist/pgclear-0.3.0-final-EnkMdK/validation/node24-pg18.log"
+      },
+      {
+        "name": "node26-pg18",
+        "status": "passed",
+        "tests": 114,
+        "passed": 114,
+        "skipped": 0,
+        "logSha256": "94e1956a86946afe1aec5a508ec2bde1eceab75c88546c2af9dfd63abe5b0147",
+        "log": ".trial-dist/pgclear-0.3.0-final-EnkMdK/validation/node26-pg18.log"
+      },
+      {
+        "name": "compat-pg16",
+        "status": "passed",
+        "tests": 3,
+        "passed": 3,
+        "skipped": 0,
+        "logSha256": "a83a65c9eb81ff785176267eb547ed0aaf10eb354ad05c15cd7b5e76dc6665ad",
+        "log": ".trial-dist/pgclear-0.3.0-final-EnkMdK/validation/compat-pg16.log"
+      },
+      {
+        "name": "compat-pg18",
+        "status": "passed",
+        "tests": 3,
+        "passed": 3,
+        "skipped": 0,
+        "logSha256": "b48ffe86b20a66fdb00aba23be51d0f32dfaba342dd6995c1ca90cf48a693fcf",
+        "log": ".trial-dist/pgclear-0.3.0-final-EnkMdK/validation/compat-pg18.log"
+      }
+    ],
+    "packedConsumer": [
+      {
+        "version": "Version 6.0.3",
+        "status": "passed"
+      },
+      {
+        "version": "Version 7.0.2",
+        "status": "passed"
+      }
+    ],
+    "ci": "configured for Node 24/26 and PostgreSQL 16/18; remote CI not run in this task"
+  },
+  "notes": [
+    "String output defaults and explicit JSON/PostgreSQL-array helpers remain unchanged.",
+    "No schema generator, runtime dependency on Tenon, or runtime Temporal polyfill dependency is shipped.",
+    "Selected registry is immutable metadata; ordinary query lifecycle and borrowing guards remain active.",
+    "Source revision and dirty state describe the validated pre-commit candidate. Artifact and log paths are relative to the producing checkout; ignored local artifacts are not committed.",
+    "Node 24 lacks native Temporal, so its native-only cases skip; real Temporal polyfill cases pass on both Node versions."
+  ]
+}

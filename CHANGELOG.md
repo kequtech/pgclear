@@ -1,6 +1,20 @@
 # Release notes
 
-## Unreleased
+## 0.3.0
+
+- Breaking: remove `generateDefinitions`, `GenerateOptions` and the schema generator. Move schema
+  generation to Tenon; published pgclear 0.2.0 remains unchanged.
+- Expose the immutable selected registry as `Executor.codecs` and add per-operation result `codecs`
+  to ordinary, prepared and streamed queries. Overrides preserve session ownership, executor defaults
+  and parameter encoders.
+- Accept Date, bigint and supported native/polyfilled Temporal values as ordinary parameters.
+  Date values encode in UTC; JSON and PostgreSQL arrays keep explicit encoders.
+- Allow custom text codecs to declare output TypeScript representations, including derived arrays,
+  and expose known expressions for downstream checking and generation.
+- `CodecRegistry.typescriptTypes()` is a required public capability; consumers implementing or
+  mocking the interface must supply it. Integrations using these APIs must require pgclear 0.3.0+.
+- Add opt-in int8 bigint, timestamptz Date and supplied-Temporal codecs; string output defaults remain.
+- Check Node 24 and Node 26 so native Temporal and environments without Temporal are both covered.
 
 - Select result and array-element decoders once per column and fill rows directly, reducing
   per-value lookups and temporary allocations while preserving decoding validation and row behavior.

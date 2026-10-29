@@ -261,6 +261,8 @@ export function validateOperation(options: OperationOptions, extra: readonly str
     options.rowMode !== 'array'
   )
     configurationError('Invalid row mode.');
+  if ('codecs' in options && options.codecs !== undefined)
+    registry(options.codecs as import('../types.js').CodecRegistry);
 }
 
 /** Close validates before any permanent handle or pool fence is set. */

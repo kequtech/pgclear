@@ -20,6 +20,7 @@ import {
 import type {
   ArrayQueryOptions,
   CloseOptions,
+  CodecRegistry,
   ConnectionOptions,
   DescribeStatement,
   Description,
@@ -123,6 +124,9 @@ class ConnectionPool implements Pool {
   #close: Promise<void> | undefined;
   constructor(input: string | PoolOptions) {
     this.#settings = settings(input);
+  }
+  get codecs(): CodecRegistry {
+    return this.#settings.connection.codecs;
   }
   get stats() {
     return Object.freeze({
@@ -369,17 +373,26 @@ class ConnectionPool implements Pool {
       actual: QueryOptions | ArrayQueryOptions,
     ) => Promise<QueryResult<object>>,
   ): Promise<QueryResult<object>> {
-    return this.#withLease(options, ['rowMode'], async (lease) => {
-      const actual = options.rowMode === 'array' ? { rowMode: 'array' as const } : {};
-      const result = await work(lease, actual);
-      if (lease.transactionStatus !== 'idle')
-        throw new DriverError(
-          'PGCLEAR_SESSION_STATE',
-          'One-off pool operations must leave the session idle.',
-          'confirmed',
-        );
-      return result;
-    });
+    try {
+      validateOperation(options, ['rowMode', 'codecs']);
+      const rowMode = options.rowMode === 'array' ? { rowMode: 'array' as const } : {};
+      const actual = {
+        ...rowMode,
+        ...(options.codecs === undefined ? {} : { codecs: options.codecs }),
+      };
+      return this.#withLease(options, ['rowMode', 'codecs'], async (lease) => {
+        const result = await work(lease, actual);
+        if (lease.transactionStatus !== 'idle')
+          throw new DriverError(
+            'PGCLEAR_SESSION_STATE',
+            'One-off pool operations must leave the session idle.',
+            'confirmed',
+          );
+        return result;
+      });
+    } catch (error) {
+      return Promise.reject(error);
+    }
   }
 
   describe(

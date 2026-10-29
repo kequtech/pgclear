@@ -1,4 +1,5 @@
 import { observe } from '../observe.js';
+import { registry } from '../codecs/index.js';
 import { Authenticator } from '../auth/index.js';
 import {
   normalizeConfiguration,
@@ -629,8 +630,8 @@ export class PhysicalConnection {
   query(
     statement: QueryInput<object>,
     options: ExecutionOptions = { lifetime: new Lifetime() },
-    codecs: Configuration['codecs'] = this.#config.codecs,
   ): Promise<QueryResult<object>> {
+    const codecs = options.codecs === undefined ? this.#config.codecs : registry(options.codecs);
     return this.#execute(
       { kind: 'query', phase: 'parse', result: rows(codecs, options.rowMode === 'array') },
       () => encodeQuery(statement),
@@ -653,6 +654,7 @@ export class PhysicalConnection {
     values: readonly InputValue[] = [],
     options: QueryOptions | ArrayQueryOptions = {},
   ): Promise<QueryResult<object>> {
+    validateOperation(options, ['rowMode', 'codecs']);
     return this.query([text, values], { ...options, lifetime: new Lifetime(options) });
   }
   describe(
@@ -700,7 +702,10 @@ export class PhysicalConnection {
       {
         kind: 'query',
         phase: 'bind',
-        result: rows(this.#config.codecs, options.rowMode === 'array'),
+        result: rows(
+          options.codecs === undefined ? this.#config.codecs : registry(options.codecs),
+          options.rowMode === 'array',
+        ),
       },
       () => encodePreparedQuery(name, values, description.parameterTypes),
       options,
@@ -740,7 +745,10 @@ export class PhysicalConnection {
     const work: Work = {
       kind: 'stream',
       phase: 'parse',
-      result: rows(this.#config.codecs, options.rowMode === 'array'),
+      result: rows(
+        options.codecs === undefined ? this.#config.codecs : registry(options.codecs),
+        options.rowMode === 'array',
+      ),
       output: stream,
       batchSize,
       metadataBytes: 0,

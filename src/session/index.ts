@@ -10,13 +10,13 @@ import { validateOperation, validateClose } from '../config/index.js';
 import { DriverError } from '../errors.js';
 import { OutputStream, PortalStream } from '../connection/stream.js';
 import { PreparedHandle } from './prepared.js';
-import { sharedWeakMap } from '../identity.js';
+import { registry } from '../codecs/index.js';
 import { taggedQuery } from '../query.js';
 import type {
   ArrayQueryOptions,
   CloseOptions,
+  CodecRegistry,
   Connection,
-  Executor,
   DescribeStatement,
   Description,
   OperationOptions,
@@ -149,7 +149,15 @@ export class Scope {
   options<T extends OperationOptions>(options: T, extra: readonly string[] = []): ExecutionOptions {
     validateOperation(options, extra);
     this.lifetime?.check();
-    return { ...options, lifetime: new Lifetime(options, this.lifetime) };
+    const codecs =
+      'codecs' in options && options.codecs !== undefined
+        ? registry(options.codecs as CodecRegistry)
+        : undefined;
+    return {
+      ...options,
+      ...(codecs === undefined ? {} : { codecs }),
+      lifetime: new Lifetime(options, this.lifetime),
+    };
   }
   call<T>(work: () => Promise<T>): Promise<T> {
     try {
@@ -161,17 +169,10 @@ export class Scope {
   }
 }
 
-/** Internal catalog readers retain the same scope admission and operation ownership. */
-const scopes = sharedWeakMap<Executor, Scope>('executors');
-export function executorScope(executor: Executor): Scope {
-  const scope = scopes.get(executor);
-  if (!scope) throw new DriverError('PGCLEAR_CONFIGURATION', 'Expected a pgclear executor.');
-  return scope;
-}
-
 class ExecutorHandle {
-  constructor(readonly scope: Scope) {
-    scopes.set(this, scope);
+  constructor(readonly scope: Scope) {}
+  get codecs(): CodecRegistry {
+    return this.scope.connection.codecs;
   }
   get info() {
     return this.scope.connection.info;
@@ -198,7 +199,7 @@ class ExecutorHandle {
     return this.scope.call(() => {
       return this.scope.connection.query(
         taggedQuery(statement),
-        this.scope.options(options, ['rowMode']),
+        this.scope.options(options, ['rowMode', 'codecs']),
       );
     });
   }
@@ -218,7 +219,10 @@ class ExecutorHandle {
     options: QueryOptions | ArrayQueryOptions = {},
   ): Promise<QueryResult<object>> {
     return this.scope.call(() =>
-      this.scope.connection.query([text, values], this.scope.options(options, ['rowMode'])),
+      this.scope.connection.query(
+        [text, values],
+        this.scope.options(options, ['rowMode', 'codecs']),
+      ),
     );
   }
 
@@ -237,7 +241,7 @@ class ExecutorHandle {
       this.scope.claim(() => {
         this.scope.connection.stream(
           statement,
-          this.scope.options(options, ['rowMode', 'batchSize']),
+          this.scope.options(options, ['rowMode', 'batchSize', 'codecs']),
           stream,
         );
         return stream.completion;

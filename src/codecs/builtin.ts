@@ -1,5 +1,6 @@
 import type { Codec, PgArray } from '../types.js';
 import { encodeArray, parseArray } from './arrays.js';
+import { dateText, dateFromText } from './temporal-values.js';
 
 export function synchronous<T>(value: T): T {
   if (
@@ -124,6 +125,9 @@ function arrayCodec<T>(oid: number, element: Codec<T>): Codec<PgArray<T>> {
       // Explicit array overrides choose their own element decoder; registry-derived defaults use
       // the active scalar decoder instead.
       decode: (value: string) => parseArray(value, element.text!.decode) as PgArray<T>,
+      ...(element.text?.typescript === undefined
+        ? {}
+        : { typescript: `PgArray<${element.text.typescript}>` }),
     }),
   });
 }
@@ -150,6 +154,17 @@ const big: Codec<string> = Object.freeze({
     decode: int8,
   }),
 });
+const bigInteger: Codec<bigint> = Object.freeze({
+  oid: 20,
+  text: Object.freeze({
+    encode: (value: bigint) => {
+      if (typeof value !== 'bigint') throw new TypeError('Expected bigint.');
+      return int8(String(value));
+    },
+    decode: (value: string) => BigInt(int8(value)),
+    typescript: 'bigint',
+  }),
+});
 const decimal: Codec<string> = Object.freeze({
   oid: 1700,
   text: Object.freeze({ encode: numeric, decode: numeric }),
@@ -160,6 +175,7 @@ export const builtin = Object.freeze({
   int2,
   int4,
   int8: big,
+  int8BigInt: bigInteger,
   float4: floatCodec(700),
   float8: floatCodec(701),
   numeric: decimal,
@@ -180,8 +196,13 @@ export const builtin = Object.freeze({
   date: textCodec(1082),
   timestamp: textCodec(1114),
   timestamptz: textCodec(1184),
+  timestamptzDate: Object.freeze({
+    oid: 1184,
+    text: Object.freeze({ encode: dateText, decode: dateFromText, typescript: 'globalThis.Date' }),
+  }) satisfies Codec<Date>,
   int4Array: arrayCodec(1007, int4),
   int8Array: arrayCodec(1016, big),
+  int8BigIntArray: arrayCodec(1016, bigInteger),
   numericArray: arrayCodec(1231, decimal),
   textArray: arrayCodec(1009, text),
 });

@@ -4,28 +4,18 @@ import {
   connect,
   createPool,
   defaultCodecs,
-  generateDefinitions,
   listen,
   json,
   param,
   sql,
   type Codec,
   type ConnectionOptions,
-  type GenerateOptions,
   type Pool,
   type Session,
 } from '../../src/index.js';
 
 export function decoderRepresentation(oid: number): string | undefined {
   return defaultCodecs.typescript(oid);
-}
-
-export async function schemaTypes(connection: Pool | Session): Promise<string> {
-  const options: GenerateOptions = { connection, namespace: 'public', timeoutMs: 5000 };
-  const source: string = await generateDefinitions(options);
-  // @ts-expect-error checking/file output remain consumer responsibilities
-  generateDefinitions({ connection, check: true });
-  return source;
 }
 
 export async function standalone(connectionString: string) {
@@ -215,8 +205,8 @@ export async function abort(pool: Pool) {
 }
 
 export function invalidUsage(pool: Pool, session: Session) {
-  // @ts-expect-error Int8 parameters use exact strings, not bigint values.
   void pool.queryClassic('SELECT $1', [1n]);
+  void pool.queryClassic('SELECT $1::timestamptz', [new Date()]);
   // @ts-expect-error The built-in int8 codec accepts strings.
   param(1n, builtin.int8);
   // @ts-expect-error The built-in int8 array codec accepts string elements.

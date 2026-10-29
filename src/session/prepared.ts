@@ -65,7 +65,7 @@ export class PreparedHandle implements PreparedStatement {
         this.#name,
         values,
         this.#description,
-        this.scope.options(options, ['rowMode']),
+        this.scope.options(options, ['rowMode', 'codecs']),
       );
     });
   }

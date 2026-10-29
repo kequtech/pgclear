@@ -136,10 +136,12 @@ a failure rejects, and earlier effects may have committed. No automatic query or
 
 ## Codecs and parameters
 
-Plain binds accept `null`, string, finite number, boolean or `Uint8Array`. Unsafe integer numbers
-reject. Strings/numbers use server type inference, booleans default to bool, and bytes to bytea.
-Use decimal strings for int8 values; `param(value, builtin.int8)` supplies an explicit int8 type.
-`bigint`, `undefined`, plain objects, arrays and `Date` reject. Choose explicit encoding:
+Plain binds accept `null`, string, finite number, bigint, boolean, `Date`, supported Temporal values
+or `Uint8Array`. Unsafe integer numbers reject. Strings, numbers, bigint and temporal values use
+server type inference; booleans default to bool, and bytes to bytea. Bigint values encode as exact
+decimal text; PostgreSQL checks the inferred destination's range. `param(value, builtin.int8)`
+continues to accept exact strings and supplies an explicit int8 type. `undefined`, plain objects
+and arrays reject. JSON and PostgreSQL arrays keep explicit encoding:
 
 ```ts
 import { builtin, json, param } from '@kequtech/pgclear';
@@ -158,6 +160,59 @@ codec state before settlement. Binary parameters are supported; ordinary results
 `json(value, type = 'jsonb')` uses JSON.stringify. `json(null)` means JSON null; plain `null` and
 `param(null, builtin.jsonb)` mean SQL NULL. `json('text')` encodes a JSON string, not a raw document.
 Cycles, bigint and values that produce no JSON text reject before dispatch.
+
+### Date and Temporal inputs and outputs
+
+Bind a `Date` directly when writing an instant; invalid dates reject before dispatch:
+
+```ts
+await pool.queryClassic('INSERT INTO events(occurred_at,sequence) VALUES($1,$2)', [
+  new Date(),
+  9007199254740993n,
+]);
+```
+
+Date inputs serialize in UTC. A `timestamptz` destination preserves the instant; a `date` or
+`timestamp without time zone` destination uses the UTC calendar fields. For a calendar date or
+wall-clock time, prefer an ISO string or the corresponding Temporal plain type. Supported Temporal
+inputs are `PlainDate`, `PlainTime`, `PlainDateTime`, `Instant`, `ZonedDateTime` and `Duration` from
+native Temporal or a compatible polyfill. ZonedDateTime inputs preserve the instant without storing
+the IANA zone name; calendar annotations are omitted. Durations encode as ISO intervals. Incomplete
+`PlainYearMonth` and `PlainMonthDay` values require an explicit conversion or codec. PostgreSQL
+applies its supported precision and range to all inputs.
+
+Outputs remain strings by default, independently of input values and runtime Temporal availability.
+For JavaScript Date output, select the instant codec explicitly:
+
+```ts
+const codecs = defaultCodecs.with(builtin.timestamptzDate);
+// Pass codecs to connect/createPool. Timestamptz values and derived arrays now contain Date objects.
+```
+
+This codec returns millisecond-precision Date objects. Calendar dates and timestamps without time
+zones retain their defaults. For Temporal outputs, supply native Temporal (Node 26+) or a compatible
+polyfill; pgclear does not load a polyfill or change global objects:
+
+```ts
+import { createTemporalCodecs, defaultCodecs } from '@kequtech/pgclear';
+
+const temporal = createTemporalCodecs(Temporal);
+const codecs = defaultCodecs
+  .with(temporal.date) // Temporal.PlainDate
+  .with(temporal.timestamp) // Temporal.PlainDateTime
+  .with(temporal.timestamptz) // Temporal.Instant: PostgreSQL does not retain the original zone name
+  .with(temporal.time); // Temporal.PlainTime
+```
+
+Native Temporal declarations require a TypeScript library including `ESNext.Temporal`. A polyfill
+can supply its own types. For example, pass `createTemporalCodecs(Temporal, {
+typescriptNamespace: 'import("@js-temporal/polyfill").Temporal' })` when using that polyfill so
+generated type references resolve without a global Temporal declaration. The namespace is a trusted
+TypeScript expression. Date/Temporal codecs reject infinity or values outside their supported
+ranges; decoder errors drain the result and preserve session recovery. Temporal codecs assume the
+connection's default ISO DateStyle. Default string decoders continue to preserve those values.
+
+### Default output representations
 
 | PostgreSQL type                                                   | Default JavaScript value                  |
 | ----------------------------------------------------------------- | ----------------------------------------- |
@@ -233,9 +288,34 @@ also affect their default arrays, so int4[] becomes `PgArray<string>` here. Othe
 
 Reusing the built-in text decoder also preserves its known TypeScript representation:
 `codecs.typescript(23)` is `'string'`, so generated row types follow this override. A newly authored
-`decode` function can return an application type; `Codec<T>` checks its signature during compilation,
-but T is erased at runtime. An unfamiliar decoder therefore has no automatic representation, and
-generation warns and uses unknown. Authored query annotations remain caller assertions. All codec
+`decode` function can declare its non-NULL output representation alongside its implementation:
+
+```ts
+const wrappedInteger: Codec<{ value: number }> = {
+  oid: builtin.int4.oid,
+  text: {
+    encode: ({ value }) => builtin.int4.text!.encode(value),
+    decode: (text) => ({ value: builtin.int4.text!.decode(text) }),
+    typescript: '{ value: number }',
+  },
+};
+const codecs = defaultCodecs.with(wrappedInteger);
+// codecs.typescript(23) === '{ value: number }'
+// codecs.typescript(1007) === 'PgArray<{ value: number }>'
+```
+
+Representations are snapshotted per registration, so the same decoder function may have distinct
+declarations in independent registries. Explicit array overrides win. Inline type expressions and
+references such as `import("@app/types").Money` resolve in the generated/checking project; that
+project must provide their modules. SQL nullability is applied separately. Encoder input types and
+ordinary bind rules remain independent of result representations.
+
+`Codec<T>` checks function signatures during compilation, but T is erased at runtime. The declared
+`typescript` expression is an author assertion, not runtime validation or a checked correspondence
+with T. Without a declaration or recognized built-in decoder, generation still warns and uses
+unknown. `codecs.typescriptTypes()` exposes the known expressions, including derived arrays, for
+downstream tools to compile before checking query results. Tools must use the same configured
+registry as the application. Authored query annotations remain caller assertions. All codec
 functions must be synchronous; promise results reject without leaving an unhandled rejection.
 
 ### Exact integers and counts
@@ -256,10 +336,13 @@ console.log(result.rowCount); // 1
 const body = JSON.stringify(result);
 ```
 
-Convert an int8 string to BigInt in application code when exact integer arithmetic is needed;
-convert back to a string to bind it. Converting to Number can lose precision outside JavaScript's
-safe integer range. Parsed JSON numeric tokens still follow JavaScript number semantics; use the
-raw JSON codecs when their original numeric tokens matter.
+Bigint inputs bind directly, even while int8 outputs remain strings. To read int8 as JavaScript
+bigint, use `defaultCodecs.with(builtin.int8BigInt)`; its default array decoder follows automatically.
+`builtin.int8BigIntArray` provides explicit bigint-array parameters. Both optional codecs enforce
+PostgreSQL's signed 64-bit range and advertise their representations to generation/checking. Bigint
+outputs require a replacer when using JSON.stringify. Converting int8 to Number can lose precision
+outside JavaScript's safe integer range. Parsed JSON numeric tokens still follow JavaScript number
+semantics; use the raw JSON codecs when their original numeric tokens matter.
 
 ## Transactions and savepoints
 
@@ -380,30 +463,43 @@ PostgreSQL or session pooling, not transaction pooling.
 changes. Callbacks are not awaited, provide no backpressure, and cannot alter driver outcomes;
 exceptions are isolated. Closing permanently stops connections and retries.
 
-## Schema type generation
+## Schema generation migration
+
+Pgclear 0.3.0 removes `generateDefinitions`, `GenerateOptions` and schema catalog/rendering code.
+Use the schema generation API in [Tenon](https://github.com/kequtech/tenon-orm) for catalog queries,
+row/insert/update declarations, schema summaries, defaults/domains/identities, application mappings
+and generated-file policy. Published pgclear 0.2.0 retains its existing API.
+
+Migrate imports of `generateDefinitions` and `GenerateOptions` to `@kequtech/tenon-orm`, and follow
+Tenon's connection, namespace and output options. Tenon owns borrowing, snapshot and migration-lock
+coordination. Pgclear's type registries remain the source of effective runtime representations;
+there is no compatibility wrapper or dependency on Tenon inside the driver.
+
+Tooling can inspect `executor.codecs` without acquiring another connection. A reader that needs
+standard catalog values on an application-configured session can select result codecs per query:
 
 ```ts
-import { generateDefinitions } from '@kequtech/pgclear';
-import { writeFile } from 'node:fs/promises';
+import { defaultCodecs } from '@kequtech/pgclear';
 
-const source = await generateDefinitions({ connection: pool, namespace: 'public' });
-await writeFile('database.d.ts', source);
+await pool.withSession(async (session) => {
+  const applicationCodecs = session.codecs;
+  const result = await session.queryClassic(
+    'SELECT oid,typname FROM pg_catalog.pg_type WHERE oid=$1',
+    [23],
+    { codecs: defaultCodecs },
+  );
+  // result.rows[0].oid uses default numeric decoding; session.codecs is still applicationCodecs.
+});
 ```
 
-The returned source exports `Database['users']['row']`, `Database['users']['insert']` and
-`Database['users']['update']`. Reads follow the selected codecs, enums become literal unions, and
-JSON remains unknown. Unfamiliar custom decoder types warn and become unknown. Insert/update types
-reflect defaults, nullability and generated/identity writability; JSON/arrays use explicit parameters
-or encoded text. Optional undefined fields mean omission by an SQL authoring tool, not valid binds.
-Relationships, indexes and constraints appear in comments, not additional row properties.
-
-`connection` accepts a pool/session, URI or connection options. Supplied handles are borrowed;
-configuration creates an owned short-lived connection. Generation uses a read-only repeatable-read
-snapshot and restores local settings. `namespace` defaults to public; `excludeTables` omits named
-tables, and `onWarning` receives diagnostics. `signal`/`timeoutMs` cover the whole operation.
-Ordinary tables and partitioned roots are included; views, foreign tables and attached partitions
-need authored types. Table types do not infer join, expression or outer-join nullability. File I/O,
-freshness checks, query checking and migration coordination remain caller responsibilities.
+`Executor.codecs` is the immutable default registry on pools, connections, leases, transactions and
+savepoints. Reading it performs no acquisition or SQL and remains safe after handle expiry; query
+operations continue to enforce normal lifecycle guards. `QueryOptions` and `ArrayQueryOptions`
+accept `codecs` for one operation. This also applies to tagged, prepared and streamed queries;
+streams retain their choice across portal batches. Scripts, Describe and COPY do not accept this
+option. A registry must come from `defaultCodecs` or `.with()`; invalid registries reject before
+encoding. Input encoders supplied with `param()` remain independent. Result decoder errors still
+drain the owning response before subsequent operations can reuse the session.
 
 ## Deadlines, errors, and shutdown
 
