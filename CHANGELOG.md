@@ -2,7 +2,7 @@
 
 ## 0.1.0
 
-Initial release, prepared but not yet published.
+Initial release.
 
 - ESM PostgreSQL driver for Node.js 24+, with no runtime dependencies. Tested on PostgreSQL 16/18.
 - Ordinary and classic parameterized queries, field/command metadata, Describe and scripts.

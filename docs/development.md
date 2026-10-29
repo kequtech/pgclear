@@ -59,11 +59,9 @@ The package is ESM-only and has no runtime dependencies. The tarball includes RE
 LICENSE, the API guide/index, JavaScript, declarations and JS maps with embedded sources. Contributor
 documents, tests, benchmark dependencies and trial artifacts stay in the repository.
 
-Version 0.1.0 is prepared, not published. Publishing, pushing and repository visibility changes are
-separate actions. The repository is currently private, so its linked resources require access.
-Before publishing, run checks on the chosen release revision, inspect/install the packed archive,
-and verify that public documentation links will be accessible. License attribution for PostgreSQL's
-password-preparation tables is included in LICENSE.
+Before publishing a release, run checks on the chosen revision, inspect/install the packed archive,
+and verify documentation links. License attribution for PostgreSQL's password-preparation tables is
+included in LICENSE.
 
 To regenerate those tables, run `node scripts/generate-saslprep.mjs /path/to/saslprep.c`. The generator
 verifies a pinned source checksum and does not run during installation or application execution.

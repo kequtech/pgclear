@@ -4,6 +4,10 @@ A PostgreSQL driver for Node.js 24+ and ESM JavaScript/TypeScript, with no runti
 It provides queries, connection pools, transactions, prepared statements, streaming, COPY,
 notifications and schema type generation. PostgreSQL 16 and 18 are tested.
 
+```sh
+npm install @kequtech/pgclear
+```
+
 ```ts
 import { createPool } from '@kequtech/pgclear';
 
@@ -34,6 +38,3 @@ belong to the caller.
 - [API and usage](docs/public-api.md)
 - [Release notes](CHANGELOG.md)
 - [Development and testing](https://github.com/kequtech/pgclear/blob/main/docs/development.md)
-
-Version 0.1.0 is prepared but not published. To try a checkout, run `npm ci` and `npm pack`, then
-install the generated `.tgz` in your application. The repository currently requires access.
