@@ -1,5 +1,10 @@
 # Release notes
 
+## Unreleased
+
+- Select result and array-element decoders once per column and fill rows directly, reducing
+  per-value lookups and temporary allocations while preserving decoding validation and row behavior.
+
 ## 0.2.0
 
 - Breaking: `query` accepts only `sql` tag results. Use `queryClassic(text, values, options)` for

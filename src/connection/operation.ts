@@ -6,6 +6,7 @@ import type { OutputStream, PortalStream } from './stream.js';
 
 interface Rows {
   fields: readonly Field[];
+  decode: RowDecoder | undefined;
   rows: object[];
   bytes: number;
   readonly arrayMode: boolean;
@@ -76,7 +77,7 @@ export interface Operation {
   error?: Error;
 }
 export function rows(codecs: Configuration['codecs'], arrayMode = false): Rows {
-  return { fields: Object.freeze([]), rows: [], bytes: 0, arrayMode, codecs };
+  return { fields: Object.freeze([]), decode: undefined, rows: [], bytes: 0, arrayMode, codecs };
 }
 export function result(operation: Operation): QueryResult<object> {
   const work = operation.work;
@@ -95,14 +96,29 @@ export function bytes(work: Work, count: number): number {
   if ('bytes' in work) return (work.bytes += count);
   return 0;
 }
-export function decodeRow(
-  values: readonly (Buffer | null)[],
+type RowDecoder = (values: readonly (Buffer | null)[]) => object;
+export function rowDecoder(
   fields: readonly Field[],
   codecs: Configuration['codecs'],
   arrayMode: boolean,
-): object {
-  if (arrayMode) return values.map((value, index) => codecs.decode(value, fields[index]!));
-  return Object.fromEntries(
-    fields.map((field, index) => [field.name, codecs.decode(values[index]!, field)]),
+): RowDecoder {
+  // Identity-compatible older package copies may supply a registry without decoder selection.
+  const decoders = fields.map((field) =>
+    typeof codecs.decoder === 'function'
+      ? codecs.decoder(field)
+      : (value: Buffer | null) => codecs.decode(value, field),
   );
+  if (arrayMode)
+    return (values) => {
+      const row = new Array<unknown>(fields.length);
+      for (let i = 0; i < fields.length; i++) row[i] = decoders[i]!(values[i]!);
+      return row;
+    };
+  // Spreading own data properties preserves ordinary prototypes and safely handles __proto__.
+  const template = Object.fromEntries(fields.map((field) => [field.name, null]));
+  return (values) => {
+    const row: Record<string, unknown> = { ...template };
+    for (let i = 0; i < fields.length; i++) row[fields[i]!.name] = decoders[i]!(values[i]!);
+    return row;
+  };
 }

@@ -1,0 +1,189 @@
+{
+  "status": "passed",
+  "createdAt": "2026-10-29T14:04:04.966Z",
+  "config": {
+    "driver": "pgclear",
+    "iterations": 10000,
+    "warmup": 100,
+    "poolSize": 4,
+    "concurrency": 16,
+    "batchSize": 32,
+    "addedRttMs": 0
+  },
+  "samples": 5,
+  "artifacts": {
+    "before": {
+      "revision": "b7ecc2aadaeda4f10e7cf772f4aa2205581f33aa",
+      "workingTreeDirty": false,
+      "artifactSha256": "91c3ce33325b4bc9d6b1ca4571ccda513f6f6ef8d25e63212f34838c241a8c10"
+    },
+    "after": {
+      "revision": "b7ecc2aadaeda4f10e7cf772f4aa2205581f33aa",
+      "workingTreeDirty": true,
+      "artifactSha256": "24ce70e831640430b5e1e595e1f9f46aeede757ae3880528b179551f186d04ce"
+    }
+  },
+  "environmentEvidence": "decoding-2026-10-29.json",
+  "notes": [
+    "Same benchmark worker and TCP relay as the matrix; no concurrent tests or benchmark runs.",
+    "Five samples per workload; before/after order reverses on alternate samples.",
+    "Before is the clean parent revision packed before runtime edits; after is the matrix artifact.",
+    "Connection setup, preparation, warmup and cleanup excluded; correctness assertions included.",
+    "Raw per-operation latencies retained in the ignored producing directory."
+  ],
+  "measurements": 30,
+  "summaries": [
+    {
+      "variant": "before",
+      "workload": "small",
+      "operationsPerSecond": {
+        "min": 2852.823678018874,
+        "median": 2912.7004893775766,
+        "p95": 3080.5860491866715,
+        "p99": 3080.5860491866715,
+        "max": 3080.5860491866715
+      },
+      "clientCpuMs": {
+        "min": 1424.8690000000001,
+        "median": 1507.488,
+        "p95": 1537.6819999999998,
+        "p99": 1537.6819999999998,
+        "max": 1537.6819999999998
+      },
+      "p95LatencyMs": {
+        "min": 0.4094399999999041,
+        "median": 0.43831999999997606,
+        "p95": 0.46521300000000565,
+        "p99": 0.46521300000000565,
+        "max": 0.46521300000000565
+      }
+    },
+    {
+      "variant": "after",
+      "workload": "small",
+      "operationsPerSecond": {
+        "min": 3065.661184734722,
+        "median": 3104.241520788111,
+        "p95": 3220.427591642276,
+        "p99": 3220.427591642276,
+        "max": 3220.427591642276
+      },
+      "clientCpuMs": {
+        "min": 1389.6889999999999,
+        "median": 1441.824,
+        "p95": 1455.5819999999999,
+        "p99": 1455.5819999999999,
+        "max": 1455.5819999999999
+      },
+      "p95LatencyMs": {
+        "min": 0.3954530000000034,
+        "median": 0.41347799999994095,
+        "p95": 0.42741099999989274,
+        "p99": 0.42741099999989274,
+        "max": 0.42741099999989274
+      }
+    },
+    {
+      "variant": "before",
+      "workload": "large",
+      "operationsPerSecond": {
+        "min": 672.9860976497066,
+        "median": 721.0364000704902,
+        "p95": 730.5880188079949,
+        "p99": 730.5880188079949,
+        "max": 730.5880188079949
+      },
+      "clientCpuMs": {
+        "min": 630.091,
+        "median": 635.018,
+        "p95": 677.273,
+        "p99": 677.273,
+        "max": 677.273
+      },
+      "p95LatencyMs": {
+        "min": 1.7447009999999636,
+        "median": 1.7661019999999894,
+        "p95": 1.9687450000000126,
+        "p99": 1.9687450000000126,
+        "max": 1.9687450000000126
+      }
+    },
+    {
+      "variant": "after",
+      "workload": "large",
+      "operationsPerSecond": {
+        "min": 815.7891872563333,
+        "median": 835.1030363654938,
+        "p95": 849.6177456763043,
+        "p99": 849.6177456763043,
+        "max": 849.6177456763043
+      },
+      "clientCpuMs": {
+        "min": 533.952,
+        "median": 546.568,
+        "p95": 556.848,
+        "p99": 556.848,
+        "max": 556.848
+      },
+      "p95LatencyMs": {
+        "min": 1.4610349999999812,
+        "median": 1.5195560000000228,
+        "p95": 1.560120999999981,
+        "p99": 1.560120999999981,
+        "max": 1.560120999999981
+      }
+    },
+    {
+      "variant": "before",
+      "workload": "pool",
+      "operationsPerSecond": {
+        "min": 9949.379051791344,
+        "median": 10632.621997737233,
+        "p95": 10999.500983438984,
+        "p99": 10999.500983438984,
+        "max": 10999.500983438984
+      },
+      "clientCpuMs": {
+        "min": 1118.2060000000001,
+        "median": 1136.056,
+        "p95": 1228.92,
+        "p99": 1228.92,
+        "max": 1228.92
+      },
+      "p95LatencyMs": {
+        "min": 2.433987000000002,
+        "median": 2.5437769999999773,
+        "p95": 2.853272000000061,
+        "p99": 2.853272000000061,
+        "max": 2.853272000000061
+      }
+    },
+    {
+      "variant": "after",
+      "workload": "pool",
+      "operationsPerSecond": {
+        "min": 10055.875633853517,
+        "median": 10438.896394403204,
+        "p95": 10676.195732213817,
+        "p99": 10676.195732213817,
+        "max": 10676.195732213817
+      },
+      "clientCpuMs": {
+        "min": 1142.464,
+        "median": 1168.037,
+        "p95": 1215.687,
+        "p99": 1215.687,
+        "max": 1215.687
+      },
+      "p95LatencyMs": {
+        "min": 2.570562999999993,
+        "median": 2.638292999999976,
+        "p95": 2.730511999999976,
+        "p99": 2.730511999999976,
+        "max": 2.730511999999976
+      }
+    }
+  ],
+  "sourceReportSha256": "d12fa3736a871c320c9f400fd90119fc352d772b62e790407f8c535d356da0db",
+  "results": "decoding-paired-2026-10-29.csv"
+}

@@ -6,6 +6,54 @@ import { testConnection } from '../helpers/database.js';
 const within = { timeout: 10000 };
 
 test(
+  'row decoders follow each result description and return independent row objects',
+  within,
+  async () => {
+    const { client } = await testConnection();
+    try {
+      const results = await client.script(
+        `SELECT n AS value FROM generate_series(1,3) AS n;
+       SELECT 'text'::text AS value;
+       SELECT ARRAY[4,NULL,5]::integer[] AS value;
+       SELECT 6 AS "__proto__", 7 AS constructor`,
+      );
+      assert.deepEqual(
+        results.map((result) => result.rows),
+        [
+          [{ value: 1 }, { value: 2 }, { value: 3 }],
+          [{ value: 'text' }],
+          [{ value: [4, null, 5] }],
+          [{ ['__proto__']: 6, constructor: 7 }],
+        ],
+      );
+      const first = results[0]!.rows[0]!;
+      assert.notEqual(first, results[0]!.rows[1]);
+      assert.equal(Reflect.set(first, 'value', 99), true);
+      assert.equal(results[0]!.rows[1]!.value, 2);
+      const special = results[3]!.rows[0]!;
+      assert.equal(Object.getPrototypeOf(special), Object.prototype);
+      assert.ok(Object.hasOwn(special, '__proto__'));
+      assert.deepEqual(
+        (
+          await client.queryClassic(
+            'SELECT n AS value, NULL::integer AS missing FROM generate_series(1,3) AS n',
+            [],
+            { rowMode: 'array' },
+          )
+        ).rows,
+        [
+          [1, null],
+          [2, null],
+          [3, null],
+        ],
+      );
+    } finally {
+      await client.close();
+    }
+  },
+);
+
+test(
   'built-in arrays preserve nested values, exact decimals, bounds and non-comma delimiters',
   within,
   async () => {

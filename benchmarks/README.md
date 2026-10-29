@@ -69,31 +69,73 @@ Harness checks run with the unit tests; benchmarks themselves are opt-in and out
 
 ## Recorded results
 
-The latest retained run used clean runtime revision 52a587e, Node 24.4.1 and PostgreSQL 16.15, with
-1,000 configured iterations, three samples and only the 0 ms added-RTT profile:
+The decoder-optimization run used Node 24.4.1 and PostgreSQL 16.15, with 1,000 configured iterations,
+three samples and both 0/10 ms added-RTT profiles. Its parent revision is b7ecc2a with local decoder
+changes (`workingTreeDirty: true`); the recorded archive hash identifies the measured package:
 
 ```sh
-npm run benchmark -- --iterations 1000 --samples 3 --latencies 0
+npm run benchmark -- --iterations 1000 --samples 3 --latencies 0,10
 ```
 
-Median operations/second:
+Median operations/second at 0 ms added RTT:
 
 | Baseline workload | pgclear |    pg | Postgres.js |
 | ----------------- | ------: | ----: | ----------: |
-| Small             |   2,860 | 2,911 |       1,637 |
-| Prepared          |   3,077 | 3,130 |       3,146 |
-| 1,000-row result  |     632 |   939 |         970 |
-| Arrays/JSON       |   2,356 | 2,487 |       1,420 |
-| Transaction       |     814 |   979 |         776 |
-| Pool              |   6,831 | 9,119 |       4,659 |
+| Small             |   2,855 | 2,858 |       1,653 |
+| Prepared          |   2,994 | 3,132 |       3,135 |
+| 1,000-row result  |     736 |   869 |         902 |
+| Arrays/JSON       |   2,562 | 2,613 |       1,615 |
+| Transaction       |     829 | 1,009 |         787 |
+| Pool              |   6,756 | 9,253 |       4,935 |
 
-[Full measurements](results/adoption-2026-10-29.csv) and
-[configuration/summaries](results/adoption-2026-10-29.json) include the separate pipeline diagnostic,
-latencies, CPU and RSS. Matching prior samples showed no material regression; these short separate
-runs do not isolate an optimization benefit.
+Median operations/second at 10 ms added RTT:
+
+| Baseline workload | pgclear |  pg | Postgres.js |
+| ----------------- | ------: | --: | ----------: |
+| Small             |      90 |  90 |          45 |
+| Prepared          |      91 |  91 |          91 |
+| 1,000-row result  |      85 |  86 |          86 |
+| Arrays/JSON       |      89 |  90 |          46 |
+| Transaction       |      30 |  30 |          23 |
+| Pool              |     336 | 338 |         175 |
+
+Round-trip waits dominate the 10 ms profile, bringing pgclear and pg much closer. API-specific
+round trips remain part of the measurement, including the comparator reservation/transaction APIs.
+
+[Full measurements](results/decoding-2026-10-29.csv) and
+[configuration/summaries](results/decoding-2026-10-29.json) include both latency profiles, the separate
+pipeline diagnostic, latencies, CPU and RSS.
+
+Result descriptions now select column decoders once, including array element decoders. Object rows
+copy a template and fill properties directly; array rows fill a new array. This removes per-value
+codec selection and per-row entry arrays while retaining UTF-8/scalar validation, custom codec
+handling and special column names. Scripts select decoders for each result set, and streams reuse
+them across portal batches. Pool scheduling and pipelining are unchanged.
+
+An [alternating before/after comparison](results/decoding-paired-2026-10-29.json) used the clean parent
+package and the same optimized archive as the matrix, with five samples, 10,000 configured
+iterations, 100 warmup operations and 0 ms added RTT. Driver settings and correctness checks matched
+the matrix. Before/after order reversed on alternate samples; no other tests or benchmarks ran
+concurrently. Each large-result sample ran 500 queries, returning 500,000 rows.
+
+| Workload         | Before ops/s | After ops/s | Change | Before client CPU ms | After client CPU ms |
+| ---------------- | -----------: | ----------: | -----: | -------------------: | ------------------: |
+| Small            |        2,913 |       3,104 |  +6.6% |                1,507 |               1,442 |
+| 1,000-row result |          721 |         835 | +15.8% |                  635 |                 547 |
+| Pool             |       10,633 |      10,439 |  -1.8% |                1,136 |               1,168 |
+
+Values are medians of five samples; client CPU includes both user and system time for the measured
+operations. The large-result improvement accompanies 13.9% less client CPU. The pooled ranges overlap,
+so the small pooled decrease does not establish a regression or benefit. These local runs support a
+decoding improvement, not a universal throughput claim. The longer comparison and short matrix have
+different operation/warmup counts; compare before/after within the comparison rather than mixing
+their absolute rates. [Per-sample measurements](results/decoding-paired-2026-10-29.csv) retain latency,
+CPU and RSS evidence, and the JSON records both archive hashes.
 
 Earlier evidence remains available for reproduction and comparison:
 
+- [Pre-optimization adoption matrix](results/adoption-2026-10-29.json) and
+  [measurements](results/adoption-2026-10-29.csv).
 - [Initial matrix](results/local-2026-10-28.json) and [measurements](results/local-2026-10-28.csv).
 - [Profiled matrix](results/profiled-2026-10-28.json) and [measurements](results/profiled-2026-10-28.csv).
 - [Alternating old/new comparison](results/paired-2026-10-28.json) and [measurements](results/paired-2026-10-28.csv).

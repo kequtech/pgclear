@@ -68,6 +68,13 @@ command counts use safe JavaScript numbers or null. Unknown OIDs remain text. Co
 also supply the known TypeScript representations used by schema generation; custom function return
 types cannot be recovered at runtime.
 
+Each result description selects its column decoders once, including array element decoders. Object
+rows copy a template of own data properties and fill values directly; array rows fill a new array.
+This avoids repeated codec lookups and temporary entry arrays per row while preserving special
+column names, strict UTF-8/value validation and synchronous custom codecs. Scripts select a new
+decoder for each result description; streams retain it across portal batches. Compatible older
+package copies can still supply registries through their original per-value decoding method.
+
 `generation/` uses read-only repeatable-read scopes. Internal catalog reads use default codecs;
 application types use the selected registry. Generation borrows supplied handles and owns only the
 connections it creates. It performs no file I/O, checking or migration coordination.

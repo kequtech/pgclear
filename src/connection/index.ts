@@ -46,7 +46,7 @@ import {
   sync,
 } from './query.js';
 import { PortalStream, OutputStream } from './stream.js';
-import { rows, result, output, bytes, decodeRow, type Operation, type Work } from './operation.js';
+import { rows, result, output, bytes, rowDecoder, type Operation, type Work } from './operation.js';
 import { CopyInput } from './copy.js';
 import { CLEANUP_TIMEOUT_MS, deadline, Lifetime, type ExecutionOptions } from './timing.js';
 
@@ -318,6 +318,7 @@ export class PhysicalConnection {
           op.error = new DriverError('PGCLEAR_CONFIGURATION', 'COPY requires a COPY statement.');
       } else if ('result' in work) {
         work.result.fields = fields;
+        work.result.decode = rowDecoder(fields, work.result.codecs, work.result.arrayMode);
         work.phase = 'rows';
         if (work.kind === 'stream') {
           if (message.type === 'fields') work.returnedRows = 0;
@@ -349,14 +350,7 @@ export class PhysicalConnection {
       }
       if ('result' in work && !op.error && !this.#interruption && !output(work)?.closing) {
         try {
-          work.result.rows.push(
-            decodeRow(
-              message.values,
-              work.result.fields,
-              work.result.codecs,
-              work.result.arrayMode,
-            ),
-          );
+          work.result.rows.push(work.result.decode!(message.values));
         } catch (cause) {
           op.error = new DriverError(
             'PGCLEAR_DECODE',
@@ -447,6 +441,7 @@ export class PhysicalConnection {
         if (!op.error) work.results.push(result(op));
         work.result.rows = [];
         work.result.fields = Object.freeze([]);
+        work.result.decode = undefined;
         work.phase = 'script';
       } else if (work.kind === 'stream') {
         return this.#publish(op, true).then(() => {

@@ -34,6 +34,7 @@ export function snapshotCodec<T>(codec: Codec<T>): Codec<T> {
   });
 }
 type Decoder = ((value: string) => unknown) | undefined;
+export type FieldDecoder = (value: Buffer | null) => unknown;
 // Generation and decoding share these registrations; unknown OIDs remain wire text.
 const scalarTypes = [
   [builtin.bool, 'boolean'],
@@ -97,19 +98,26 @@ class Registry implements CodecRegistry {
     const type = this.typescript(element);
     return type === undefined ? undefined : `PgArray<${type}>`;
   }
-  text(oid: number, value: string): unknown {
+  #textDecoder(oid: number): (value: string) => unknown {
     const overridden = this.#overrides.has(oid);
     const selected = overridden ? this.#overrides.get(oid) : scalars.get(oid);
     const element = arrayElements.get(oid);
     if (overridden || element === undefined) {
-      return synchronous(selected ? selected(value) : value);
+      return selected ? (value) => synchronous(selected(value)) : (value) => value;
     }
-    return parseArray(value, (text) => this.text(element, text), oid === 1020 ? ';' : ',');
+    const decode = this.#textDecoder(element);
+    return (value) => parseArray(value, decode, oid === 1020 ? ';' : ',');
+  }
+  decoder(field: Field): FieldDecoder {
+    const decode = this.#textDecoder(field.dataTypeOid);
+    return (value) => {
+      if (value === null) return null;
+      if (field.format !== 'text') throw new TypeError('Binary result negotiation is not enabled.');
+      return decode(utf8.decode(value));
+    };
   }
   decode(value: Buffer | null, field: Field): unknown {
-    if (value === null) return null;
-    if (field.format !== 'text') throw new TypeError('Binary result negotiation is not enabled.');
-    return this.text(field.dataTypeOid, utf8.decode(value));
+    return this.decoder(field)(value);
   }
 }
 export const defaultCodecs: CodecRegistry = new Registry();

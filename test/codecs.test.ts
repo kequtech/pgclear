@@ -313,6 +313,48 @@ test('UTF8 field decoding preserves every leading U+FEFF before built-in and cus
   );
 });
 
+test('selected field decoders keep registry snapshots, null bypass and validation', async () => {
+  let calls = 0;
+  const custom = defaultCodecs.with({
+    oid: 23,
+    text: {
+      encode: String,
+      decode: (value) => {
+        calls++;
+        return 'n:' + value;
+      },
+    },
+  });
+  const scalar = registry(custom).decoder(field(23));
+  const array = registry(custom).decoder(field(1007));
+  const overridden = registry(custom.with(builtin.int4)).decoder(field(23));
+  assert.equal(scalar(null), null);
+  assert.equal(calls, 0);
+  assert.equal(scalar(Buffer.from('1')), 'n:1');
+  assert.deepEqual(array(Buffer.from('{2,NULL,3}')), ['n:2', null, 'n:3']);
+  assert.equal(calls, 3);
+  assert.equal(overridden(Buffer.from('4')), 4);
+  assert.equal(scalar(Buffer.from('5')), 'n:5');
+  assert.throws(() => overridden(Buffer.from('2147483648')), TypeError);
+  assert.throws(() => scalar(Buffer.from([0xff])), TypeError);
+  const binary = registry(custom).decoder({ ...field(23), format: 'binary' });
+  assert.equal(binary(null), null);
+  assert.throws(() => binary(Buffer.from('1')), TypeError);
+  const asynchronous = registry(
+    defaultCodecs.with({
+      oid: 23,
+      text: {
+        encode: String,
+        decode: async () => {
+          throw Error('selected decoder fixture');
+        },
+      },
+    }),
+  ).decoder(field(1007));
+  assert.throws(() => asynchronous(Buffer.from('{1}')), /synchronous/);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+});
+
 test('array syntax consumes only PostgreSQL ASCII whitespace and preserves Unicode data', () => {
   const unicode = [
     '\u0085',
