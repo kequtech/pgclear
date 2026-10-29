@@ -636,17 +636,17 @@ export class PhysicalConnection {
   }
   queryClassic<T extends object = Row>(
     text: string,
-    values: readonly InputValue[],
+    values?: readonly InputValue[],
     options?: QueryOptions,
   ): Promise<QueryResult<T>>;
   queryClassic<T extends readonly unknown[] = readonly unknown[]>(
     text: string,
-    values: readonly InputValue[],
+    values: readonly InputValue[] | undefined,
     options: ArrayQueryOptions,
   ): Promise<QueryResult<T>>;
   queryClassic(
     text: string,
-    values: readonly InputValue[],
+    values: readonly InputValue[] = [],
     options: QueryOptions | ArrayQueryOptions = {},
   ): Promise<QueryResult<object>> {
     return this.query([text, values], { ...options, lifetime: new Lifetime(options) });

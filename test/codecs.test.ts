@@ -5,6 +5,22 @@ import { parseArray } from '../src/codecs/arrays.js';
 import { registry } from '../src/codecs/index.js';
 import { encodeQuery } from '../src/connection/query.js';
 
+test('asynchronous parameter encoders reject locally and observe rejected promises', async () => {
+  for (const format of ['text', 'binary'] as const) {
+    const codec: Codec<string> = {
+      oid: 25,
+      [format]: {
+        encode: (async () => {
+          throw Error('encoder fixture');
+        }) as never,
+        decode: () => 'value',
+      },
+    };
+    assert.throws(() => encodeQuery(['SELECT $1', [param('value', codec, format)]]), /synchronous/);
+  }
+  await new Promise<void>((resolve) => setImmediate(resolve));
+});
+
 const field = (oid: number): Field => ({
   name: 'value',
   dataTypeOid: oid,
@@ -44,6 +60,10 @@ test('public TypeScript representations follow the selected text decoders', () =
   assert.equal(custom.with(builtin.int4Array).typescript(1007), 'PgArray<number>');
   assert.equal(custom.with(builtin.int4).typescript(23), 'number');
   assert.equal(defaultCodecs.with(builtin.jsonbText).typescript(3802), 'string');
+  const int8AsText = defaultCodecs.with({ ...builtin.text, oid: builtin.int8.oid });
+  assert.equal(int8AsText.typescript(20), 'string');
+  assert.equal(int8AsText.typescript(1016), 'PgArray<string>');
+  assert.equal(defaultCodecs.typescript(20), 'bigint');
   const binaryOnly = defaultCodecs.with({
     oid: 23,
     binary: { encode: () => new Uint8Array(), decode: () => 0 },
@@ -189,8 +209,8 @@ test('custom null/undefined outputs and absent text decoders are preserved', () 
       },
     },
   });
-  assert.throws(() => decode(23, '1', asynchronous), /synchronous/);
-  assert.throws(() => decode(1007, '{1}', asynchronous), /synchronous/);
+  assert.throws(() => decode(23, '1', asynchronous), TypeError);
+  assert.throws(() => decode(1007, '{1}', asynchronous), TypeError);
 });
 
 test('JSON text avoids parse precision loss; parameters encode lazily before wire dispatch', () => {

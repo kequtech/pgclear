@@ -1,6 +1,6 @@
 import { DriverError } from '../errors.js';
 import type { Codec, Parameter, WireFormat } from '../types.js';
-import { builtin, stringifyJson, textValue } from './builtin.js';
+import { builtin, stringifyJson, synchronous, textValue } from './builtin.js';
 import { snapshotCodec } from './index.js';
 import { sharedWeakMap } from '../identity.js';
 
@@ -27,8 +27,9 @@ export function param<T>(
   return description(() => {
     if (value === null)
       return { oid: selected.oid, format: wireFormat === 'text' ? 0 : 1, bytes: null };
-    const encoded =
-      wireFormat === 'text' ? selected.text!.encode(value) : selected.binary!.encode(value);
+    const encoded = synchronous(
+      wireFormat === 'text' ? selected.text!.encode(value) : selected.binary!.encode(value),
+    );
     if (wireFormat === 'text')
       return { oid: selected.oid, format: 0, bytes: Buffer.from(textValue(encoded)) };
     if (!(encoded instanceof Uint8Array))

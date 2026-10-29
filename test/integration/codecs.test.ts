@@ -338,3 +338,33 @@ test(
     }
   },
 );
+
+test(
+  'custom int8 representation preserves precision while command counts stay bigint',
+  within,
+  async () => {
+    const int8AsText: Codec<string> = { ...builtin.text, oid: builtin.int8.oid };
+    const codecs = defaultCodecs.with(int8AsText);
+    const { client } = await testConnection({ codecs });
+    try {
+      const maximum = '9223372036854775807';
+      const result = await client.queryClassic('SELECT $1 AS id, ARRAY[$1,NULL] AS ids', [
+        param(maximum, int8AsText),
+      ]);
+      assert.deepEqual(result.rows, [{ id: maximum, ids: [maximum, null] }]);
+      assert.equal(result.rowCount, 1n);
+      assert.throws(() => JSON.stringify(result), TypeError);
+      const body = JSON.stringify(result, (_key, value: unknown) =>
+        typeof value === 'bigint' ? value.toString() : value,
+      );
+      const response = JSON.parse(body);
+      assert.deepEqual(response.rows, result.rows);
+      assert.equal(response.rowCount, '1');
+      assert.equal(codecs.typescript(20), 'string');
+      assert.equal(codecs.typescript(1016), 'PgArray<string>');
+      assert.equal(defaultCodecs.typescript(20), 'bigint');
+    } finally {
+      await client.close();
+    }
+  },
+);

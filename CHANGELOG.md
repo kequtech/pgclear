@@ -1,9 +1,14 @@
 # Release notes
 
-## Unreleased
+## 0.2.0
 
 - Breaking: `query` accepts only `sql` tag results. Use `queryClassic(text, values, options)` for
   finished SQL; text, manual tuples and statement objects are no longer accepted by `query`.
+- `queryClassic(text)` defaults to an empty values array; array-row options can use an undefined
+  values argument.
+- Accidental async parameter encoders reject before dispatch and have their promise rejections
+  observed, matching decoder handling.
+- Document custom codec representations, bigint/JSON serialization and the compatibility policy.
 
 ## 0.1.0
 

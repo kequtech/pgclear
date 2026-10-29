@@ -1,7 +1,7 @@
 import { DriverError } from '../errors.js';
 import type { Codec, CodecRegistry, Field } from '../types.js';
 import { arrayElements, parseArray } from './arrays.js';
-import { builtin, oidCodec } from './builtin.js';
+import { builtin, oidCodec, synchronous } from './builtin.js';
 import { sharedWeakMap } from '../identity.js';
 
 export function snapshotCodec<T>(codec: Codec<T>): Codec<T> {
@@ -98,24 +98,13 @@ class Registry implements CodecRegistry {
     return type === undefined ? undefined : `PgArray<${type}>`;
   }
   text(oid: number, value: string): unknown {
-    const selected = this.#overrides.has(oid) ? this.#overrides.get(oid) : scalars.get(oid);
-    if (this.#overrides.has(oid) || !arrayElements.has(oid)) {
-      const result = selected ? selected(value) : value;
-      if (
-        result &&
-        (typeof result === 'object' || typeof result === 'function') &&
-        'then' in result &&
-        typeof result.then === 'function'
-      ) {
-        void Promise.resolve(result).catch(() => {});
-        throw new TypeError('Codec decoders must be synchronous.');
-      }
-      return result;
-    }
+    const overridden = this.#overrides.has(oid);
+    const selected = overridden ? this.#overrides.get(oid) : scalars.get(oid);
     const element = arrayElements.get(oid);
-    if (element !== undefined)
-      return parseArray(value, (text) => this.text(element, text), oid === 1020 ? ';' : ',');
-    return value;
+    if (overridden || element === undefined) {
+      return synchronous(selected ? selected(value) : value);
+    }
+    return parseArray(value, (text) => this.text(element, text), oid === 1020 ? ';' : ',');
   }
   decode(value: Buffer | null, field: Field): unknown {
     if (value === null) return null;

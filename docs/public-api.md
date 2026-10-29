@@ -11,14 +11,14 @@ import { connect, createPool } from '@kequtech/pgclear';
 
 const pool = createPool({ connectionString: process.env.DATABASE_URL!, maxConnections: 10 });
 try {
-  await pool.queryClassic('SELECT 1', []);
+  await pool.queryClassic('SELECT 1');
 } finally {
   await pool.close();
 }
 
 const connection = await connect(process.env.DATABASE_URL!);
 try {
-  await connection.queryClassic('SELECT 1', []);
+  await connection.queryClassic('SELECT 1');
 } finally {
   await connection.close();
 }
@@ -32,7 +32,7 @@ hold one across several operations, or `pool.acquire` for explicit ownership:
 ```ts
 const lease = await pool.acquire();
 try {
-  await lease.queryClassic('SELECT 1', []);
+  await lease.queryClassic('SELECT 1');
 } finally {
   await lease.release();
 }
@@ -99,8 +99,9 @@ const tagged = await pool.query(sql<{ value: number }>`SELECT ${42}::integer AS 
 ```
 
 `query(taggedQuery, options)` accepts only a result created by the `sql` tag.
-`queryClassic(text, values, options)` accepts SQL text and a separate values array; use `[]` when
-there are no parameters. Both are supported on pools, connections, leases and transaction/session
+`queryClassic(text, values?, options?)` accepts SQL text and a separate values array, which defaults
+to `[]`. For an unbound query, use `queryClassic(text)`; to supply options, use
+`queryClassic(text, undefined, options)`. Both are supported on pools, connections, leases and transaction/session
 callbacks. Plain text, manually constructed tuples and statement objects are rejected by `query`,
 including from JavaScript. Prepared handles separately use `prepared.query(values, options)`.
 
@@ -124,7 +125,8 @@ A result contains:
 Rows default to objects. Duplicate column names reject; use aliases or `{ rowMode: 'array' }` to
 preserve positional values. Row annotations (`queryClassic<Row>` and `sql<Row>`) are
 assertions, not runtime validation. Without an annotation, field values are `unknown`.
-`JSON.stringify(result)` needs an application policy for bigint counts and columns.
+`JSON.stringify(result)` needs an application policy for bigint counts and columns; see
+[bigint and JSON](#bigint-and-json).
 
 `describe(textOrStatement, options)` returns `{ parameterTypes, fields }` without executing the
 statement. PostgreSQL still parses it and takes normal analysis locks. It does not infer nullability
@@ -202,9 +204,59 @@ const codecs = defaultCodecs.with(builtin.jsonText).with(builtin.jsonbText);
 `'unknown'`; an unfamiliar custom decoder returns `undefined`. SQL nullability, enum choices, domain
 resolution and encoder input types are separate. Use the same registry as the connection.
 
-Compatible copies of the same pgclear version in one JavaScript realm can exchange parameters,
-registries, borrowed generation handles and errors. These capabilities cannot be serialized or
-passed between workers; different releases are not promised to interoperate.
+### Custom representations
+
+Reuse a built-in codec when its representation fits. This example reads and writes int8 as text:
+
+```ts
+import { builtin, createPool, defaultCodecs, param, type Codec } from '@kequtech/pgclear';
+
+const int8AsText: Codec<string> = { ...builtin.text, oid: builtin.int8.oid };
+const codecs = defaultCodecs.with(int8AsText);
+const textPool = createPool({ connectionString: process.env.DATABASE_URL!, codecs });
+try {
+  const result = await textPool.queryClassic<{ id: string }>('SELECT $1 AS id', [
+    param('9007199254740993', int8AsText),
+  ]);
+  console.log(result.rows[0]?.id); // '9007199254740993'
+} finally {
+  await textPool.close();
+}
+```
+
+The pool registry selects result decoders. `param` selects an input encoder independently; a
+registry override does not change plain-bind rules. SQL NULL bypasses codecs. Scalar overrides
+also affect their default arrays, so int8[] becomes `PgArray<string>` here. Other pools and
+`defaultCodecs` are unchanged. PostgreSQL validates encoded text against the selected database type.
+
+Reusing the built-in text decoder also preserves its known TypeScript representation:
+`codecs.typescript(20)` is `'string'`, so generated row types follow this override. A newly authored
+`decode` function can return an application type; `Codec<T>` checks its signature during compilation,
+but T is erased at runtime. An unfamiliar decoder therefore has no automatic representation, and
+generation warns and uses unknown. Authored query annotations remain caller assertions. All codec
+functions must be synchronous; promise results reject without leaving an unhandled rejection.
+
+### Bigint and JSON
+
+Int8 values (including bigserial IDs and `count(*)`) decode as bigint to preserve the full 64-bit
+integer range. Command `rowCount` is separately bigint or null and is unaffected by codec overrides.
+A small value such as 1 still follows that representation; types do not switch with magnitude.
+
+JavaScript JSON.stringify rejects bigint. Serialize bigint values as decimal strings at an HTTP or
+file boundary when that matches your application's JSON contract:
+
+```ts
+const result = await pool.queryClassic('SELECT 9007199254740993::bigint AS id');
+const body = JSON.stringify(result, (_key, value: unknown) =>
+  typeof value === 'bigint' ? value.toString() : value,
+);
+// The JSON id is "9007199254740993" and rowCount is "1".
+```
+
+Converting to Number can lose precision outside JavaScript's safe integer range. Keep bigint for
+arithmetic within the application, or select a string codec where that is the desired column
+representation. The JSON replacer is application code and does not change database decoding. Parsed JSON numbers
+still have normal JavaScript precision limits; use the raw JSON codecs when their original numeric tokens matter.
 
 ## Transactions and savepoints
 
@@ -380,3 +432,16 @@ Use `onEvent` on connection/pool options for connect, disconnect, operation timi
 database-notice events. Observer
 exceptions cannot change query outcomes, and callbacks are not awaited. Events omit SQL, parameters,
 credentials and cancel keys; server notices/errors may themselves contain application values.
+
+## Compatibility
+
+The public API is the package root's exports and declarations, together with the behavior in this
+guide. Result shapes, default value representations and error codes/outcomes are part of that
+contract. Internal files are not supported entry points; diagnostic message wording is not a stable
+machine-readable interface.
+
+During 0.x development, patch releases preserve compatibility within a minor release line.
+Incompatible API or representation changes use a new minor version and include migration notes in
+the release notes. Published versions are not replaced. This follows a deliberate pre-1.0 policy
+within [Semantic Versioning](https://semver.org/). Same-version package copies in one realm may
+exchange in-process capabilities; compatibility between different releases is not promised.

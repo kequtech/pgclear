@@ -210,6 +210,8 @@ test(
         param([[1.25]], builtin.numericArray);
         const result: QueryResult<{value: number}> = await connection.queryClassic<{value: number}>('SELECT 42 AS value', []);
         const count: bigint | null = result.rowCount;
+        await connection.queryClassic('SELECT 1');
+        const noValues: QueryResult<readonly [number]> = await connection.queryClassic<readonly [number]>('SELECT 1', undefined, {rowMode:'array'});
         type Database = {user: {id:number; name:string; secret:string}};
         type Selected = Pick<Database['user'], 'id' | 'name'>;
         const tagged: QueryResult<Selected> = await connection.query(sql<Selected>\`SELECT id,name FROM users WHERE id=\${42}\`);

@@ -1,6 +1,19 @@
 import type { Codec, PgArray } from '../types.js';
 import { encodeArray, parseArray } from './arrays.js';
 
+export function synchronous<T>(value: T): T {
+  if (
+    value &&
+    (typeof value === 'object' || typeof value === 'function') &&
+    'then' in value &&
+    typeof value.then === 'function'
+  ) {
+    void Promise.resolve(value).catch(() => {});
+    throw new TypeError('Codec functions must be synchronous.');
+  }
+  return value;
+}
+
 export function textValue(value: unknown): string {
   if (typeof value !== 'string' || value.includes('\0') || !value.isWellFormed())
     throw new TypeError('Expected valid text without NUL.');

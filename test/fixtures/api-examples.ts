@@ -199,8 +199,8 @@ export async function notifications(options: ConnectionOptions, signal: AbortSig
 
 export async function customCodecs(connectionString: string) {
   const int8AsText: Codec<string> = {
-    oid: 20,
-    text: { encode: (value) => value, decode: (value) => value },
+    ...builtin.text,
+    oid: builtin.int8.oid,
   };
   const pool = createPool({ connectionString, codecs: defaultCodecs.with(int8AsText) });
   try {

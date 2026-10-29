@@ -120,12 +120,12 @@ export interface Executor {
   ): Promise<QueryResult<readonly unknown[]>>;
   queryClassic<T extends object = Row>(
     text: string,
-    values: readonly InputValue[],
+    values?: readonly InputValue[],
     options?: QueryOptions,
   ): Promise<QueryResult<T>>;
   queryClassic<T extends readonly unknown[] = readonly unknown[]>(
     text: string,
-    values: readonly InputValue[],
+    values: readonly InputValue[] | undefined,
     options: ArrayQueryOptions,
   ): Promise<QueryResult<T>>;
   describe(statement: string | DescribeStatement, options?: OperationOptions): Promise<Description>;

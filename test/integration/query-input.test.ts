@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { builtin, createPool, json, param, sql } from '../../src/index.js';
+import { builtin, createPool, json, param, sql, type Executor } from '../../src/index.js';
 import { databaseUrl, ownedName, testConnection } from '../helpers/database.js';
 
 test(
@@ -197,5 +197,34 @@ test('query rejects raw text, objects and copied tuples without executing them',
     ]);
   } finally {
     await client.close();
+  }
+});
+
+test('classic queries default omitted values across pool and session scopes', async () => {
+  const pool = createPool({ connectionString: databaseUrl(), maxConnections: 1 });
+  async function check(executor: Executor) {
+    assert.deepEqual((await executor.queryClassic('SELECT 42 AS value')).rows, [{ value: 42 }]);
+    assert.deepEqual(
+      (await executor.queryClassic('SELECT 42 AS value', undefined, { rowMode: 'array' })).rows,
+      [[42]],
+    );
+  }
+  try {
+    await check(pool);
+    await pool.withSession(async (session) => {
+      await check(session);
+      await session.transaction(async (tx) => {
+        await check(tx);
+        await tx.savepoint(check);
+      });
+    });
+    const lease = await pool.acquire();
+    try {
+      await check(lease);
+    } finally {
+      await lease.release();
+    }
+  } finally {
+    await pool.close();
   }
 });
