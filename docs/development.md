@@ -38,9 +38,39 @@ Regenerate those tables with `node scripts/generate-saslprep.mjs /path/to/saslpr
 verifies the source SHA256 and does not run during installation or application execution. Benchmark
 documentation/results, runners, comparator dependencies, trials and raw generated artifacts remain
 repository-only. The package README points to the benchmark evidence on GitHub.
-See [M8](implementation-plan.md#m8--initial-release-gate) for the remaining consumer/matrix gates.
+See [M8](implementation-plan.md#m8--initial-release-gate) for the remaining adoption and release decisions.
 
 ## Current verification and limits
+
+Validated runtime revision: `52a587e37ffd49e5f0d6e63562f4fbf2e975a8b1`, with a clean working tree.
+PostgreSQL 16.15 and 18.0 runs used the identical packed driver artifact, SHA256
+`dc9380e9dbf0b876ed052f6ebf5e4dfa2265ab3c0fe71054c2ad97f8ff40beaf`.
+[Machine-readable evidence](validation-2026-10-29.json) records the exact suites and consumer pin.
+
+| Local PostgreSQL | Driver tests | Native compatibility | Adapted Tenon | Packed candidate contracts | Original pg baseline |
+| ---------------- | ------------ | -------------------- | ------------- | -------------------------- | -------------------- |
+| 16.15            | 232          | 3                    | 180           | 20                         | 180                  |
+| 18.0             | 232          | 3                    | 180           | 20                         | 180                  |
+
+All listed tests passed without skips. The additional baseline contract fixture passes 15 cases
+and skips five candidate-only features. The full candidate includes the original 180 adapted
+regressions, packed production consumers, CLI workflows and TypeScript 6/7 contracts. This closes
+the previous partial-consumer and current-runtime local matrix gaps. It does not publish either
+package, modify Tenon's active checkout or claim a new GitHub CI run.
+
+D36 removes all runtime dependencies. Twenty credential cases compare PostgreSQL/libpq behavior;
+a corpus also compares native NFKC for every changing stringprep-assigned character. The disposable
+PostgreSQL 18.0 build was checked against the official archive SHA256; its fixture uses the normal
+100-connection PostgreSQL default to accommodate concurrent consumer files. The configured
+PostgreSQL 16 installation was preserved. Native compatibility covers TLS/SCRAM-PLUS, Unix sockets
+and pinned PgBouncer 1.26.1 session/transaction profiles.
+
+The benchmark regression check uses the same committed artifact, three samples, 1,000 iterations
+and 0 ms added RTT. Retained [results](../benchmarks/results/adoption-2026-10-29.json) show no material
+regression against the prior matching local samples; the benchmark README explains measurement
+limits. Higher-latency profiles were not repeated in this check.
+
+Historical verification follows.
 
 D35's package-identity and representation changes pass `npm run check`: **231 tests** (123
 database-independent, 108 integration) on local PostgreSQL 16.15, plus three native compatibility
@@ -53,9 +83,9 @@ The refreshed packed trial `.trial-dist/tenon-m4-PdEsod/report.json` passes the 
 180 tests, 15 baseline contract cases (five skips), and all 20 candidate cases, including generated
 types under TypeScript 6/7. Candidate query inspection now uses `defaultCodecs.typescript(oid)` and
 deletes its duplicate conversion-table module. Its separate inspection connection uses defaults;
-this does not describe arbitrary borrowed custom registries. No full adapted Tenon suite or current
-PostgreSQL 18 run is claimed. The [SASLprep evaluation](saslprep-evaluation.md) records a separately
-confirmed Unicode password limitation and dependency-removal plan.
+this does not describe arbitrary borrowed custom registries. At that stage neither the full adapted
+Tenon suite nor a current PostgreSQL 18 run was claimed. The [SASLprep evaluation](saslprep-evaluation.md)
+records the separately confirmed Unicode password limitation and its subsequent resolution in D36.
 
 D34's schema-generation export passes `npm run check`: **228 tests** (122 database-independent,
 106 integration) on local PostgreSQL 16.15. The separate native compatibility suite passes three

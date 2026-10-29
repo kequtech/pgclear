@@ -2,11 +2,11 @@
 
 Work in the order below. Each milestone produces a usable, verifiable slice and has an observable
 completion gate. Keep this document current by recording completed gates and evidence, not by
-maintaining a second backlog that can disagree with it. M1–M6 pass the full driver check and native
-TLS/Unix/PgBouncer CI on PostgreSQL 16/18 at `0d31732` (216 regression tests and three separate
-compatibility tests). The refreshed local Tenon candidate passes 20 contract cases; complete
-adoption and its PostgreSQL 18 consumer run remain open. M7a's measurements and profiled improvements
-are complete; M7b pipelining is deferred by D33. M8 release readiness is next. See [development](development.md)
+maintaining a second backlog that can disagree with it. Revision `52a587e` passes the complete local
+PostgreSQL 16/18 matrix: 232 driver tests, three native compatibility workflows, 180 adapted Tenon
+tests and 20 packed consumer contract cases on each version. Actual Tenon adoption remains a
+separate decision. M7a's measurements and profiled improvements are complete; M7b pipelining is
+deferred by D33. M8 release readiness is next. See [development](development.md)
 and [benchmarks](../benchmarks/README.md) for evidence. The [handoff](m5-handoff.md) is historical.
 
 ## M0 — Design and project setup (this change)
@@ -151,15 +151,14 @@ pushed as `a91a83b`; CI was not polled or awaited. See [trial evidence](tenon-tr
 The maintainer explicitly permits Tenon's contracts to change, so this candidate adopts pgclear's
 native defaults and strict binds. It adds no runtime compatibility layer or new upstream API.
 
-This is a trial, not completed adoption. The original pg baseline's 180 tests remain distinct from
-the candidate's adapted public-contract tests. A pgclear run of all 180 legacy tests is not claimed;
-pg-specific mocks/configuration and listener cases must be ported or assigned to their relevant
-feature milestones. The PostgreSQL 16/18 adoption gate below remains open.
+The initial trial kept the original pg baseline's 180 tests distinct from the candidate's adapted
+public-contract tests. At that stage it did not run the full adapted suite. D36 subsequently
+completed the 180-test port and PostgreSQL 16/18 consumer matrix; actual adoption remains separate.
 
 The Tenon agent's review subsequently found leading-U+FEFF and Unicode-array-whitespace corruption.
 D21 records the fixes and independent Unicode regressions; the original green trial did not cover
 these values. The Unicode-fix commit subsequently passed both PostgreSQL 16/18 CI jobs. D26 resumes
-focused driver development; the broader consumer-adoption gates remain open.
+focused driver development. The later complete regression port is recorded under M8.
 
 Follow [Tenon integration](tenon-integration.md). Implement an adapter fixture first, using a packed
 pgclear build; re-read Tenon's current migration before changing that repository. Exercise explicit
@@ -328,20 +327,17 @@ write evidence. Runtime/generated types must agree under overrides, ordinary ins
 must work, and representative latency/CPU/memory costs must remain acceptable. Benchmark wins or
 feature breadth alone do not establish these guarantees or superiority over other drivers.
 
-Remaining work, in order:
+The applicable regression port and local matrix gates are complete at runtime revision 52a587e.
+Both PostgreSQL 16.15 and 18.0 pass 232 driver tests, three native compatibility workflows, the full
+180-test adapted Tenon suite and 20 packed candidate contracts. The original pg baseline's 180 tests
+pass separately. All use the same driver artifact with a clean working tree. Tenon's candidate loses
+652 source lines while retaining its SQL, cardinality, guarded-write, migration and checking policies.
+See development.md and validation-2026-10-29.json for exact evidence and benchmark limits.
 
-1. Finish the applicable Tenon behavioral regression and public type-example port in the isolated
-   candidate. Start with `query.test.ts`, `query-functions.test.ts`, `affected-rows.test.ts`,
-   `transactions.test.ts` and `reservation.test.ts` at the pinned Tenon revision. The 20-case
-   external fixture is partial coverage; the original pg baseline's 180 tests do not establish
-   candidate adoption. Preserve deliberate pgclear representations and update consumer documentation.
-2. Validate the full adapted consumer and current driver on PostgreSQL 16/18, including native
-   TLS/Unix/PgBouncer profiles. Existing CI success at `0d31732` does not verify the newer runtime
-   performance, generation and D35 interoperability changes; their checks, compatibility suites and
-   consumer trials are local PostgreSQL 16.15 evidence. Keep those gates distinct.
-3. Finish package/documentation consistency and attribution review, record supported/deferred
-   behavior, then review 0.1.0 readiness. Keep `private: true` and version 0.0.0 during readiness;
-   continue the consumer port in the isolated fixture while preserving Tenon's active checkout.
+Remaining decisions are opt-in adoption into Tenon's active checkout and release/package readiness.
+Keep version 0.0.0 and private: true until an explicit release instruction. No publication or new
+GitHub CI run is implied by the local matrix. Other PostgreSQL libraries remain supported consumers
+of finished SQL and binds through queryClassic; Tenon does not own the driver's API.
 
 ## Planning envelope and order
 
@@ -349,6 +345,6 @@ For one engineer, allow approximately 1–3 weeks for M1 experimentation, 6–12
 M1–M4, and 3–6 months cumulative for a credible M1–M6 release. These are uncertain effort envelopes,
 not deadlines or automation schedules. Authentication, cancellation races, codec edge cases and the
 Tenon value migration are the largest risks. M7 is deliberately separable from release correctness.
-M3 was pushed as `a91a83b`. M4 has a local adapter trial; its full adoption gate remains open. Do not
-start with benchmarks or runtime compatibility shims while the request/session state machine is
-still being established.
+M3 was pushed as `a91a83b`. M4's local adapter trial now includes the complete consumer regression
+port; actual adoption remains separate. These original effort estimates are historical, not a
+reason to add runtime compatibility shims or extend completed milestones.

@@ -1,0 +1,116 @@
+{
+  "revision": "52a587e37ffd49e5f0d6e63562f4fbf2e975a8b1",
+  "workingTreeDirty": false,
+  "artifactSha256": "dc9380e9dbf0b876ed052f6ebf5e4dfa2265ab3c0fe71054c2ad97f8ff40beaf",
+  "node": "v24.4.1",
+  "postgres18Source": {
+    "version": "18.0",
+    "sha256": "0d5b903b1e5fe361bca7aa9507519933773eb34266b1357c4e7780fdee6d6078"
+  },
+  "matrix": [
+    {
+      "postgres": "16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)",
+      "status": "passed",
+      "driver": {
+        "unit": 123,
+        "integration": 109,
+        "total": 232
+      },
+      "nativeCompatibility": 3,
+      "tenon": {
+        "version": "0.3.1",
+        "commit": "4d6cb977a4c7fa71ee836ca056bdf95986d4ab3a",
+        "checks": [
+          {
+            "label": "baseline-full-check",
+            "status": "passed",
+            "tests": 180,
+            "pass": 180,
+            "fail": 0,
+            "skipped": 0
+          },
+          {
+            "label": "candidate-full-check",
+            "status": "passed",
+            "tests": 180,
+            "pass": 180,
+            "fail": 0,
+            "skipped": 0
+          },
+          {
+            "label": "baseline-contracts",
+            "status": "passed",
+            "tests": 20,
+            "pass": 15,
+            "fail": 0,
+            "skipped": 5
+          },
+          {
+            "label": "candidate-contracts",
+            "status": "passed",
+            "tests": 20,
+            "pass": 20,
+            "fail": 0,
+            "skipped": 0
+          }
+        ]
+      },
+      "localReport": ".trial-dist/tenon-m4-VEb6PV/report.json"
+    },
+    {
+      "postgres": "18.0",
+      "status": "passed",
+      "driver": {
+        "unit": 123,
+        "integration": 109,
+        "total": 232
+      },
+      "nativeCompatibility": 3,
+      "tenon": {
+        "version": "0.3.1",
+        "commit": "4d6cb977a4c7fa71ee836ca056bdf95986d4ab3a",
+        "checks": [
+          {
+            "label": "baseline-full-check",
+            "status": "passed",
+            "tests": 180,
+            "pass": 180,
+            "fail": 0,
+            "skipped": 0
+          },
+          {
+            "label": "candidate-full-check",
+            "status": "passed",
+            "tests": 180,
+            "pass": 180,
+            "fail": 0,
+            "skipped": 0
+          },
+          {
+            "label": "baseline-contracts",
+            "status": "passed",
+            "tests": 20,
+            "pass": 15,
+            "fail": 0,
+            "skipped": 5
+          },
+          {
+            "label": "candidate-contracts",
+            "status": "passed",
+            "tests": 20,
+            "pass": 20,
+            "fail": 0,
+            "skipped": 0
+          }
+        ]
+      },
+      "localReport": ".trial-dist/tenon-m4-fUKHv1/report.json"
+    }
+  ],
+  "benchmark": {
+    "file": "../benchmarks/results/adoption-2026-10-29.json",
+    "samples": 3,
+    "addedRttMs": [0]
+  },
+  "scope": "Local validation. Tenon active checkout unchanged; no publication or new GitHub CI run."
+}

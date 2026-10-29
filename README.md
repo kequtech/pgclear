@@ -6,7 +6,7 @@ consumer; pgclear has no runtime dependency on Tenon.
 `queryClassic` is a supported entry point for other libraries that supply finished SQL and bound
 values. Tenon's composition and checking policies stay outside the driver.
 
-**Status: M1–M6 pass PostgreSQL 16/18 CI; adoption and release gates remain open.** Native TypeScript
+**Status: full local driver and Tenon regression checks pass PostgreSQL 16/18; adoption and release decisions remain open.** Native TypeScript
 declarations cover connections, pools, leases, transaction/savepoint scopes, immutable codecs,
 explicit typed/JSON parameters, description, scripts, scope-owned prepared statements, portal row
 streams, byte COPY and dedicated notification listeners. An isolated Tenon 0.3.1 adapter trial uses the native driver contracts;

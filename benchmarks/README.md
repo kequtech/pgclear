@@ -250,3 +250,33 @@ that awaits each response before submitting another query would still be sequent
 These initial measurements motivated the profiled follow-up above. M7b is deferred pending a
 demonstrated consumer need. Full Tenon adoption and the M8 release
 checks remain separate correctness work. No benchmark result justifies weakening ownership rules.
+
+## Adoption regression check — 2026-10-29
+
+Runtime revision 52a587e, clean tree, Node 24.4.1 and PostgreSQL 16.15; the packed artifact is the
+same one used for the full PostgreSQL 16/18 driver and Tenon validation. Reproduce with:
+
+```sh
+npm run benchmark -- --iterations 1000 --samples 3 --latencies 0
+```
+
+[Metadata and summaries](results/adoption-2026-10-29.json) and
+[63 measurements](results/adoption-2026-10-29.csv) retain all seven existing workloads and three
+drivers. This check repeats only the local 0 ms added-RTT profile. Compare the matching rows in the
+previous profiled-2026-10-28.csv, whose other profile adds 10 ms.
+
+| pgclear workload    | Previous ops/s | Current ops/s | Observed change |
+| ------------------- | -------------: | ------------: | --------------: |
+| Small               |          2,736 |         2,860 |           +4.5% |
+| Prepared            |          2,892 |         3,077 |           +6.4% |
+| 1,000-row result    |            621 |           632 |           +1.8% |
+| Arrays/JSON         |          2,369 |         2,356 |           -0.6% |
+| Transaction         |            738 |           814 |          +10.4% |
+| Pool                |          6,481 |         6,831 |           +5.4% |
+| Pipeline diagnostic |          3,283 |         3,355 |           +2.2% |
+
+Values are medians of three repetitions. Large-result client CPU is 88 ms versus 89 ms previously;
+its sampled peak RSS is 71.1 versus 73.5 MiB. Pool CPU is 221 versus 230 ms and sampled peak RSS is
+76.8 versus 80.4 MiB. These short, separate runs show no material regression; they do not isolate
+the changes or establish an optimization benefit. The pipeline diagnostic still uses different
+schedulers across drivers and is not a baseline ranking. Pipelining remains deferred.

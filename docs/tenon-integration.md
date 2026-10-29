@@ -110,7 +110,8 @@ current composition API nor its active checkout is changed here.
 The supplied [deeper review](references/tenon-typed-query-review.md) remains evidence: original M4
 counts were independently reproduced; newer Unicode-fix counts were attributed to pgclear's author.
 The [tooling exploration](references/query-tooling-exploration.md) is historical, superseded by D25.
-Outstanding M4 consumer and PostgreSQL 16/18 adoption gates remain open.
+The full isolated consumer port and local PostgreSQL 16/18 matrix now pass; actual adoption remains
+a separate change to Tenon’s active checkout.
 
 ## Regression port
 
@@ -149,5 +150,5 @@ workarounds are removed only when their behavioral regression passes through the
 The local adapter trial does not publish either package or modify the active Tenon checkout.
 [Trial evidence](tenon-trial.md) distinguishes the 180-test pg baseline from the adapted public
 contract fixture. Its 20 candidate cases now include native preparation, streaming, COPY and listener
-reconnection alongside ORM work. Full adoption remains open: every applicable consumer regression
-still needs porting, and the complete adapted consumer must pass PostgreSQL 16/18 before replacement.
+reconnection alongside ORM work. The complete 180-test adapted suite now passes PostgreSQL 16/18, alongside 20 packed contract cases.
+Tenon’s active checkout remains unchanged; replacing its driver is a separate adoption decision.

@@ -1,7 +1,7 @@
 # Tenon adapter trial
 
 Status: the complete adapted Tenon suite passes 180 tests plus 20 packed contract cases on local
-PostgreSQL 16.15. Final PostgreSQL 16/18 matrix validation is recorded in development.md. Nothing was
+PostgreSQL 16.15 and 18.0. Final matrix evidence is recorded in [development](development.md). Nothing was
 published and Tenon's active checkout was not modified.
 M6's driver and deployment checks separately pass PostgreSQL 16/18 CI.
 
@@ -151,21 +151,22 @@ selected public contracts. The expanded fixture now covers preparation, streamin
 listeners through pgclear's actual public APIs. It does not port every historical consumer case or
 recreate a pg-shaped native facade.
 
-Before adopting the candidate in Tenon's mainline, port all applicable behavioral regressions and
-public type examples, update its user documentation, run the adapted consumer suite on PostgreSQL
-16/18, and review the deliberate contract changes. This consumer trial has not verified PostgreSQL
-18 or proxy deployments. Separate driver CI covers PostgreSQL 16/18 TLS/Unix/PgBouncer; separate M7a
-benchmarks measure driver workloads, not Tenon performance. Neither establishes consumer adoption
+Before adopting the candidate in Tenon's mainline, review the deliberate contract changes and
+apply the isolated port to that project. The complete regression port below includes its applicable
+behavioral tests, public type examples and documentation, validated on PostgreSQL 16/18. Consumer
+proxy deployments remain unverified; separate driver checks cover TLS/Unix/PgBouncer. M7a benchmarks
+measure driver workloads, not Tenon performance. These checks do not establish consumer adoption
 or a production release. The trial changes neither Tenon 0.3.1 nor pgclear's release visibility.
 
-Tenon feedback has been received and the known Unicode blockers are fixed. D26 resumes focused M5
-driver development separately from full Tenon adoption. The outstanding applicable consumer
-regression/16/18 adoption gates remain open; no compatibility behavior is required merely to
-reproduce pg's baseline.
+Tenon's earlier feedback exposed Unicode blockers, which were fixed before D26 resumed M5 driver
+development. The later complete port closes the consumer regression and PostgreSQL 16/18 validation
+gates; it adds no compatibility behavior merely to reproduce pg's baseline.
 
 ## Complete regression port
 
-The full candidate check retains 180 tests with no skips. The original pg baseline runs separately.
+The full candidate check retains 180 tests with no skips on PostgreSQL 16.15 and 18.0. The original
+pg baseline runs separately. Both clean runs use runtime revision 52a587e and the same driver
+artifact: .trial-dist/tenon-m4-VEb6PV/report.json and .trial-dist/tenon-m4-fUKHv1/report.json.
 The adapter contains production changes; regressions.patch adapts the tests and type examples to
 native pgclear contracts. No test-only pg facade or runtime conversion layer is introduced.
 
