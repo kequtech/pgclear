@@ -1,7 +1,8 @@
 # Tenon adapter trial
 
-Status: refreshed local PostgreSQL 16.15 consumer trial passes 20 candidate contract cases; the full
-Tenon adoption gate remains open. Nothing was published and Tenon's active checkout was not modified.
+Status: the complete adapted Tenon suite passes 180 tests plus 20 packed contract cases on local
+PostgreSQL 16.15. Final PostgreSQL 16/18 matrix validation is recorded in development.md. Nothing was
+published and Tenon's active checkout was not modified.
 M6's driver and deployment checks separately pass PostgreSQL 16/18 CI.
 
 The D35 refresh passes at `.trial-dist/tenon-m4-PdEsod/report.json` on PostgreSQL 16.15. Candidate
@@ -37,7 +38,7 @@ The pinned source is published Tenon **0.3.1**, commit
 The runner reads this exact Git object from the supplied checkout, ignoring its uncommitted files.
 It does not fetch a moving branch or invoke Tenon's working directory scripts in place.
 
-The reviewable fixture consists of `trials/tenon/manifest.json`, `adapter.patch`, `contract.test.mjs`
+The reviewable fixture consists of `trials/tenon/manifest.json`, `adapter.patch`, `regressions.patch`, `contract.test.mjs`
 and `run.mjs` in the source repository. Each run creates a fresh ignored `.trial-dist/tenon-m4-*`
 directory with the two snapshots, installed consumers, tarballs, per-step logs and `report.json`.
 The report records source revisions, artifact SHA256 hashes, server version and check results;
@@ -51,8 +52,9 @@ node_modules, database credentials and raw logs out of Git.
    test-database allowlist/expectations from `tenon_orm_test` to `pgclear_test`.
 3. Run the original pg baseline's full formatting/type/build/test check, including its packed
    consumer tests. This is the reference for detecting unrelated failures.
-4. Apply the adapter patch only to the candidate snapshot. Its production dependency is the packed
-   pgclear tarball. Check source formatting and strict declarations, then build and pack Tenon.
+4. Apply the adapter and regression patches only to the candidate snapshot. Its production dependency
+   is the packed pgclear tarball. Run the full formatting/type/build/test check, including packed
+   production consumers and TypeScript 6/7 declarations, then pack Tenon.
 5. Install both Tenon tarballs into separate consumers and run the shared contract fixture. Tests
    assert actual public behavior, intentional representation differences and generated declarations
    under TypeScript 6 and 7. The candidate uses no pg dependency or unexported driver operations.
@@ -160,3 +162,32 @@ Tenon feedback has been received and the known Unicode blockers are fixed. D26 r
 driver development separately from full Tenon adoption. The outstanding applicable consumer
 regression/16/18 adoption gates remain open; no compatibility behavior is required merely to
 reproduce pg's baseline.
+
+## Complete regression port
+
+The full candidate check retains 180 tests with no skips. The original pg baseline runs separately.
+The adapter contains production changes; regressions.patch adapts the tests and type examples to
+native pgclear contracts. No test-only pg facade or runtime conversion layer is introduced.
+
+The port covers guarded writes and cardinality, concurrent policy/savepoint ordering, lost backends,
+expired callbacks, cold pool acquisition, bounded shutdown, borrowed ownership, migrations and locks,
+baseline capture/replay/security, generation and freshness, inspection, CLI behavior, fragments,
+mutation expansion, copied installations and production packages without development tools.
+
+SQL fixtures and the adapter use queryClassic for finished SQL/binds. Script fixtures hold an explicit
+session. Data expectations preserve bigint counts/scalars, exact numeric arrays, temporal/interval
+text, Uint8Array and explicit JSON/array parameters. Tooling uses Database[table] types and the public
+codec representation API. Unknown custom decoder representations remain unknown; unrecognized text
+OIDs remain strings. Listener tests preserve dedicated connection ownership.
+
+Tenon policy unit tests now double the public driver boundary. They assert delegation and propagation
+of driver failures rather than reimplement transaction cleanup or inspect sockets. Real workflows
+still prove rollback, isolation, lock release, scope expiry and cancellation; pgclear's own failure
+suite proves the underlying protocol and lost-COMMIT guarantees. Pool-close tests distinguish
+already dispatched work from acquisition waiters and new callback statements.
+
+The pinned baseline has 2,830 source lines; the candidate has 2,178, a reduction of 652 lines.
+Removed responsibilities include conversion tables, generation modules, custom Describe dispatch,
+transaction-loss supervision and shutdown interception. This line count describes the consumer
+change, not overall system complexity: generation and driver guarantees remain covered in pgclear.
+The active Tenon checkout stays untouched until a separate adoption change.

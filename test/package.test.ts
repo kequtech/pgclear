@@ -117,7 +117,7 @@ test(
       };
       assert.equal(manifest.private, true);
       // Reuse installed dependencies, but only those actually declared by the packed manifest.
-      for (const dependency of [...Object.keys(manifest.dependencies), '@types/node']) {
+      for (const dependency of [...Object.keys(manifest.dependencies ?? {}), '@types/node']) {
         const target = join(directory, 'node_modules', dependency);
         await mkdir(resolve(target, '..'), { recursive: true });
         await symlink(join(root, 'node_modules', dependency), target, 'dir');

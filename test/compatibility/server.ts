@@ -87,7 +87,7 @@ unix_socket_directories='${root}'
 ssl=on
 ssl_cert_file='${root}/server.crt'
 ssl_key_file='${root}/server.key'
-max_connections=30
+max_connections=100
 `,
     );
     postgres = true; // Cleanup also covers a partially successful start.

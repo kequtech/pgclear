@@ -301,8 +301,8 @@ features and any intentional API changes before selecting 0.1.0. Publishing, rep
 changes and a stable compatibility promise require their own explicit release instruction.
 
 The first readiness review confirms that the packed exports/declarations have executable consumer
-coverage, the license is ISC, and runtime dependencies are external packages with their own MIT
-license notices. The public-API status now correctly identifies listeners as implemented.
+coverage and the ISC license. D36 later removes the runtime dependencies and includes PostgreSQL
+attribution for the fixed stringprep tables. The public-API status now correctly identifies listeners as implemented.
 Pipelining is now explicitly deferred, without a public option or scheduler changes.
 Benchmark documentation/results, runners, comparator dependencies, trials and raw generated
 artifacts remain repository-only; the package README links to the benchmark evidence on GitHub.
@@ -316,8 +316,8 @@ This changes generation ownership, not the remaining full consumer-adoption or 1
 D35 resolves same-version package-copy interoperability and exposes the existing selected-codec
 TypeScript mapping. A packed regression exchanges real parameters, registries, generation scopes
 and errors in both directions and compiles consumer declarations. Strict SQL admission is shared
-across entrypoints. The separate [SASLprep evaluation](saslprep-evaluation.md) records its remaining
-authentication edge case and proposed dependency removal.
+across entrypoints. D36 resolves the authentication edge case with PostgreSQL-compatible preparation
+and removes the runtime dependencies; see the [SASLprep evaluation](saslprep-evaluation.md).
 
 Judge adoption by reduced consumer responsibility: Tenon should delete duplicate transaction-loss
 supervision, driver-internal shutdown/Describe access and default conversion tables as their

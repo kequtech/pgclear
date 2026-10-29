@@ -148,6 +148,17 @@ try {
     ['apply', '--directory=' + relative(root, candidate), join(root, 'trials/tenon/adapter.patch')],
     root,
   );
+  await relocateTests(join(candidate, 'test'));
+  await command(
+    'apply-candidate-regressions',
+    'git',
+    [
+      'apply',
+      '--directory=' + relative(root, candidate),
+      join(root, 'trials/tenon/regressions.patch'),
+    ],
+    root,
+  );
   const info = JSON.parse(await readFile(join(candidate, 'package.json'), 'utf8'));
   info.private = true;
   info.dependencies = { '@kequtech/pgclear': 'file:' + artifact.filename };
@@ -170,7 +181,9 @@ try {
     ['exec', '--', 'prettier', '--check', 'src'],
     candidate,
   );
-  await command('build-candidate', 'npm', ['run', 'build'], candidate);
+  await command('candidate-full-check', 'npm', ['run', 'check'], candidate, {
+    TENON_TEST_DATABASE_URL: database,
+  });
   const candidateArtifact = await pack(
     'pack-candidate',
     candidate,

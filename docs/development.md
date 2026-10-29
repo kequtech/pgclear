@@ -5,8 +5,8 @@
 The repository is `git@github.com:kequtech/pgclear.git`, private, with `main` as the default
 branch. The package is `@kequtech/pgclear`, unpublished and protected by `private: true`. The stable
 Kequtech source identity is `pgclear`. Node.js 24+, npm, TypeScript and Prettier are the tooling
-foundations. `@mongodb-js/saslprep` is the one direct runtime dependency, for PostgreSQL-compatible
-SCRAM password normalization. Native Node modules handle networking, TLS and cryptography.
+foundations. There are no runtime dependencies. Native Node modules handle networking, TLS and
+cryptography; fixed generated stringprep tables preserve PostgreSQL's password preparation rules.
 
 ```sh
 npm ci
@@ -32,9 +32,10 @@ are explicitly public test-only keys/certificates. The package remains private; 
 distribution locally and does not publish it. The runtime exports are `connect`, `createPool`, `DriverError`, `DatabaseError`, `builtin`, `defaultCodecs`, `param`,
 `json`, `sql`, `listen` and `generateDefinitions`.
 
-The M8 package audit keeps the ISC license, ESM exports, declarations and `private: true`. Runtime
-SASLprep and its transitive `sparse-bitfield`/`memory-pager` dependencies are external MIT-licensed
-packages with their own license notices; the TypeScript build does not bundle them. Benchmark
+The M8 package audit keeps the ISC license, ESM exports, declarations and `private: true`. PostgreSQL
+attribution for the generated stringprep tables and preparation rules is included in LICENSE.
+Regenerate those tables with `node scripts/generate-saslprep.mjs /path/to/saslprep.c`; the script
+verifies the source SHA256 and does not run during installation or application execution. Benchmark
 documentation/results, runners, comparator dependencies, trials and raw generated artifacts remain
 repository-only. The package README points to the benchmark evidence on GitHub.
 See [M8](implementation-plan.md#m8--initial-release-gate) for the remaining consumer/matrix gates.

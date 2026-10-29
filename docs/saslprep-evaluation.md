@@ -1,6 +1,12 @@
 # SASLprep dependency evaluation
 
-`@mongodb-js/saslprep` 1.6.1 supplies password preparation for PostgreSQL SCRAM. It implements a
+Status: the replacement is implemented. The dependency and its two transitive packages are removed.
+The 20 credential cases agree with PostgreSQL/libpq on PostgreSQL 16.15 and 18.0, and native NFKC
+agrees with both servers for every changing character allowed by the fixed stringprep tables.
+The full driver check passes 232 tests on PostgreSQL 16.15; final consumer/matrix results are
+recorded in [development](development.md).
+
+`@mongodb-js/saslprep` 1.6.1 previously supplied password preparation for PostgreSQL SCRAM. It implements a
 general authentication standard; the MongoDB namespace does not make it a MongoDB wire-protocol
 dependency. SCRAM proof derivation, TLS and channel binding already use native Node modules.
 
@@ -29,10 +35,19 @@ The helper checks unassigned characters after normalization. PostgreSQL's
 [SASLprep implementation](https://github.com/postgres/postgres/blob/REL_18_0/src/common/saslprep.c)
 checks the mapped input as part of its preparation rules. A replacement must match the actual
 server/libpq contract, including this ordering. The dependency is not a sufficient compatibility
-oracle. This is a confirmed limitation of current password preparation; the existing authentication
-tests did not cover it. PostgreSQL 18 has not been probed for this case locally.
+oracle. This was a confirmed limitation of the previous preparation; the old authentication tests
+did not cover it. The permanent regression now passes on both supported majors.
 
-## Proposed removal slice
+## Implemented replacement
+
+`src/auth/saslprep.ts` is a small internal function. It preserves PostgreSQL's ASCII shortcut,
+mapping precedence, mapped-input checks, bidi rules and complete original-password fallback.
+`src/auth/saslprep-tables.ts` contains six generated Unicode regexes. The generator validates
+range ordering and the pinned upstream source SHA256; regeneration is an explicit offline developer
+action. PostgreSQL attribution is included in LICENSE. Networking, SCRAM cryptography, TLS and the
+public API are unchanged.
+
+The following plan guided the implementation:
 
 1. Generate compact, sorted range tables from a pinned PostgreSQL source revision with recorded
    checksum and license attribution. Preserve the fixed stringprep tables; do not use modern
@@ -51,6 +66,6 @@ tests did not cover it. PostgreSQL 18 has not been probed for this case locally.
 5. Remove the dependency and its unused transitive lockfile entries once the replacement passes.
    Recheck the packed consumer and attribution. No generator is needed at application runtime.
 
-This makes removal feasible without owning a Unicode normalization engine. It does mean owning a
-small authentication routine and fixed data tables. Keep the dependency until that replacement is
-validated; replacing it with a partial normalization shortcut would reduce correctness.
+The maintenance responsibility is one small authentication routine and fixed data tables; Node
+still owns normalization. PostgreSQL/libpq remains the compatibility oracle, including the case
+where the former generic helper produced a different password.

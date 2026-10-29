@@ -7,6 +7,7 @@ import { ScramClient, preparePassword } from '../src/auth/scram.js';
 import { certificateBinding } from '../src/auth/channel-binding.js';
 import { normalizeConfiguration } from '../src/config/index.js';
 import { fixturePath } from './helpers/server.js';
+import { passwords } from './helpers/passwords.js';
 
 const nonce = 'rOprNGfwEbeRWgbNEkqO';
 const serverNonce = nonce + '%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0';
@@ -53,6 +54,11 @@ test('SCRAM refuses corrupt nonces, proofs, duplicate attributes, mandatory exte
 });
 
 test('SASLprep follows RFC 4013 mappings and PostgreSQL raw-password fallback', () => {
+  for (const [password, expected] of passwords) assert.equal(preparePassword(password), expected);
+  assert.equal(preparePassword('\ud800'), '\ud800');
+  assert.equal(preparePassword('\udc00'), '\udc00');
+  const long = 'x'.repeat(100000);
+  assert.equal(preparePassword(long), long);
   assert.equal(preparePassword('I\u00ADX'), 'IX');
   assert.equal(preparePassword('\u00AA'), 'a');
   assert.equal(preparePassword('\u2168'), 'IX');

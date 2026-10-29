@@ -43,9 +43,6 @@
     "prettier": "^3.9.10",
     "typescript": "~6.0.2"
   },
-  "dependencies": {
-    "@mongodb-js/saslprep": "1.6.1"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

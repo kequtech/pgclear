@@ -40,7 +40,7 @@ test(
         const manifest = JSON.parse(await readFile(join(target, 'package.json'), 'utf8')) as {
           dependencies: Record<string, string>;
         };
-        for (const dependency of Object.keys(manifest.dependencies)) {
+        for (const dependency of Object.keys(manifest.dependencies ?? {})) {
           const link = join(directory, name, 'node_modules', dependency);
           await mkdir(resolve(link, '..'), { recursive: true });
           await symlink(join(root, 'node_modules', dependency), link, 'dir');

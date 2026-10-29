@@ -1,8 +1,7 @@
 diff --git a/src/affected-rows.ts b/src/affected-rows.ts
-index 8fa14c3..18881e2 100644
 --- a/src/affected-rows.ts
 +++ b/src/affected-rows.ts
-@@ -29,12 +29,11 @@ export function checkAffectedRows(
+@@ -29,12 +29,11 @@
    if (
      !['INSERT', 'UPDATE', 'DELETE', 'MERGE'].includes(result.command) ||
      result.rowCount === null ||
@@ -18,10 +17,9 @@ index 8fa14c3..18881e2 100644
      constraint.exact === undefined ? result.rowCount <= expected : result.rowCount === expected;
    if (!matches) {
 diff --git a/src/client.ts b/src/client.ts
-index bb797d8..00d97ff 100644
 --- a/src/client.ts
 +++ b/src/client.ts
-@@ -18,7 +18,7 @@ export function createClient(
+@@ -18,7 +18,7 @@
      validateTransactionSql(statement.text, options.label ?? 'Query');
      const started = performance.now();
      let command: string | undefined;
@@ -31,7 +29,6 @@ index bb797d8..00d97ff 100644
      let succeeded = false;
      try {
 diff --git a/src/connection.ts b/src/connection.ts
-index 0564330..76fe6b8 100644
 --- a/src/connection.ts
 +++ b/src/connection.ts
 @@ -1,17 +1,17 @@
@@ -61,7 +58,7 @@ index 0564330..76fe6b8 100644
  export type QueryExecutor = <T>(
    text: string,
    input: readonly unknown[],
-@@ -19,139 +19,31 @@ export type QueryExecutor = <T>(
+@@ -19,139 +19,31 @@
    guarded: boolean,
  ) => Promise<T>;
  
@@ -166,7 +163,11 @@ index 0564330..76fe6b8 100644
 -      }
 -    },
 -  };
--}
++  if (isPool(connection)) return { pool: connection, close: async () => {} };
++  if (typeof connection !== 'string') plainObject(connection, 'Connection configuration');
++  const pool = createPool(connection);
++  return { pool, close: (timeoutMs) => pool.close({ timeoutMs }) };
+ }
 -
 -/** A checked-out pg client remains tied to its session and is discarded after a failure. */
 -export function watchClient(client: PoolClient) {
@@ -192,11 +193,7 @@ index 0564330..76fe6b8 100644
 -      }
 -    },
 -  };
-+  if (isPool(connection)) return { pool: connection, close: async () => {} };
-+  if (typeof connection !== 'string') plainObject(connection, 'Connection configuration');
-+  const pool = createPool(connection);
-+  return { pool, close: (timeoutMs) => pool.close({ timeoutMs }) };
- }
+-}
 -
 -/** Unnamed extended protocol enforces a single statement, even without parameters. */
  export function executeSql(
@@ -212,13 +209,12 @@ index 0564330..76fe6b8 100644
 -  };
 -  return connection.query<UnknownRow>(config);
 +): Promise<QueryResult> {
-+  return connection.query({ text, values: input as readonly InputValue[] });
++  return connection.queryClassic(text, input as readonly InputValue[]);
  }
 diff --git a/src/database.ts b/src/database.ts
-index df1457f..05ced99 100644
 --- a/src/database.ts
 +++ b/src/database.ts
-@@ -37,7 +37,7 @@ export function createTenon(options: TenonOptions): Database {
+@@ -37,7 +37,7 @@
    if (options.onQuery !== undefined && typeof options.onQuery !== 'function') {
      throw new Error('onQuery must be a function.');
    }
@@ -227,7 +223,7 @@ index df1457f..05ced99 100644
    let closing: Promise<void> | undefined;
  
    function checkOpen() {
-@@ -48,12 +48,8 @@ export function createTenon(options: TenonOptions): Database {
+@@ -48,12 +48,8 @@
  
    const query: QueryExecutor = (text, input, readResult, guarded) => {
      checkOpen();
@@ -242,7 +238,7 @@ index df1457f..05ced99 100644
    };
  
    return {
-@@ -61,9 +57,7 @@ export function createTenon(options: TenonOptions): Database {
+@@ -61,9 +57,7 @@
      native: pool,
      async transaction(callback) {
        checkOpen();
@@ -255,7 +251,6 @@ index df1457f..05ced99 100644
        if (closing) return closing;
 diff --git a/src/driver/session.ts b/src/driver/session.ts
 new file mode 100644
-index 0000000..2037000
 --- /dev/null
 +++ b/src/driver/session.ts
 @@ -0,0 +1,16 @@
@@ -266,7 +261,7 @@ index 0000000..2037000
 +export class SessionClient {
 +  constructor(readonly session: Session) {}
 +  query<Row extends object = UnknownRow>(text: string, values: readonly unknown[] = []) {
-+    return this.session.query<Row>({ text, values: values as readonly InputValue[] });
++    return this.session.queryClassic<Row>(text, values as readonly InputValue[]);
 +  }
 +  script(text: string) {
 +    return this.session.script(text);
@@ -276,6 +271,7 @@ index 0000000..2037000
 +  }
 +}
 diff --git a/src/driver/types.ts b/src/driver/types.ts
+deleted file mode 100644
 --- a/src/driver/types.ts
 +++ /dev/null
 @@ -1,55 +0,0 @@
@@ -335,10 +331,9 @@ diff --git a/src/driver/types.ts b/src/driver/types.ts
 -  return typeof mapping === 'string' ? { read: mapping, write: mapping } : mapping;
 -}
 diff --git a/src/errors.ts b/src/errors.ts
-index 03d242b..4431646 100644
 --- a/src/errors.ts
 +++ b/src/errors.ts
-@@ -20,12 +20,12 @@ export class AffectedRowsError extends Error {
+@@ -20,12 +20,12 @@
    override name = 'AffectedRowsError';
    readonly code: 'TENON_AFFECTED_ROWS_MISMATCH' | 'TENON_AFFECTED_ROWS_UNSUPPORTED';
    readonly expected: AffectedRowsConstraint;
@@ -354,7 +349,6 @@ index 03d242b..4431646 100644
      supported: boolean,
    ) {
 diff --git a/src/generate.ts b/src/generate.ts
-index 9805de8..da126d8 100644
 --- a/src/generate.ts
 +++ b/src/generate.ts
 @@ -1,45 +1,25 @@
@@ -420,7 +414,6 @@ index 9805de8..da126d8 100644
  }
 diff --git a/src/generation/catalog.ts b/src/generation/catalog.ts
 deleted file mode 100644
-index df29671..0000000
 --- a/src/generation/catalog.ts
 +++ /dev/null
 @@ -1,67 +0,0 @@
@@ -493,7 +486,6 @@ index df29671..0000000
 -}
 diff --git a/src/generation/schema-summary.ts b/src/generation/schema-summary.ts
 deleted file mode 100644
-index 62a2205..0000000
 --- a/src/generation/schema-summary.ts
 +++ /dev/null
 @@ -1,163 +0,0 @@
@@ -662,7 +654,6 @@ index 62a2205..0000000
 -}
 diff --git a/src/generation/table-types.ts b/src/generation/table-types.ts
 deleted file mode 100644
-index e436514..0000000
 --- a/src/generation/table-types.ts
 +++ /dev/null
 @@ -1,118 +0,0 @@
@@ -785,7 +776,6 @@ index e436514..0000000
 -`;
 -}
 diff --git a/src/inspection/catalog.ts b/src/inspection/catalog.ts
-index 201d91c..66b6abd 100644
 --- a/src/inspection/catalog.ts
 +++ b/src/inspection/catalog.ts
 @@ -1,4 +1,4 @@
@@ -794,7 +784,7 @@ index 201d91c..66b6abd 100644
  import { describe, type Description } from './protocol.js';
  
  interface CatalogType {
-@@ -32,7 +32,7 @@ export async function readStatementMetadata(
+@@ -32,7 +32,7 @@
  ): Promise<StatementMetadata> {
    const statement = await describe(client, text);
    const oids = [
@@ -803,7 +793,7 @@ index 201d91c..66b6abd 100644
    ];
    const types = (
      await client.query<CatalogType>(
-@@ -53,7 +53,7 @@ export async function readStatementMetadata(
+@@ -53,7 +53,7 @@
        [oids.join(',')],
      )
    ).rows;
@@ -813,7 +803,6 @@ index 201d91c..66b6abd 100644
      await client.query<ColumnSource>(
        `
 diff --git a/src/inspection/connection.ts b/src/inspection/connection.ts
-index cc72669..62dba56 100644
 --- a/src/inspection/connection.ts
 +++ b/src/inspection/connection.ts
 @@ -1,30 +1,22 @@
@@ -857,7 +846,7 @@ index cc72669..62dba56 100644
      for (const [key, name] of [
        ['role', 'role'],
        ['searchPath', 'search_path'],
-@@ -32,21 +24,19 @@ export async function withInspectionConnection<T>(
+@@ -32,21 +24,19 @@
      ] as const) {
        const value = session[key];
        if (value !== undefined)
@@ -889,10 +878,9 @@ index cc72669..62dba56 100644
    }
  }
 diff --git a/src/inspection/options.ts b/src/inspection/options.ts
-index 63602ba..b2e8437 100644
 --- a/src/inspection/options.ts
 +++ b/src/inspection/options.ts
-@@ -45,12 +45,6 @@ export function inspectionOptions(
+@@ -45,12 +45,6 @@
    if (!['postgres:', 'postgresql:'].includes(url.protocol)) {
      throw new Error('Describe requires a PostgreSQL connection URI.');
    }
@@ -906,7 +894,6 @@ index 63602ba..b2e8437 100644
      url.searchParams.set('application_name', 'tenon-describe');
    }
 diff --git a/src/inspection/protocol.ts b/src/inspection/protocol.ts
-index 32c882c..aaffba7 100644
 --- a/src/inspection/protocol.ts
 +++ b/src/inspection/protocol.ts
 @@ -1,54 +1,6 @@
@@ -915,7 +902,12 @@ index 32c882c..aaffba7 100644
 -export interface Description {
 -  parameters: number[];
 -  fields: FieldDef[];
--}
++import type { Description } from '@kequtech/pgclear';
++import type { SessionClient } from '../driver/session.js';
++export type { Description } from '@kequtech/pgclear';
++export function describe(client: SessionClient, text: string): Promise<Description> {
++  return client.describe(text);
+ }
 -
 -/** Describe through pg custom query dispatch; send no Bind or Execute messages. */
 -export function describe(client: Client, text: string): Promise<Description> {
@@ -963,12 +955,7 @@ index 32c882c..aaffba7 100644
 -    };
 -    client.query(query);
 -  });
-+import type { Description } from '@kequtech/pgclear';
-+import type { SessionClient } from '../driver/session.js';
-+export type { Description } from '@kequtech/pgclear';
-+export function describe(client: SessionClient, text: string): Promise<Description> {
-+  return client.describe(text);
- }
+-}
 diff --git a/src/inspection/result.ts b/src/inspection/result.ts
 --- a/src/inspection/result.ts
 +++ b/src/inspection/result.ts
@@ -1034,10 +1021,9 @@ diff --git a/src/inspection/result.ts b/src/inspection/result.ts
      issues.set('nullability', {
        code: 'nullability-unknown',
 diff --git a/src/inspection/types.ts b/src/inspection/types.ts
-index 34c96fc..a50866f 100644
 --- a/src/inspection/types.ts
 +++ b/src/inspection/types.ts
-@@ -23,7 +23,7 @@ export interface InspectionContext {
+@@ -23,7 +23,7 @@
    readonly timeZone: string;
    readonly statementTimeoutMs: number;
    readonly lockTimeoutMs: number;
@@ -1046,7 +1032,7 @@ index 34c96fc..a50866f 100644
  }
  
  export interface DescribeOptions {
-@@ -53,7 +53,7 @@ export type DescriptionIssue =
+@@ -53,7 +53,7 @@
  export interface DescribedType {
    readonly oid: number;
    readonly postgres: string;
@@ -1055,8 +1041,19 @@ index 34c96fc..a50866f 100644
    readonly readType: string;
  }
  
+diff --git a/src/migrations.ts b/src/migrations.ts
+--- a/src/migrations.ts
++++ b/src/migrations.ts
+@@ -55,7 +55,7 @@
+         // Match the string-literal rules used by the authored migration scanner.
+         await client.query('SET LOCAL standard_conforming_strings TO on');
+         await client.query(`SET LOCAL search_path TO ${quote(namespace)}, pg_catalog`);
+-        await client.query(direction === 'up' ? file.up : file.down!);
++        await client.script(direction === 'up' ? file.up : file.down!);
+         if (direction === 'up') {
+           await recordMigration(client, namespace, file);
+         } else {
 diff --git a/src/migrations/connection.ts b/src/migrations/connection.ts
-index 6c413cb..2184e3f 100644
 --- a/src/migrations/connection.ts
 +++ b/src/migrations/connection.ts
 @@ -1,58 +1,47 @@
@@ -1137,7 +1134,7 @@ index 6c413cb..2184e3f 100644
        } catch (error) {
          errors.push(error);
        }
-@@ -63,12 +52,9 @@ export async function withMigrationLock<T>(
+@@ -63,12 +52,9 @@
        errors.push(error);
      }
    }
@@ -1155,7 +1152,6 @@ index 6c413cb..2184e3f 100644
    return result;
  }
 diff --git a/src/migrations/history.ts b/src/migrations/history.ts
-index 95ebdc6..1f7cf37 100644
 --- a/src/migrations/history.ts
 +++ b/src/migrations/history.ts
 @@ -1,4 +1,4 @@
@@ -1164,24 +1160,10 @@ index 95ebdc6..1f7cf37 100644
  import { qualified } from '../sql.js';
  import type { SqlMigration } from './files.js';
  
-diff --git a/src/migrations.ts b/src/migrations.ts
-index 1c10c7d..0b31409 100644
---- a/src/migrations.ts
-+++ b/src/migrations.ts
-@@ -55,7 +55,7 @@ async function execute(
-         // Match the string-literal rules used by the authored migration scanner.
-         await client.query('SET LOCAL standard_conforming_strings TO on');
-         await client.query(`SET LOCAL search_path TO ${quote(namespace)}, pg_catalog`);
--        await client.query(direction === 'up' ? file.up : file.down!);
-+        await client.script(direction === 'up' ? file.up : file.down!);
-         if (direction === 'up') {
-           await recordMigration(client, namespace, file);
-         } else {
 diff --git a/src/query-options.ts b/src/query-options.ts
-index fb3e70d..4a0b256 100644
 --- a/src/query-options.ts
 +++ b/src/query-options.ts
-@@ -15,7 +15,7 @@ export interface QueryOptions {
+@@ -15,7 +15,7 @@
  export type QueryOutput<Row extends object, Mode extends QueryReturnMode> = Mode extends 'native'
    ? QueryResult<Row>
    : Mode extends 'many'
@@ -1191,7 +1173,6 @@ index fb3e70d..4a0b256 100644
        ? Row | undefined
        : Row;
 diff --git a/src/transaction.ts b/src/transaction.ts
-index 6f8c93a..e08e9f3 100644
 --- a/src/transaction.ts
 +++ b/src/transaction.ts
 @@ -1,88 +1,38 @@
@@ -1267,15 +1248,6 @@ index 6f8c93a..e08e9f3 100644
 -    const committed = await client.query('COMMIT');
 -    if (committed.command !== 'COMMIT') {
 -      throw new Error('PostgreSQL rolled back the aborted transaction.');
--    }
--    return result;
--  } catch (error) {
--    active = false;
--    await pending;
--    if (!began) {
--      releaseError = error instanceof Error ? error : new Error('BEGIN failed.');
--      throw error;
--    }
 +  return pool.transaction(async (transaction) => {
 +    let active = true,
 +      pending: Promise<void> = Promise.resolve();
@@ -1297,16 +1269,26 @@ index 6f8c93a..e08e9f3 100644
 +      );
 +      return operation;
 +    };
-     try {
--      await client.query('ROLLBACK');
--    } catch (rollbackError) {
--      releaseError = rollbackError instanceof Error ? rollbackError : new Error('Rollback failed.');
--      throw new AggregateError([error, rollbackError], 'Transaction and rollback failed.');
++    try {
 +      return await work(query);
 +    } finally {
 +      active = false;
 +      await pending;
      }
+-    return result;
+-  } catch (error) {
+-    active = false;
+-    await pending;
+-    if (!began) {
+-      releaseError = error instanceof Error ? error : new Error('BEGIN failed.');
+-      throw error;
+-    }
+-    try {
+-      await client.query('ROLLBACK');
+-    } catch (rollbackError) {
+-      releaseError = rollbackError instanceof Error ? rollbackError : new Error('Rollback failed.');
+-      throw new AggregateError([error, rollbackError], 'Transaction and rollback failed.');
+-    }
 -    throw error;
 -  } finally {
 -    connection.release(releaseError);
@@ -1314,7 +1296,6 @@ index 6f8c93a..e08e9f3 100644
 +  });
  }
 diff --git a/src/types.ts b/src/types.ts
-index c7444d6..46b144c 100644
 --- a/src/types.ts
 +++ b/src/types.ts
 @@ -1,4 +1,4 @@
@@ -1323,7 +1304,7 @@ index c7444d6..46b144c 100644
  import type { QueryResult } from './connection.js';
  import type { QueryOptions, QueryOutput, QueryReturnMode } from './query-options.js';
  import type { SqlQuery } from './query.js';
-@@ -36,7 +36,7 @@ export interface QueryEvent {
+@@ -36,7 +36,7 @@
    readonly durationMs: number;
    readonly outcome: 'success' | 'error';
    readonly command?: string;

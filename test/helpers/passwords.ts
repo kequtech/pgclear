@@ -1,0 +1,23 @@
+/** Public fixture passwords. Expected preparation follows PostgreSQL/libpq, including fallback. */
+export const passwords = [
+  ['I\u00ADX\u00A0\u00AA', 'IX a'],
+  ['\u2168\uFB00', 'IXff'],
+  ['e\u0301', '\u00E9'],
+  ['\u1100\u1161', '\uAC00'],
+  ['x\u200By\u200Dz', 'x yz'],
+  ['\u00AD', '\u00AD'],
+  ['\u00AD\u034F\uFEFF', '\u00AD\u034F\uFEFF'],
+  ['\u1D2Cpass', '\u1D2Cpass'],
+  ['\u0221\u00AD', '\u0221\u00AD'],
+  ['\u0220\u00AD', '\u0220'],
+  ['\u0340\u00AD', '\u0340\u00AD'],
+  ['\u00ADbad\u0007pass', '\u00ADbad\u0007pass'],
+  ['\u0007', '\u0007'],
+  ['\u0627\u0031', '\u0627\u0031'],
+  ['1\u0627', '1\u0627'],
+  ['\u0627a\u0628', '\u0627a\u0628'],
+  ['\u0627\u00AD\u0628', '\u0627\u0628'],
+  ['\u05D0\u{10400}\u05D0', '\u05D0\u{10400}\u05D0'],
+  ['\u{10400}\u00AD', '\u{10400}'],
+  ['\u{1F600}\u00AD', '\u{1F600}\u00AD'],
+] as const;

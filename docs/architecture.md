@@ -3,8 +3,8 @@
 ## Module boundaries
 
 One npm package. Node net/tls/crypto/stream provide transport, authentication primitives, and stream
-integration. The only direct runtime dependency is `@mongodb-js/saslprep` for the Unicode 3.2
-normalization/prohibition/bidirectional tables used by PostgreSQL SCRAM. Write the small protocol core in TypeScript;
+integration. PostgreSQL-compatible password preparation uses fixed generated stringprep tables
+and native NFKC normalization, with no runtime dependencies. Write the small protocol core in TypeScript;
 do not embed pg, fork Postgres.js, or publish separate internal packages.
 
 | Module                                       | Owns                                                               | Must not own                                            |

@@ -1,7 +1,8 @@
 import { createHash, createHmac, pbkdf2, randomBytes, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
-import saslprep from '@mongodb-js/saslprep';
 import { DriverError } from '../errors.js';
+import { preparePassword } from './saslprep.js';
+export { preparePassword } from './saslprep.js';
 
 const derive = promisify(pbkdf2);
 export const maxScramIterations = 100_000;
@@ -10,15 +11,6 @@ export function authenticationError(): DriverError {
     'PGCLEAR_AUTHENTICATION',
     'PostgreSQL authentication failed or is unsupported.',
   );
-}
-
-/** PostgreSQL falls back to the original password if SASLprep rejects it. */
-export function preparePassword(password: string): string {
-  try {
-    return saslprep(password);
-  } catch {
-    return password;
-  }
 }
 
 function attributes(message: string): Map<string, string> {

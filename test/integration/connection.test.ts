@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { connect, DatabaseError, DriverError } from '../../src/index.js';
 import { databaseUrl, ownedName, testConnection } from '../helpers/database.js';
+import { passwords } from '../helpers/passwords.js';
 
 const run = promisify(execFile);
 const within = { timeout: 10000 };
@@ -252,13 +253,13 @@ test(
 
 test(
   'Unicode normalization and prohibited-character fallback agree with PostgreSQL and libpq',
-  within,
+  { timeout: 30000 },
   async () => {
     const { client: admin } = await testConnection();
     const url = new URL(databaseUrl());
     try {
       await admin.query("SET password_encryption = 'scram-sha-256'");
-      for (const password of ['I\u00ADX\u00A0\u00AA', 'bad\u0007pass']) {
+      for (const [password] of passwords) {
         const role = ownedName();
         await admin.query(`CREATE ROLE "${role}" LOGIN PASSWORD '${password}'`);
         try {

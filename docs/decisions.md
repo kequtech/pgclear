@@ -109,7 +109,8 @@ authentication correctness requirement.
 
 The [2026-10-29 evaluation](saslprep-evaluation.md) records a confirmed unassigned-character
 compatibility gap and a focused plan to replace the helper with fixed tables and native NFKC.
-D12 remains the implementation choice until the PostgreSQL/libpq differential checks pass.
+D36 replaces the dependency after implementing the PostgreSQL-specific preparation rules and
+passing the PostgreSQL/libpq differential checks.
 
 ## D13 — Buffered result limits charge framing and metadata
 
@@ -608,3 +609,23 @@ owned connection. Internal catalog queries use default codecs independently of a
 overrides, without mutating the selected registry or exposing a public per-query codec override.
 Tenon's isolated candidate delegates generation and retains its shared migration lock, history
 table exclusion and output/checking code. Its active checkout and the full adoption gate stay separate.
+
+## D36 — PostgreSQL password preparation without a runtime dependency
+
+Replace the generic SASLprep helper after reproducing a credential mismatch with PostgreSQL/libpq.
+Correct authentication is the objective; the MongoDB namespace and dependency count do not determine
+suitability. The former helper checked normalized characters, accepting a modern compatibility
+mapping for U+1D2C, whereas PostgreSQL checks the mapped input against fixed stringprep tables and
+falls back to the complete original password.
+
+Use one small internal preparation function, six generated Unicode regexes from the checksum-pinned
+PostgreSQL REL_18_0 source, and Node's native NFKC normalization. Preserve mapping precedence, bidi
+rules, ASCII behavior and whole-password fallback. The generator runs only as an explicit developer
+task, validates sorted ranges and carries PostgreSQL attribution through LICENSE. This supersedes
+D12's dependency choice without changing SCRAM proofs, TLS, transport or the public API.
+
+Twenty credential cases agree with PostgreSQL/libpq on 16.15 and 18.0. An additional corpus compares
+every changing stringprep-assigned character against the servers' native NFKC. The replacement adds
+no public configuration or pluggable authentication layer. Remove the helper and its unused
+sparse-bitfield/memory-pager dependencies after those checks; keep dependency-free packed consumers
+in the regression suite.

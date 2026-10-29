@@ -3,6 +3,8 @@
 A standalone TypeScript PostgreSQL driver built around explicit session ownership,
 predictable failure handling, and first-class protocol operations. Tenon is the first intended
 consumer; pgclear has no runtime dependency on Tenon.
+`queryClassic` is a supported entry point for other libraries that supply finished SQL and bound
+values. Tenon's composition and checking policies stay outside the driver.
 
 **Status: M1–M6 pass PostgreSQL 16/18 CI; adoption and release gates remain open.** Native TypeScript
 declarations cover connections, pools, leases, transaction/savepoint scopes, immutable codecs,

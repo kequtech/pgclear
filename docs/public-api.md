@@ -496,8 +496,10 @@ returned promises have rejection observers but are never awaited and provide no 
 The same isolation applies to `onEvent`, so observer failures cannot change write outcomes.
 
 `close({ timeoutMs: 5000 })` is idempotent; the first call fixes the deadline and subsequent calls
-share its promise. Closing rejects new work and acquisition waiters, drains accepted work up to the
-deadline, then fences handles and destroys remaining transports. Close resolves after owned
+share its promise. Closing rejects new work and acquisition waiters and expires lease/callback
+handles immediately. Operations already admitted to the physical session drain up to the deadline;
+remaining transports are destroyed. A callback cannot admit another statement after closing starts.
+Close resolves after owned
 client-side resources/timers are disposed, including late connection attempts. It cannot prove that
 a remote backend has stopped executing or that an arbitrary application callback has returned.
 No shutdown path schedules a reconnect. Force-close is not an acknowledgement of server rollback.
