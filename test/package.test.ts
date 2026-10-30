@@ -106,7 +106,17 @@ test(
       );
       assert.deepEqual(
         archive!.files.filter((file) => file.path.startsWith('docs/')).map((file) => file.path),
-        ['docs/public-api.md', 'docs/README.md'],
+        [
+          'docs/configuration.md',
+          'docs/errors.md',
+          'docs/notifications.md',
+          'docs/public-api.md',
+          'docs/queries.md',
+          'docs/README.md',
+          'docs/sessions.md',
+          'docs/streaming.md',
+          'docs/values.md',
+        ],
       );
       assert.ok(!archive!.files.some((file) => file.path.endsWith('.d.ts.map')));
       await mkdir(packagePath, { recursive: true });

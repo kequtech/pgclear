@@ -1,33 +1,45 @@
 # Benchmarks
 
+[Documentation](../docs/README.md) · [Development](../docs/development.md)
+
 The runner compares packed pgclear with pinned pg 8.23.1 and Postgres.js 3.4.9. Comparator
 dependencies stay outside the driver. Results are local exploratory measurements, not production
 capacity estimates or universal driver rankings.
 
-## Run
+## Reproduce a run
 
-Use Node 24+, root dependencies, tar and `PGCLEAR_TEST_DATABASE_URL` in the root `.env`. The database
+Use Node 24+, npm, tar, and `PGCLEAR_TEST_DATABASE_URL` in the root `.env` or environment. The database
 must be a TCP `_test` database with TLS disabled and no URL options except `sslmode=disable`.
 The runner creates no tables or persistent database objects. Run without concurrent tests or load.
 
 ```sh
+npm ci
 npm ci --prefix benchmarks --ignore-scripts --no-audit --no-fund
 npm run benchmark
 # Short correctness/adapter check:
 npm run benchmark -- --iterations 30 --samples 1 --latencies 0,10
 ```
 
-Defaults are 1,000 operations, three samples and 0/10 ms added RTT. Large results use 50 queries;
-transactions use 100. `--iterations` scales those counts. Driver order rotates across samples.
-Each worker has a 180-second limit. Build, connection setup, discovery, preparation, warmup and
-cleanup are outside the measured interval.
+Run these commands from the repository root. The runner builds and packs the current working tree,
+then measures that archive. It does not download pgclear from npm.
+
+| Option             | Default | Meaning                                                 |
+| ------------------ | ------- | ------------------------------------------------------- |
+| `--iterations N`   | `1000`  | Base operation count per worker                         |
+| `--samples N`      | `3`     | Repetitions of each driver/workload/latency combination |
+| `--latencies 0,10` | `0,10`  | Added round-trip delay in milliseconds                  |
+
+Large-result workers use `max(10, ceil(N / 20))` queries; transaction workers use
+`max(10, ceil(N / 10))`. At the default iteration count these are 50 and 100. Other workloads use
+N operations. Driver order rotates across samples. Each worker has a 180-second limit. Build,
+connection setup, discovery, preparation, warmup, and cleanup are outside the measured interval.
 
 Output goes to ignored `.benchmark-dist/run-*`; `.benchmark-dist/latest.json` points to the latest
 attempt. Reports retain raw latencies, configuration, versions, Git revision/dirty flag, artifact
 hashes, machine and Node/PostgreSQL versions. Failed attempts remain marked failed. Database
 credentials are passed through the worker environment and omitted from results.
 
-## Workloads
+## What is measured
 
 | Name             | Operation                                            |
 | ---------------- | ---------------------------------------------------- |
@@ -40,7 +52,7 @@ credentials are passed through the worker environment and omitted from results.
 | `pipeline-probe` | Thirty-two callers on one warmed prepared connection |
 
 The six baseline workloads use object rows, matching native values and one active operation per
-connection. Each operation checks its returned values. pgclear uses queryClassic and its native
+connection. Each operation checks its returned values. pgclear uses `queryClassic` and its native
 parameter/session APIs; pg uses extended queries and acquired transaction clients; Postgres.js uses
 extended unsafe queries and begin/reserve APIs. API-specific round trips are part of the measurement.
 Postgres.js discovery finishes before timing. Its pool baseline reserves sessions explicitly because
@@ -106,11 +118,10 @@ round trips remain part of the measurement, including the comparator reservation
 [configuration/summaries](results/decoding-2026-10-29.json) include both latency profiles, the separate
 pipeline diagnostic, latencies, CPU and RSS.
 
-Result descriptions now select column decoders once, including array element decoders. Object rows
-copy a template and fill properties directly; array rows fill a new array. This removes per-value
-codec selection and per-row entry arrays while retaining UTF-8/scalar validation, custom codec
-handling and special column names. Scripts select decoders for each result set, and streams reuse
-them across portal batches. Pool scheduling and pipelining are unchanged.
+The measured optimization selects column decoders once and fills rows directly, reducing repeated
+codec lookup and temporary allocations. It preserves validation, custom codecs, and special column
+names. Pool scheduling and pipelining are unchanged. See [architecture](../docs/architecture.md)
+for the current decoding path.
 
 An [alternating before/after comparison](results/decoding-paired-2026-10-29.json) used the clean parent
 package and the same optimized archive as the matrix, with five samples, 10,000 configured
@@ -131,6 +142,8 @@ decoding improvement, not a universal throughput claim. The longer comparison an
 different operation/warmup counts; compare before/after within the comparison rather than mixing
 their absolute rates. [Per-sample measurements](results/decoding-paired-2026-10-29.csv) retain latency,
 CPU and RSS evidence, and the JSON records both archive hashes.
+
+### Earlier checkpoints
 
 Earlier evidence remains available for reproduction and comparison:
 

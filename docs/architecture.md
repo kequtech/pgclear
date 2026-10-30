@@ -1,109 +1,124 @@
 # Architecture
 
-pgclear is one TypeScript package using Node networking, TLS, crypto and streams. It has no runtime
-dependencies. Public entry points are in `src/index.ts`; internal modules are not package exports.
+[Documentation](README.md) · [Development](development.md) · [Public API](public-api.md)
 
-## Responsibilities
+pgclear is one TypeScript package built on Node networking, TLS, crypto, and streams, with no runtime
+dependencies. `src/index.ts` defines exports and `src/types.ts` defines the public capabilities.
 
-| Module                    | Responsibility                                                         |
-| ------------------------- | ---------------------------------------------------------------------- |
-| `config/`                 | URI/options validation and configuration snapshots                     |
-| `protocol/`               | Framing, frontend encoding and backend message decoding                |
-| `auth/`                   | Password, MD5, SCRAM and channel-binding verification                  |
-| `transport/`              | Socket/TLS lifecycle, backpressure and cancellation transport          |
-| `codecs/`                 | Value conversion, immutable registries and explicit parameters         |
-| `query.ts`                | Value-binding tag and text/values tuples                               |
-| `connection/`             | Physical connection, operation queue and protocol recovery             |
-| `session/`                | Expiring handles, prepared statements and transaction/savepoint scopes |
-| `pool/`                   | FIFO acquisition, capacity, leases, retirement and shutdown            |
-| `listener/`               | Dedicated LISTEN connection and optional reconnect                     |
-| `errors.ts`, `observe.ts` | Diagnostics and isolated observation callbacks                         |
+## How a query runs
 
-SQL composition, schema catalog interpretation, declaration rendering, query checking, migrations,
-file output and application row policies belong to consumers such as Tenon. `query` and
-`queryClassic` share the same encoding and execution path.
+1. A public handle checks that its scope is active and allowed to use the session. A pool operation
+   first acquires a lease; a session operation already owns its connection.
+2. The connection reserves queue capacity, validates SQL/options, and encodes parameters before
+   writing request bytes. User encoders run only after capacity is reserved.
+3. One operation at a time sends PostgreSQL protocol messages. Ordinary queries use unnamed
+   Parse/Bind/Describe/Execute/Sync with no separate preliminary Describe or catalog query.
+4. A row description selects column decoders once. Rows decode using that operation's registry;
+   scripts select decoders per result set and streams retain them across batches.
+5. The operation settles after protocol recovery. Decoder failures still drain the response;
+   malformed protocol data destroys the connection. A one-off pool operation then releases its lease.
 
-## Ownership and recovery
+There is no pipelining. Concurrent operations on one physical connection queue; a pool can use
+separate connections for independent work.
 
-A physical connection executes one operation at a time. An operation reserves its queue slot before
-calling user encoders, validates/encodes before sending bytes, and settles after protocol recovery.
-Decoder failures do not stop draining the server response. Malformed protocol data closes the
-connection. Byte limits cover frames/results; public byte values do not borrow recycled buffers.
+## Module responsibilities
 
-Lease, transaction, savepoint and prepared handles belong to an exact scope. Scope exit fences new
-calls before asynchronous cleanup and never reactivates an expired handle. Savepoints reserve the
-parent for their whole callback and recovery. Cleanup shares an absolute five-second budget across
-statement disposal, rollback and release.
+| Module                    | Responsibility                                                      |
+| ------------------------- | ------------------------------------------------------------------- |
+| `config/`                 | URI/options validation and configuration snapshots                  |
+| `protocol/`               | Framing, frontend encoding, backend message decoding                |
+| `auth/`                   | Password, MD5, SCRAM, and channel-binding verification              |
+| `transport/`              | Socket/TLS lifecycle, backpressure, cancellation transport          |
+| `codecs/`                 | Value conversion, immutable registries, explicit parameters         |
+| `query.ts`                | Binding template tag and text/values tuples                         |
+| `connection/`             | Physical connection, operation queue, protocol recovery             |
+| `session/`                | Expiring handles, prepared statements, transaction/savepoint scopes |
+| `pool/`                   | FIFO acquisition, capacity, leases, retirement, shutdown            |
+| `listener/`               | Dedicated LISTEN connection and optional reconnect                  |
+| `errors.ts`, `observe.ts` | Diagnostics and isolated observation callbacks                      |
+| `identity.ts`             | In-process capability identity across compatible package copies     |
 
-Pool capacity includes connecting and retiring sessions. Release returns only a safely idle session;
-it does not reset arbitrary SQL state. A pool can establish a new connection for later work, but a
-closed connection or expired handle never reconnects itself.
+SQL composition, schema interpretation, declaration generation, query checking, migrations, file
+output, and application row policy belong to consumers such as Tenon. `query` and `queryClassic`
+share the same encoding/execution path.
 
-## Protocol operations
+## Ownership and cleanup
 
-Ordinary queries use unnamed Parse/Bind/Describe/Execute/Sync. Describe omits Bind/Execute. Explicit
-preparation creates a named statement, waits for confirmation and disposes it with its creating
-scope. Scripts use the simple protocol and preserve PostgreSQL's transaction semantics.
+A physical connection owns its transport and operation queue. Every lease, transaction, or savepoint
+creates a separate scope. Prepared statements belong to the exact scope that created them. Scope
+exit rejects new calls before asynchronous cleanup; an expired handle is never reactivated.
 
-Row streams hold one operation across demand-driven Execute/Flush batches on the unnamed portal.
-Completed row streams count returned rows across all batches; the raw command tag is preserved.
-Completion or early close reaches ReadyForQuery before reuse. COPY shares exclusive ownership and
-bounded row/byte handoff. Input pulls run independently of backend message processing, respect write
-backpressure and fence late source results. COPY output early close cancels and retires the session.
+Transactions and savepoints reserve the parent for their callback and recovery. Cleanup shares one
+absolute five-second budget across draining work, statement disposal, rollback, and release. Work
+and cleanup errors are preserved together. A callback that leaves a stream unfinished cannot commit
+successfully.
 
-Cancellation before dispatch removes queued work. Active cancellation uses a separate transport and
-retires the original session, preventing a late cancel from affecting another request. Error outcome
-records observed evidence, not a guess about rollback. Lost COMMIT acknowledgement is distinct from
-a confirmed COMMIT followed by connection loss. Work and cleanup failures are preserved together.
+Pool capacity includes connecting and retiring sessions. Release reuses only safely idle connections,
+without resetting arbitrary SQL session state. The pool may replace a lost connection for later
+work; existing handles never reconnect themselves.
 
-Close permanently fences admission, stops waiters/retries, drains permitted work and disposes all
-owned resources within its deadline. It cannot stop arbitrary application JavaScript or prove that
-a remote backend stopped executing.
+Close rejects new work, stops waiters/retries, drains admitted work within its deadline, and disposes
+owned resources. It cannot stop arbitrary application JavaScript or prove remote rollback.
 
-## Values and tooling
+## Protocol operations and recovery
 
-Stable built-in OIDs select decoders without catalog queries. Arrays derive element decoding from
-the same immutable registry; explicit array overrides win. Int8 and numeric values stay exact strings;
-command counts use safe JavaScript numbers or null. Unknown OIDs remain text. Codec registrations
-also supply the known TypeScript representations used by downstream tools; custom function return
-types can be declared on their text codec, since erased generic types cannot be recovered at runtime.
-Representation declarations belong to immutable registrations and expose a finite expression list
-for downstream type checking. Input encoding remains independent of selected output decoders.
+Describe sends Parse/Describe/Sync without execution. Preparation creates a named statement and
+waits for confirmation; scope cleanup disposes it. Scripts use the simple protocol and preserve
+PostgreSQL transaction semantics.
 
-Date parameters encode as UTC text; bigint parameters remain exact decimal text. Temporal inputs
-and optional output codecs use the supplied/native implementation without a runtime dependency or
-global mutation. Temporal output choices remain explicit, preserving the same defaults on Node 24
-and runtimes with native Temporal. JSON and PostgreSQL arrays keep explicit parameter encoders.
+Row streams hold one operation across demand-driven Execute/Flush portal batches. Completion and
+early close reach ReadyForQuery before reuse. Fully consumed row streams count returned rows across
+batches while retaining the raw server command tag.
 
-Each result description selects its column decoders once, including array element decoders. Object
-rows copy a template of own data properties and fill values directly; array rows fill a new array.
-This avoids repeated codec lookups and temporary entry arrays per row while preserving special
-column names, strict UTF-8/value validation and synchronous custom codecs. Scripts select a new
-decoder for each result description; streams retain it across portal batches. Compatible older
-package copies can still supply registries through their original per-value decoding method.
+COPY holds the execution slot with bounded byte handoff. Input pulls run independently of backend
+message processing, respect write backpressure, and ignore late source results after cancellation.
+Early output close cancels and retires the connection. Public byte values never borrow recycled
+buffers. Frame and result limits bound wire allocations rather than total JavaScript heap use.
 
-Executors expose their immutable selected registry. Queries can choose a result registry for one
-operation without mutating that default or changing parameter encoders. Borrowed catalog readers
-can select default codecs on the same held session and transaction; they require no private driver
-scope access or replacement connection. Catalog queries and schema rendering live in Tenon.
+Before dispatch, cancellation removes queued work. Active cancellation uses a separate transport
+and retires the original connection, preventing a late cancel from hitting a later request. Outcome
+metadata records observed evidence rather than assuming rollback. Lost COMMIT acknowledgement is
+distinct from a confirmed COMMIT followed by connection loss.
 
-`identity.ts` uses versioned weak maps for compatible package copies in one realm. Parameters,
-registries, query tags and errors retain their creating copy's behavior and ownership. There
-is no shared scheduler or strong retention of keys. Incompatible identity contracts need new keys.
+## Codecs and tooling
+
+Stable built-in OIDs select decoders without catalog discovery. Unknown types remain text. Default
+built-in arrays derive element decoding from the same registry; explicit array overrides win.
+Int8/numeric outputs remain exact strings and command counts remain safe numbers or null.
+
+Registries snapshot decoder functions and representation declarations. Executors expose their
+default registry; individual queries can select another without changing input encoding. This lets
+catalog readers use default codecs on an application-owned transaction/session. TypeScript
+representation expressions are author assertions for downstream tools, not runtime row validation.
+
+Date inputs encode UTC fields, bigint inputs encode exact decimal text, and Temporal inputs/codecs
+use native or supplied constructors. Output representation changes remain explicit. JSON and
+PostgreSQL array parameters use explicit encoders.
+
+Object rows copy a template of own data properties and fill values directly; array rows fill a new
+array. This avoids repeated codec lookup and temporary entry arrays while preserving special column
+names and strict UTF-8/value validation. Compatible package copies can supply registries through
+their original per-value decoding method.
+
+`identity.ts` uses versioned weak maps so compatible package copies in one realm can exchange tagged
+queries, parameters, registries, and errors. Their creating copy retains behavior and ownership.
+There is no shared scheduler or strong retention of capability keys. Incompatible identity
+contracts require new keys; cross-release interoperability is not a public promise.
 
 ## Authentication and listeners
 
-Password preparation follows PostgreSQL's fixed stringprep tables, mapped-input checks and original
-password fallback, using native NFKC. An offline checksum-pinned generator owns the tables. SCRAM
-validates server proof and channel binding; TLS verifies trust and hostname.
+Password preparation uses PostgreSQL's fixed stringprep tables, mapped-input checks, original-password
+fallback, and native NFKC. An offline checksum-pinned generator owns the tables. SCRAM verifies
+server proof and channel binding; TLS verifies trust and hostname.
 
-A listener owns its connection and reconnect task independently of query pools. Reconnect is opt-in,
-re-registers fixed channels and exposes generations/gaps. It provides no replay. Observation callbacks
-are isolated and not awaited. Closing stops both retries and unfinished connection attempts.
+A listener independently owns its connection and supervision task. Optional reconnect opens a new
+connection, registers fixed channels, and exposes generations so applications can identify gaps.
+It provides no replay. Observation callbacks are isolated and not awaited. Closing stops retries
+and unfinished connection attempts.
 
 ## Verification
 
 Tests cover framed bytes, scripted server failures, real PostgreSQL workflows, packed consumers,
-compile-only examples and resource disposal through natural child-process exit. Use observable
-barriers rather than timing guesses. Test ownership, outcomes and cleanup through public behavior.
-Pipelining, binary results and automatic catalog-driven decoding are outside the current runtime.
+compile-only examples, and disposal through natural subprocess exit. Test ownership, outcomes, and
+cleanup through observable behavior and barriers. See [development](development.md) for commands
+and [historical validation](development.md#historical-validation) for recorded artifacts.

@@ -1,5 +1,14 @@
 # Release notes
 
+## 0.3.2
+
+- Rewrite the README and organize usage documentation into focused guides for queries, values,
+  sessions, configuration, streams/COPY, notifications, and errors/shutdown.
+- Add concrete examples and complete option/error references; clarify connection ownership,
+  codec choices, deadline scope, and uncertain write outcomes.
+- Ship every linked consumer guide in the npm package and preserve existing API section links.
+- Refresh contributor and benchmark instructions. No runtime API or behavior changes.
+
 ## 0.3.1
 
 - Reject incompatible SQL tags in `pool.query()` before acquiring or opening a connection, so
