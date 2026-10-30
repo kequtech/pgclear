@@ -35,8 +35,6 @@ interface Membership {
   readonly resolve: () => void;
   readonly reject: (error: unknown) => void;
   stop: () => void;
-  pending: boolean;
-  dispatched: boolean;
 }
 
 /** A stable handle owns one replaceable connection and one sequential supervision task. */
@@ -44,7 +42,7 @@ class ListenerHandle implements Listener {
   readonly #config: Configuration;
   readonly #options: ListenerOptions;
   readonly #channels: Set<string>;
-  readonly #memberships: Membership[] = [];
+  readonly #memberships = new Set<Membership>();
   #active: Membership | undefined;
   #changed = Promise.withResolvers<void>();
   #status: ListenerStatus = Object.freeze({ state: 'reconnecting', attempt: 0, generation: 0 });
@@ -95,14 +93,10 @@ class ListenerHandle implements Listener {
     this.#changed = Promise.withResolvers<void>();
   }
   #settle(request: Membership, error?: unknown): void {
-    if (!request.pending) return;
-    request.pending = false;
+    if (!this.#memberships.delete(request)) return;
     request.stop();
-    const index = this.#memberships.indexOf(request);
-    if (index !== -1) this.#memberships.splice(index, 1);
     if (error === undefined) request.resolve();
     else request.reject(error);
-    this.#wake();
   }
   #membership(channel: string, subscribe: boolean, options: OperationOptions): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -120,13 +114,11 @@ class ListenerHandle implements Listener {
           resolve,
           reject,
           stop: () => {},
-          pending: true,
-          dispatched: false,
         };
         request.stop = lifetime.watch((error) => {
           // Once bytes may have reached PostgreSQL, replace the session rather than leave an
           // untracked LISTEN/UNLISTEN on a reusable connection. Acknowledged membership is retained.
-          const active = this.#active === request && request.dispatched;
+          const active = this.#active === request;
           this.#settle(
             request,
             new DriverError(error.code, error.message, active ? 'unknown' : 'not-sent', {
@@ -135,7 +127,7 @@ class ListenerHandle implements Listener {
           );
           if (active) this.#connection?.dispose();
         });
-        this.#memberships.push(request);
+        this.#memberships.add(request);
         this.#wake();
       } catch (error) {
         lifetime?.stop();
@@ -160,17 +152,11 @@ class ListenerHandle implements Listener {
     if (invalid.rowCount !== 0)
       configurationError('Notification channel exceeds the server identifier limit.');
   }
-  async #apply(
-    connection: PhysicalConnection,
-    request: Membership,
-    parent: Lifetime,
-  ): Promise<void> {
-    this.#active = request;
-    const life = new Lifetime({ signal: request.lifetime.signal }, parent);
+  async #apply(connection: PhysicalConnection, request: Membership): Promise<void> {
+    const life = request.lifetime;
     try {
-      request.lifetime.check();
       life.check();
-      request.dispatched = true;
+      this.#active = request;
       await this.#validateChannels(connection, [request.channel], life);
       life.check();
       if (this.#channels.has(request.channel) !== request.subscribe) {
@@ -190,8 +176,6 @@ class ListenerHandle implements Listener {
       this.#settle(request, error);
     } finally {
       this.#active = undefined;
-      request.dispatched = false;
-      life.stop();
     }
   }
   #set(status: ListenerStatus): void {
@@ -250,12 +234,11 @@ class ListenerHandle implements Listener {
           if (this.#close) throw closed();
           initial = false;
           this.#ready.resolve(this);
-          const connected = new Lifetime({ signal: this.#signal });
+          // The initial deadline ends at readiness; listener cancellation calls close().
           while (!this.#close) {
-            connected.check();
             if (lost) throw lost;
-            const request = this.#memberships[0];
-            if (request) await this.#apply(connection, request, connected);
+            const request = this.#memberships.values().next().value;
+            if (request) await this.#apply(connection, request);
             else await this.#changed.promise;
           }
         } catch (cause) {
@@ -272,7 +255,7 @@ class ListenerHandle implements Listener {
           }
           this.#set({ state: 'disconnected', error, generation: this.#status.generation });
           if (!this.#options.reconnect) {
-            for (const request of [...this.#memberships]) this.#settle(request, error);
+            for (const request of this.#memberships) this.#settle(request, error);
             void this.close().catch(() => {});
             return;
           }
@@ -301,7 +284,7 @@ class ListenerHandle implements Listener {
     }
     const completion = Promise.withResolvers<void>();
     this.#close = completion.promise;
-    for (const request of [...this.#memberships]) this.#settle(request, closed());
+    for (const request of this.#memberships) this.#settle(request, closed());
     this.#wake();
     const connection = this.#connection;
     // Pending membership is rejected at the close fence; no remote acknowledgement is needed.
@@ -333,14 +316,12 @@ export async function listen(
   validateOperation(options, ['channels', 'onNotification', 'onStatus', 'reconnect']);
   if (
     !Array.isArray(options.channels) ||
-    Array.from(options.channels).some(
-      (name) => typeof name !== 'string' || !name || name.includes('\0') || !name.isWellFormed(),
-    ) ||
     typeof options.onNotification !== 'function' ||
     (options.onStatus !== undefined && typeof options.onStatus !== 'function') ||
     (options.reconnect !== undefined && typeof options.reconnect !== 'boolean')
   )
     configurationError('Invalid listener options.');
+  for (const channel of options.channels) channelName(channel);
   const channels = Object.freeze([...new Set(options.channels)]);
   const settings = Object.freeze({ ...options, channels });
   const listener = new ListenerHandle(normalizeConfiguration(connection), settings);

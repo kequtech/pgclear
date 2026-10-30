@@ -278,8 +278,8 @@ timestamptz decoder but leaves an unregistered enum's raw-text decoder at its de
 combine this fact with catalog enum labels without guessing from a declared `string` output type.
 
 Derived built-in arrays follow their element decoder. Explicit built-in default decoder functions
-are recognized, including from another compatible package copy. Custom functions and wrappers are
-conservatively nondefault even if they declare `string` or happen to return unchanged text. An
+are recognized, including from another copy of the same package version. Custom functions and
+wrappers are conservatively nondefault even if they declare `string` or return unchanged text. An
 explicit text decoder for an otherwise unknown OID is also nondefault. Binary-only registrations
 leave unknown OIDs' raw text unchanged, but replace default scalar/array text decoding with raw text.
 This method validates OIDs like `typescript`; it does not query catalogs or infer enum labels.

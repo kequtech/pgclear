@@ -53,6 +53,8 @@ explicitly.
 Use one listener for a changing set of channels:
 
 ```ts
+import { listen } from '@kequtech/pgclear';
+
 const listener = await listen(process.env.DATABASE_URL!, {
   channels: [],
   reconnect: true,
@@ -109,8 +111,8 @@ connection and restores the last acknowledged channel set. Changes requested dur
 wait in invocation order, then execute after that restoration. A change interrupted by transport
 loss remains queued and waits for acknowledgement on a replacement connection, unless cancelled,
 expired, or closed. Validation/server errors on a usable connection reject only that change.
-Initial connection or registration failure rejects `listen`; it does not start background retries. Without reconnect, a lost connection closes the
-listener.
+Initial connection or registration failure rejects `listen`; it does not start background retries.
+Without reconnect, a lost connection closes the listener.
 
 Notifications missed during a disconnect are not replayed. Treat messages as signals to inspect
 persistent application state when reliable processing matters. Use status/generation changes to

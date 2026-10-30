@@ -1,5 +1,2 @@
 package-lock.json
-# Preserve the supplied report body as authored.
-docs/references/tenon-driver-migration-report.md
-docs/references/tenon-typed-query-review.md
 .trial-dist/

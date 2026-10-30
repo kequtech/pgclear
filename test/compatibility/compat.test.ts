@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { before, after, test } from 'node:test';
-import { listen, connect, createPool } from '../../src/index.js';
+import { listen, connect, createPool, type Notification } from '../../src/index.js';
 import { compatibilityServer } from './server.js';
 
 let fixture: Awaited<ReturnType<typeof compatibilityServer>>;
@@ -55,16 +55,8 @@ test(
   within,
   async () => {
     const pool = createPool({ ...fixture.session, maxConnections: 2 });
-    const message = Promise.withResolvers<{
-      channel: string;
-      payload: string;
-      backendPid: number;
-    }>();
-    const changed = Promise.withResolvers<{
-      channel: string;
-      payload: string;
-      backendPid: number;
-    }>();
+    const message = Promise.withResolvers<Notification>();
+    const changed = Promise.withResolvers<Notification>();
     const listener = await listen(fixture.session, {
       channels: ['compat_channel'],
       onNotification(value) {

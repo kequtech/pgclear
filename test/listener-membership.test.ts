@@ -47,6 +47,7 @@ test(
     const quoted = '"' + first.replaceAll('"', '""') + '"';
     const waiting = Promise.withResolvers<void>();
     const acknowledge = Promise.withResolvers<void>();
+    const cancellation = new AbortController();
     const messages: Notification[] = [];
     let active: Peer | undefined;
     let connections = 0;
@@ -86,6 +87,10 @@ test(
       const duplicate = listener.subscribe(first).then(() => {
         settled.push(2);
       });
+      const cancelled = assert.rejects(
+        listener.subscribe('cancelled-middle', { signal: cancellation.signal }),
+        { code: 'PGCLEAR_ABORTED', outcome: 'not-sent' },
+      );
       const unsubscribe = listener.unsubscribe(first).then(() => {
         settled.push(3);
       });
@@ -96,6 +101,9 @@ test(
         settled.push(5);
       });
       await waiting.promise;
+      cancellation.abort();
+      await cancelled;
+      assert.equal(getEventListeners(cancellation.signal, 'abort').length, 0);
       assert.deepEqual(settled, []);
       acknowledge.resolve();
       await Promise.all([subscribe, duplicate, unsubscribe, absent, again]);
@@ -110,6 +118,7 @@ test(
       assert.equal(listener.status.generation, 1);
       assert.equal(listener.status.state, 'connected');
     } finally {
+      cancellation.abort();
       acknowledge.resolve();
       await listener.close();
       await server.close();
