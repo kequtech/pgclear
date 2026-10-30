@@ -33,6 +33,77 @@ const field = (oid: number): Field => ({
 const decode = (oid: number, text: string, codecs = defaultCodecs) =>
   registry(codecs).decode(Buffer.from(text), field(oid));
 
+test('default-decoder metadata follows each OID rather than registry identity or declared types', () => {
+  const enumOid = 987654;
+  const dates = defaultCodecs.with(builtin.timestamptzDate);
+  for (const oid of [16, 23, 20, 1700, 17, 1082, 1114, 1184, 114, 3802, 1007, 1016, enumOid])
+    assert.equal(defaultCodecs.isDefaultDecoder(oid), true);
+  assert.equal(dates.isDefaultDecoder(1184), false);
+  assert.equal(dates.isDefaultDecoder(1185), false);
+  assert.equal(dates.isDefaultDecoder(1082), true);
+  assert.equal(dates.isDefaultDecoder(enumOid), true);
+  assert.equal(decode(enumOid, 'queued', dates), 'queued');
+
+  let calls = 0;
+  const transformed = dates.with({
+    oid: enumOid,
+    text: {
+      encode: String,
+      decode(value) {
+        calls++;
+        return value.toUpperCase();
+      },
+      typescript: 'string',
+    },
+  });
+  assert.equal(transformed.typescript(enumOid), 'string');
+  assert.equal(transformed.isDefaultDecoder(enumOid), false);
+  assert.equal(calls, 0);
+  assert.equal(decode(enumOid, 'queued', transformed), 'QUEUED');
+  assert.equal(calls, 1);
+  assert.equal(dates.isDefaultDecoder(enumOid), true);
+  assert.equal(transformed.isDefaultDecoder(23), true);
+
+  const wrapped = defaultCodecs.with({
+    ...builtin.int4,
+    text: { encode: String, decode: (value) => builtin.int4.text!.decode(value) },
+  });
+  assert.equal(wrapped.isDefaultDecoder(23), false);
+  assert.equal(wrapped.isDefaultDecoder(1007), false);
+  assert.equal(wrapped.with(builtin.int4).isDefaultDecoder(23), true);
+  assert.equal(wrapped.with(builtin.int4).isDefaultDecoder(1007), true);
+  assert.equal(
+    defaultCodecs.with({ ...builtin.text, oid: enumOid }).isDefaultDecoder(enumOid),
+    false,
+  );
+});
+
+test('default-decoder metadata honors explicit arrays and absent text decoders', () => {
+  const changed = defaultCodecs.with({ ...builtin.text, oid: 23 });
+  assert.equal(changed.isDefaultDecoder(23), false);
+  assert.equal(changed.isDefaultDecoder(1007), false);
+  assert.equal(changed.with(builtin.int4Array).isDefaultDecoder(1007), true);
+  assert.deepEqual(decode(1007, '{1,NULL}', changed.with(builtin.int4Array)), [1, null]);
+  assert.equal(defaultCodecs.with(builtin.int8BigIntArray).isDefaultDecoder(1016), false);
+  assert.equal(defaultCodecs.with(builtin.int8Array).isDefaultDecoder(1016), true);
+  const customArray = changed.with({
+    oid: 1007,
+    text: { encode: String, decode: (value) => value, typescript: 'string' },
+  });
+  assert.equal(customArray.isDefaultDecoder(1007), false);
+  assert.equal(customArray.isDefaultDecoder(1009), true);
+
+  const binary = { encode: () => new Uint8Array(), decode: () => 0 };
+  for (const oid of [23, 1007])
+    assert.equal(defaultCodecs.with({ oid, binary }).isDefaultDecoder(oid), false);
+  assert.equal(defaultCodecs.with({ oid: 23, binary }).isDefaultDecoder(1007), false);
+  assert.equal(defaultCodecs.with({ oid: 987654, binary }).isDefaultDecoder(987654), true);
+  for (const oid of [0, -1, 1.5, NaN, Infinity, 0x100000000, '23', null, undefined])
+    assert.throws(() => defaultCodecs.isDefaultDecoder(oid as number), {
+      code: 'PGCLEAR_CONFIGURATION',
+    });
+});
+
 test('custom representation metadata belongs to immutable registrations and follows array overrides', () => {
   const decoder = (value: string) => ({ value });
   const codec = {

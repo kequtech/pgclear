@@ -40,6 +40,8 @@ export interface Codec<T> {
 }
 export interface CodecRegistry {
   with<T>(codec: Codec<T>): CodecRegistry;
+  /** Whether the effective text decoder is known to match this OID's default decoder. */
+  isDefaultDecoder(oid: Oid): boolean;
   /** Known non-NULL text-result type; undefined means an unrecognized custom decoder. */
   typescript(oid: Oid): string | undefined;
   /** Known output type expressions, including derived arrays, for downstream type checking. */
@@ -307,5 +309,9 @@ export interface ListenerOptions extends OperationOptions {
 }
 export interface Listener {
   readonly status: ListenerStatus;
+  /** Resolves after this channel is registered on the dedicated connection. */
+  subscribe(channel: string, options?: OperationOptions): Promise<void>;
+  /** Resolves after this channel is removed from the dedicated connection. */
+  unsubscribe(channel: string, options?: OperationOptions): Promise<void>;
   close(options?: CloseOptions): Promise<void>;
 }

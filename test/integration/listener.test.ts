@@ -77,7 +77,7 @@ test(
   'channel identifiers reject empty, invalid and overlength byte strings without leaked sessions',
   within,
   async () => {
-    for (const channels of [[], [''], ['a\0b'], ['\ud800'], ['é'.repeat(32)], ['a'.repeat(64)]])
+    for (const channels of [[''], ['a\0b'], ['\ud800'], ['é'.repeat(32)], ['a'.repeat(64)]])
       await assert.rejects(listen(databaseUrl(), { channels, onNotification() {} }), {
         code: 'PGCLEAR_CONFIGURATION',
       });
@@ -176,6 +176,112 @@ test(
       assert.equal(getEventListeners(abort.signal, 'abort').length, 0);
     } finally {
       await other?.close();
+      await listener.close();
+      await client.close();
+    }
+  },
+);
+
+test(
+  'dynamic membership on one connection acknowledges removal, empty membership and later resubscribe',
+  within,
+  async () => {
+    const { client } = await testConnection();
+    const first = ownedName() + '";--',
+      second = 'é' + ownedName();
+    const messages: Notification[] = [];
+    const listener = await listen(databaseUrl(), {
+      channels: [],
+      onNotification(value) {
+        messages.push(value);
+      },
+    });
+    try {
+      if (listener.status.state !== 'connected') assert.fail();
+      const session = listener.status.session;
+      await listener.subscribe(first);
+      await listener.subscribe(first);
+      await client.queryClassic('SELECT pg_notify($1,$2)', [first, 'first']);
+      await until(() => messages.length === 1);
+      await listener.unsubscribe(first);
+      await listener.unsubscribe(first);
+      await listener.subscribe(second);
+      await client.queryClassic('SELECT pg_notify($1,$2)', [first, 'removed']);
+      await client.queryClassic('SELECT pg_notify($1,$2)', [second, 'second']);
+      await until(() => messages.length === 2);
+      await listener.unsubscribe(second);
+      await listener.subscribe(first);
+      await client.queryClassic('SELECT pg_notify($1,$2)', [second, 'removed']);
+      await client.queryClassic('SELECT pg_notify($1,$2)', [first, 'resubscribed']);
+      await until(() => messages.length === 3);
+      assert.deepEqual(
+        messages.map(({ channel, payload }) => ({ channel, payload })),
+        [
+          { channel: first, payload: 'first' },
+          { channel: second, payload: 'second' },
+          { channel: first, payload: 'resubscribed' },
+        ],
+      );
+      assert.equal(listener.status.state, 'connected');
+      if (listener.status.state !== 'connected') assert.fail();
+      assert.deepEqual(listener.status.session, session);
+      assert.equal(listener.status.generation, 1);
+      for (const method of ['subscribe', 'unsubscribe'] as const)
+        await assert.rejects(listener[method]('é'.repeat(32)), { code: 'PGCLEAR_CONFIGURATION' });
+      await listener.subscribe(second);
+    } finally {
+      await listener.close();
+      await client.close();
+    }
+  },
+);
+
+test(
+  'changes queued during reconnect settle after acknowledgement and survive the next reconnect',
+  within,
+  async () => {
+    const { client } = await testConnection();
+    const first = ownedName(),
+      second = ownedName(),
+      added = ownedName();
+    const messages: Notification[] = [];
+    const changes: Promise<void>[] = [];
+    const queued = Promise.withResolvers<void>();
+    const listener = await listen(databaseUrl(), {
+      channels: [first, second],
+      reconnect: true,
+      onNotification(message) {
+        messages.push(message);
+      },
+      onStatus(status) {
+        if (status.state === 'reconnecting' && status.generation === 1) {
+          changes.push(listener.unsubscribe(first), listener.subscribe(added));
+          queued.resolve();
+        }
+      },
+    });
+    try {
+      if (listener.status.state !== 'connected') assert.fail();
+      await client.queryClassic('SELECT pg_terminate_backend($1)', [
+        listener.status.session.backendPid,
+      ]);
+      await queued.promise;
+      await Promise.all(changes);
+      assert.equal(listener.status.state, 'connected');
+      assert.equal(listener.status.generation, 2);
+      if (listener.status.state !== 'connected') assert.fail();
+      await client.queryClassic('SELECT pg_terminate_backend($1)', [
+        listener.status.session.backendPid,
+      ]);
+      await until(() => listener.status.state === 'connected' && listener.status.generation === 3);
+      for (const channel of [first, second, added])
+        await client.queryClassic('SELECT pg_notify($1,$2)', [channel, 'restored']);
+      await until(() => messages.length === 2);
+      assert.deepEqual(
+        messages.map((message) => message.channel),
+        [second, added],
+      );
+    } finally {
       await listener.close();
       await client.close();
     }

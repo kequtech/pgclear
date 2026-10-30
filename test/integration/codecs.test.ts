@@ -6,6 +6,40 @@ import { testConnection } from '../helpers/database.js';
 const within = { timeout: 10000 };
 
 test(
+  'per-OID default-decoder metadata matches enum text under unrelated and custom codecs',
+  within,
+  async () => {
+    const { client } = await testConnection();
+    try {
+      await client.queryClassic("CREATE TYPE pg_temp.probe_state AS ENUM ('queued', 'done')");
+      const text =
+        "SELECT 'queued'::pg_temp.probe_state AS state, current_timestamp AS occurred_at";
+      const description = await client.describe(text);
+      const enumOid = description.fields[0]!.dataTypeOid;
+      const dates = defaultCodecs.with(builtin.timestamptzDate);
+      assert.equal(dates.isDefaultDecoder(enumOid), true);
+      assert.equal(dates.isDefaultDecoder(1184), false);
+      const ordinary = await client.queryClassic(text, undefined, { codecs: dates });
+      assert.equal(ordinary.rows[0]!.state, 'queued');
+      assert.ok(ordinary.rows[0]!.occurred_at instanceof Date);
+
+      const transformed = dates.with({
+        oid: enumOid,
+        text: { encode: String, decode: (value) => value.toUpperCase(), typescript: 'string' },
+      });
+      assert.equal(transformed.typescript(enumOid), 'string');
+      assert.equal(transformed.isDefaultDecoder(enumOid), false);
+      const custom = await client.queryClassic(text, undefined, { codecs: transformed });
+      assert.equal(custom.rows[0]!.state, 'QUEUED');
+      assert.ok(custom.rows[0]!.occurred_at instanceof Date);
+      assert.equal(client.codecs.isDefaultDecoder(enumOid), true);
+    } finally {
+      await client.close();
+    }
+  },
+);
+
+test(
   'row decoders follow each result description and return independent row objects',
   within,
   async () => {

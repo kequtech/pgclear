@@ -184,6 +184,8 @@ export async function notifications(options: ConnectionOptions, signal: AbortSig
       received.push(payload);
     },
   });
+  await listener.subscribe('other_jobs', { timeoutMs: 1000 });
+  await listener.unsubscribe('other_jobs');
   return { received, close: () => listener.close() };
 }
 

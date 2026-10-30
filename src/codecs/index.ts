@@ -72,6 +72,21 @@ const scalarTypes = [
 const scalars: ReadonlyMap<number, Decoder> = new Map(
   scalarTypes.map(([codec]) => [codec.oid, codec.text!.decode]),
 );
+const defaultDecoderOids = sharedWeakMap<NonNullable<Decoder>, ReadonlySet<number>>(
+  'default-decoder-oids',
+);
+// Explicit built-in array decoders use their own default element decoder, even when the registry
+// overrides that scalar. Shared identity also recognizes built-ins from another package copy.
+for (const codec of [
+  ...scalarTypes.map(([codec]) => codec),
+  builtin.int4Array,
+  builtin.int8Array,
+  builtin.numericArray,
+  builtin.textArray,
+]) {
+  const decode = codec.text!.decode;
+  defaultDecoderOids.set(decode, new Set([...(defaultDecoderOids.get(decode) ?? []), codec.oid]));
+}
 const knownTypes = sharedWeakMap<NonNullable<Decoder>, string>('decoder-types');
 for (const [codec, type] of scalarTypes) knownTypes.set(codec.text!.decode, type);
 for (const codec of Object.values(builtin)) {
@@ -90,6 +105,11 @@ for (const codec of Object.values(builtin)) {
 // PostgreSQL field bytes are data, not a BOM-prefixed document.
 const utf8 = new TextDecoder('utf8', { fatal: true, ignoreBOM: true });
 const registries = sharedWeakMap<CodecRegistry, Registry>('registries');
+
+function validateOid(oid: number): void {
+  if (!Number.isInteger(oid) || oid < 1 || oid > 0xffffffff)
+    throw new DriverError('PGCLEAR_CONFIGURATION', 'Expected a PostgreSQL type OID.');
+}
 
 class Registry implements CodecRegistry {
   readonly #overrides: ReadonlyMap<number, Decoder>;
@@ -112,10 +132,20 @@ class Registry implements CodecRegistry {
     else representations.set(snapshot.oid, snapshot.text.typescript);
     return new Registry(next, representations);
   }
+  isDefaultDecoder(oid: number): boolean {
+    validateOid(oid);
+    if (this.#overrides.has(oid)) {
+      const decode = this.#overrides.get(oid);
+      return decode
+        ? defaultDecoderOids.get(decode)?.has(oid) === true
+        : !scalars.has(oid) && !arrayElements.has(oid);
+    }
+    const element = arrayElements.get(oid);
+    return element === undefined || this.isDefaultDecoder(element);
+  }
   /** Custom decoder functions have erased return types; generation must not guess. */
   typescript(oid: number): string | undefined {
-    if (!Number.isInteger(oid) || oid < 1 || oid > 0xffffffff)
-      throw new DriverError('PGCLEAR_CONFIGURATION', 'Expected a PostgreSQL type OID.');
+    validateOid(oid);
     if (this.#overrides.has(oid)) {
       const decode = this.#overrides.get(oid);
       return decode ? (this.#representations.get(oid) ?? knownTypes.get(decode)) : 'string';

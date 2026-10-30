@@ -272,6 +272,18 @@ functions and metadata; mutable state captured by those functions remains your r
 
 ## Type metadata for downstream tools
 
+`codecs.isDefaultDecoder(oid)` reports whether that OID's effective text decoder is known to match
+the driver's default. Unrelated codec changes do not affect it: selecting Date output changes the
+timestamptz decoder but leaves an unregistered enum's raw-text decoder at its default. Tools can
+combine this fact with catalog enum labels without guessing from a declared `string` output type.
+
+Derived built-in arrays follow their element decoder. Explicit built-in default decoder functions
+are recognized, including from another compatible package copy. Custom functions and wrappers are
+conservatively nondefault even if they declare `string` or happen to return unchanged text. An
+explicit text decoder for an otherwise unknown OID is also nondefault. Binary-only registrations
+leave unknown OIDs' raw text unchanged, but replace default scalar/array text decoding with raw text.
+This method validates OIDs like `typescript`; it does not query catalogs or infer enum labels.
+
 `codecs.typescript(oid)` returns the known non-NULL text-result representation: for example,
 `'string'`, `'PgArray<number>'`, or `'globalThis.Uint8Array'`. JSON has the known type `'unknown'`.
 An unfamiliar custom decoder without a declaration returns `undefined`; an unknown OID that stays

@@ -111,8 +111,11 @@ Password preparation uses PostgreSQL's fixed stringprep tables, mapped-input che
 fallback, and native NFKC. An offline checksum-pinned generator owns the tables. SCRAM verifies
 server proof and channel binding; TLS verifies trust and hostname.
 
-A listener independently owns its connection and supervision task. Optional reconnect opens a new
-connection, registers fixed channels, and exposes generations so applications can identify gaps.
+A listener independently owns its connection, ordered membership queue, and supervision task.
+Subscribe/unsubscribe commits local membership only after server acknowledgement. Optional reconnect
+opens a new connection, restores acknowledged membership, then processes queued changes in order.
+Queued cancellation removes the request; active cancellation retires the transport without retaining
+the unacknowledged change. Connection generations expose gaps; membership changes preserve them.
 It provides no replay. Observation callbacks are isolated and not awaited. Closing stops retries
 and unfinished connection attempts.
 

@@ -66,6 +66,14 @@ test(
           assert.equal(value instanceof other.DatabaseError, false);
         }
         const codecs = other.defaultCodecs.with(owner.builtin.int4).with(owner.builtin.jsonbText);
+        assert.equal(codecs.isDefaultDecoder(23), true);
+        assert.equal(codecs.isDefaultDecoder(1007), true);
+        assert.equal(codecs.isDefaultDecoder(3802), false);
+        assert.equal(codecs.isDefaultDecoder(987654), true);
+        assert.equal(
+          other.defaultCodecs.with(owner.builtin.int4Array).isDefaultDecoder(1007),
+          true,
+        );
         const custom = other.defaultCodecs.with({
           oid: 23,
           text: {
@@ -94,6 +102,9 @@ test(
             [{ value: { value: '42' }, items: [{ value: '42' }, null] }],
           );
           assert.equal(pool.codecs.typescript(23), 'number');
+          assert.equal(pool.codecs.isDefaultDecoder(23), true);
+          assert.equal(custom.isDefaultDecoder(23), false);
+          assert.equal(custom.isDefaultDecoder(1007), false);
           assert.ok(custom.typescriptTypes().includes('PgArray<{value: string}>'));
           const lease = await pool.acquire();
           try {
@@ -149,6 +160,8 @@ test(
       import * as b from './two/node_modules/@kequtech/pgclear/dist/index.js';
       async function exchange(pool:a.Pool,session:b.Session) {
         const codec:a.CodecRegistry=session.codecs;
+        const unchanged:boolean=codec.isDefaultDecoder(23);
+        void unchanged;
         await pool.query(a.sql\`SELECT \${b.json({ok:true})}\`,{codecs:codec});
         await session.queryClassic('SELECT 1',[],{codecs:a.defaultCodecs});
         const owned=a.createPool({codecs:b.defaultCodecs});

@@ -60,9 +60,17 @@ test(
       payload: string;
       backendPid: number;
     }>();
+    const changed = Promise.withResolvers<{
+      channel: string;
+      payload: string;
+      backendPid: number;
+    }>();
     const listener = await listen(fixture.session, {
       channels: ['compat_channel'],
-      onNotification: message.resolve,
+      onNotification(value) {
+        if (value.channel === 'compat_channel') message.resolve(value);
+        else changed.resolve(value);
+      },
     });
     try {
       await pool.withSession(async (session) => {
@@ -90,6 +98,14 @@ test(
         assert.deepEqual(await message.promise, {
           channel: 'compat_channel',
           payload: 'via proxy',
+          backendPid: pid,
+        });
+        await listener.unsubscribe('compat_channel');
+        await listener.subscribe('compat_dynamic');
+        await session.queryClassic('SELECT pg_notify($1,$2)', ['compat_dynamic', 'changed']);
+        assert.deepEqual(await changed.promise, {
+          channel: 'compat_dynamic',
+          payload: 'changed',
           backendPid: pid,
         });
       });

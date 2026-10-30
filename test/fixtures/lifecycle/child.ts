@@ -126,6 +126,30 @@ if (kind === 'listener') {
     },
   });
   try {
+    if (scenario.startsWith('membership-')) {
+      const membershipAbort = new AbortController();
+      const pending = listener.subscribe('pending', {
+        signal: membershipAbort.signal,
+        timeoutMs: scenario === 'membership-timeout' ? 100 : 3600000,
+      });
+      const queued = listener.subscribe('queued', { timeoutMs: 3600000 });
+      const failed = assert.rejects(pending, {
+        code:
+          scenario === 'membership-close'
+            ? 'PGCLEAR_CLOSED'
+            : scenario === 'membership-abort'
+              ? 'PGCLEAR_ABORTED'
+              : 'PGCLEAR_TIMEOUT',
+      });
+      const stopped = assert.rejects(queued, { code: 'PGCLEAR_CLOSED' });
+      await notified.promise;
+      if (scenario === 'membership-close') await listener.close({ timeoutMs: 1000 });
+      if (scenario === 'membership-abort') membershipAbort.abort();
+      await failed;
+      await listener.close();
+      await stopped;
+      assert.equal(getEventListeners(membershipAbort.signal, 'abort').length, 0);
+    }
     if (scenario === 'complete') await notified.promise;
     if (scenario === 'reconnect-close') await gap.promise;
     if (scenario === 'abort') controller.abort();

@@ -17,14 +17,36 @@ import type {
   Listener,
   ListenerOptions,
   ListenerStatus,
+  OperationOptions,
 } from '../types.js';
 
 const closed = () => new DriverError('PGCLEAR_CLOSED', 'The listener is closed.');
+function channelName(value: unknown): asserts value is string {
+  if (typeof value !== 'string' || !value || value.includes('\0') || !value.isWellFormed())
+    configurationError('Invalid notification channel.');
+}
+function identifier(channel: string): string {
+  return '"' + channel.replaceAll('"', '""') + '"';
+}
+interface Membership {
+  readonly channel: string;
+  readonly subscribe: boolean;
+  readonly lifetime: Lifetime;
+  readonly resolve: () => void;
+  readonly reject: (error: unknown) => void;
+  stop: () => void;
+  pending: boolean;
+  dispatched: boolean;
+}
 
 /** A stable handle owns one replaceable connection and one sequential supervision task. */
 class ListenerHandle implements Listener {
   readonly #config: Configuration;
   readonly #options: ListenerOptions;
+  readonly #channels: Set<string>;
+  readonly #memberships: Membership[] = [];
+  #active: Membership | undefined;
+  #changed = Promise.withResolvers<void>();
   #status: ListenerStatus = Object.freeze({ state: 'reconnecting', attempt: 0, generation: 0 });
   #connection: PhysicalConnection | undefined;
   #close: Promise<void> | undefined;
@@ -40,6 +62,7 @@ class ListenerHandle implements Listener {
   constructor(config: Configuration, options: ListenerOptions) {
     this.#config = config;
     this.#options = options;
+    this.#channels = new Set(options.channels);
     this.#initial = new Lifetime(options);
     this.#signal = AbortSignal.any([this.#controller.signal, this.#initial.signal]);
     void this.#ready.promise.catch(() => {});
@@ -61,6 +84,116 @@ class ListenerHandle implements Listener {
       throw error;
     });
   }
+  subscribe(channel: string, options: OperationOptions = {}): Promise<void> {
+    return this.#membership(channel, true, options);
+  }
+  unsubscribe(channel: string, options: OperationOptions = {}): Promise<void> {
+    return this.#membership(channel, false, options);
+  }
+  #wake(): void {
+    this.#changed.resolve();
+    this.#changed = Promise.withResolvers<void>();
+  }
+  #settle(request: Membership, error?: unknown): void {
+    if (!request.pending) return;
+    request.pending = false;
+    request.stop();
+    const index = this.#memberships.indexOf(request);
+    if (index !== -1) this.#memberships.splice(index, 1);
+    if (error === undefined) request.resolve();
+    else request.reject(error);
+    this.#wake();
+  }
+  #membership(channel: string, subscribe: boolean, options: OperationOptions): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let lifetime: Lifetime | undefined;
+      try {
+        channelName(channel);
+        validateOperation(options);
+        if (this.#close) throw closed();
+        lifetime = new Lifetime(options);
+        lifetime.check();
+        const request: Membership = {
+          channel,
+          subscribe,
+          lifetime,
+          resolve,
+          reject,
+          stop: () => {},
+          pending: true,
+          dispatched: false,
+        };
+        request.stop = lifetime.watch((error) => {
+          // Once bytes may have reached PostgreSQL, replace the session rather than leave an
+          // untracked LISTEN/UNLISTEN on a reusable connection. Acknowledged membership is retained.
+          const active = this.#active === request && request.dispatched;
+          this.#settle(
+            request,
+            new DriverError(error.code, error.message, active ? 'unknown' : 'not-sent', {
+              cause: error,
+            }),
+          );
+          if (active) this.#connection?.dispose();
+        });
+        this.#memberships.push(request);
+        this.#wake();
+      } catch (error) {
+        lifetime?.stop();
+        reject(error);
+      }
+    });
+  }
+  async #validateChannels(
+    connection: PhysicalConnection,
+    channels: readonly string[],
+    life: Lifetime,
+  ): Promise<void> {
+    // Count rows instead of decoding a scalar with application-configured codecs.
+    const invalid = await connection.query(
+      {
+        text: `SELECT FROM pg_catalog.unnest($1::pg_catalog.text[]) AS channels(name)
+             WHERE pg_catalog.octet_length(name) > pg_catalog.current_setting('max_identifier_length')::pg_catalog.int4`,
+        values: [param(channels, builtin.textArray)],
+      },
+      { lifetime: new Lifetime({}, life) },
+    );
+    if (invalid.rowCount !== 0)
+      configurationError('Notification channel exceeds the server identifier limit.');
+  }
+  async #apply(
+    connection: PhysicalConnection,
+    request: Membership,
+    parent: Lifetime,
+  ): Promise<void> {
+    this.#active = request;
+    const life = new Lifetime({ signal: request.lifetime.signal }, parent);
+    try {
+      request.lifetime.check();
+      life.check();
+      request.dispatched = true;
+      await this.#validateChannels(connection, [request.channel], life);
+      life.check();
+      if (this.#channels.has(request.channel) !== request.subscribe) {
+        await connection.query(
+          (request.subscribe ? 'LISTEN ' : 'UNLISTEN ') + identifier(request.channel),
+          { lifetime: new Lifetime({}, life) },
+        );
+        life.check();
+        if (request.subscribe) this.#channels.add(request.channel);
+        else this.#channels.delete(request.channel);
+      }
+      this.#settle(request);
+    } catch (error) {
+      // Transport loss leaves an uncancelled request queued for the next connection. A local
+      // validation/server error rejects just this request on an otherwise usable connection.
+      if (!connection.usable) throw error;
+      this.#settle(request, error);
+    } finally {
+      this.#active = undefined;
+      request.dispatched = false;
+      life.stop();
+    }
+  }
   #set(status: ListenerStatus): void {
     this.#status = Object.freeze(status);
     observe(this.#options.onStatus, this.#status);
@@ -72,6 +205,7 @@ class ListenerHandle implements Listener {
       while (!this.#close) {
         let connection: PhysicalConnection | undefined;
         let stopLost = () => {};
+        let lost: Error | undefined;
         const life = new Lifetime({ signal: this.#signal }, initial ? this.#initial : undefined);
         try {
           if (attempt) {
@@ -85,26 +219,24 @@ class ListenerHandle implements Listener {
             if (
               !this.#close &&
               this.#connection === connection &&
-              this.#status.state === 'connected'
+              this.#status.state === 'connected' &&
+              (this.#channels.has(value.channel) ||
+                (this.#active?.subscribe && this.#active.channel === value.channel))
             )
               observe(this.#options.onNotification, value);
           });
           this.#connection = connection;
           if (this.#close) return;
-          const lost = Promise.withResolvers<Error>();
-          stopLost = connection.onLost(lost.resolve);
-          const execute = (statement: Parameters<PhysicalConnection['query']>[0]) =>
-            connection!.query(statement, { lifetime: new Lifetime({}, life) });
-          // Count invalid identifiers without invoking user-configured result codecs.
-          const invalid = await execute({
-            text: `SELECT FROM pg_catalog.unnest($1::pg_catalog.text[]) AS channels(name)
-                   WHERE pg_catalog.octet_length(name) > pg_catalog.current_setting('max_identifier_length')::pg_catalog.int4`,
-            values: [param(this.#options.channels, builtin.textArray)],
+          stopLost = connection.onLost((error) => {
+            lost = error;
+            this.#wake();
           });
-          if (invalid.rowCount !== 0)
-            configurationError('Notification channel exceeds the server identifier limit.');
-          for (const channel of this.#options.channels)
-            await execute('LISTEN "' + channel.replaceAll('"', '""') + '"');
+          const channels = [...this.#channels];
+          await this.#validateChannels(connection, channels, life);
+          for (const channel of channels)
+            await connection.query('LISTEN ' + identifier(channel), {
+              lifetime: new Lifetime({}, life),
+            });
           life.check();
           if (this.#close || !connection.usable) throw closed();
           this.#initial.stop();
@@ -118,7 +250,14 @@ class ListenerHandle implements Listener {
           if (this.#close) throw closed();
           initial = false;
           this.#ready.resolve(this);
-          throw await lost.promise;
+          const connected = new Lifetime({ signal: this.#signal });
+          while (!this.#close) {
+            connected.check();
+            if (lost) throw lost;
+            const request = this.#memberships[0];
+            if (request) await this.#apply(connection, request, connected);
+            else await this.#changed.promise;
+          }
         } catch (cause) {
           if (this.#close || this.#signal.aborted) {
             this.#ready.reject(this.#signal.aborted ? abortError(this.#signal) : closed());
@@ -133,6 +272,7 @@ class ListenerHandle implements Listener {
           }
           this.#set({ state: 'disconnected', error, generation: this.#status.generation });
           if (!this.#options.reconnect) {
+            for (const request of [...this.#memberships]) this.#settle(request, error);
             void this.close().catch(() => {});
             return;
           }
@@ -161,8 +301,11 @@ class ListenerHandle implements Listener {
     }
     const completion = Promise.withResolvers<void>();
     this.#close = completion.promise;
+    for (const request of [...this.#memberships]) this.#settle(request, closed());
+    this.#wake();
     const connection = this.#connection;
-    const graceful = this.#status.state === 'connected';
+    // Pending membership is rejected at the close fence; no remote acknowledgement is needed.
+    const graceful = this.#status.state === 'connected' && !this.#active;
     this.#signal.removeEventListener('abort', this.#abort);
     this.#set({ state: 'closed', generation: this.#status.generation });
     const cleanup =
@@ -190,7 +333,6 @@ export async function listen(
   validateOperation(options, ['channels', 'onNotification', 'onStatus', 'reconnect']);
   if (
     !Array.isArray(options.channels) ||
-    options.channels.length === 0 ||
     Array.from(options.channels).some(
       (name) => typeof name !== 'string' || !name || name.includes('\0') || !name.isWellFormed(),
     ) ||

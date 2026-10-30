@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.3.3
+
+- Add awaited listener `subscribe`/`unsubscribe` operations and allow an initially empty channel
+  list. Membership changes execute in invocation order, support cancellation/deadlines, and wait
+  for server acknowledgement. Reconnect restores acknowledged membership before queued changes.
+- Add `CodecRegistry.isDefaultDecoder(oid)` so downstream tools can identify unchanged decoding
+  for one type independently of unrelated codec overrides.
+
 ## 0.3.2
 
 - Rewrite the README and organize usage documentation into focused guides for queries, values,

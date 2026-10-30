@@ -100,7 +100,7 @@ early close, and completion results. Consume or close a stream before running ot
 
 ## Notifications
 
-[Notifications](notifications.md) describes fixed channels, dedicated connections, status changes,
+[Notifications](notifications.md) describes dynamic channel membership, dedicated connections, status changes,
 optional reconnect, and delivery gaps. Notifications have no replay after a disconnect.
 
 ## Schema generation migration
