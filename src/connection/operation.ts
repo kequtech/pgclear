@@ -134,6 +134,20 @@ export function rowDecoder(
       for (let i = 0; i < fields.length; i++) row[i] = decoders[i]!(values[i]!);
       return row;
     };
+  const names = new Set<string>();
+  for (const field of fields) {
+    if (names.has(field.name))
+      throw new DriverError(
+        'PGCLEAR_DECODE',
+        'Duplicate column names require array row mode.',
+        'unknown',
+        {
+          column: field.name,
+          dataTypeOid: field.dataTypeOid,
+        },
+      );
+    names.add(field.name);
+  }
   // Spreading own data properties preserves ordinary prototypes and safely handles __proto__.
   const template = Object.fromEntries(fields.map((field) => [field.name, null]));
   return (values) => {

@@ -139,6 +139,7 @@ export class SharedListener {
     generation.controller.abort();
     for (const entry of generation.channels.values()) {
       for (const member of entry.subscribers) deliver(() => member.onDisconnect(error));
+      entry.subscribers.clear();
     }
     generation.channels.clear();
   }

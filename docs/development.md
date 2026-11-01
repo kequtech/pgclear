@@ -75,7 +75,8 @@ Put executable behavior checks in workflow/function tests. The consumer ownershi
 in `examples/shared-listener.ts`; keep it typechecked and test its public lifecycle behavior.
 The development TypeScript path mapping checks package imports against `src/index.ts` before a
 build exists; emitted example imports still use the installed package. Compile-only usage and
-rejected-call examples live in `test/fixtures/api-examples.ts`. Prefer observable barriers over timing guesses in
+rejected-call examples live in `test/fixtures/api-examples.ts`. The test compiler inherits the root
+source/test/example file list; the library build includes only `src/`. Prefer observable barriers over timing guesses in
 lifecycle tests. Keep source changes separate from unrelated generated or trial artifacts.
 
 [Architecture](architecture.md) explains module responsibilities and ownership. Use the existing
@@ -86,8 +87,9 @@ Benchmark timing is opt-in and is not a CI performance gate.
 ## Package and release
 
 The package is ESM-only and has no runtime dependencies. It ships JavaScript, declarations, maps
-with embedded sources, LICENSE, README, release notes, and all consumer guides. Contributor guides,
-tests, benchmark dependencies, and trial artifacts stay in the repository.
+with embedded sources, LICENSE, README, release notes, all consumer guides, and the shared-listener
+example source. Contributor guides, tests, benchmark dependencies, and trial artifacts stay in the
+repository.
 
 For a release:
 

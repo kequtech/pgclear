@@ -330,24 +330,6 @@ export class PhysicalConnection {
           work.metadataBytes = work.result.bytes;
           work.output.metadata(fields);
         }
-        if (!work.result.arrayMode) {
-          const names = new Set<string>();
-          for (const field of fields) {
-            if (names.has(field.name)) {
-              op.error ??= new DriverError(
-                'PGCLEAR_DECODE',
-                'Duplicate column names require array row mode.',
-                'unknown',
-                {
-                  column: field.name,
-                  dataTypeOid: field.dataTypeOid,
-                },
-              );
-              break;
-            }
-            names.add(field.name);
-          }
-        }
       } else throw protocolError();
       return;
     }

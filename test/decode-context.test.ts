@@ -91,3 +91,15 @@ test('invalid UTF-8 and nested array decoding errors identify their enclosing co
     });
   }
 });
+
+test('row decoder construction rejects object duplicates and preserves positional array fields', () => {
+  const fields: Field[] = [{ ...field, dataTypeOid: 25 }, field];
+  assert.throws(() => rowDecoder(fields, registry(defaultCodecs), false), {
+    code: 'PGCLEAR_DECODE',
+    outcome: 'unknown',
+    column: field.name,
+    dataTypeOid: 23,
+  });
+  const decode = rowDecoder(fields, registry(defaultCodecs), true);
+  assert.deepEqual(decode([Buffer.from('text'), Buffer.from('42')]), ['text', 42]);
+});
