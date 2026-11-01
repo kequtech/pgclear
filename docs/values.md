@@ -105,8 +105,24 @@ array decoders follow the selected scalar decoder; an explicit array override wi
 domain, and extension array OIDs stay text unless registered.
 
 Named input codecs include `int4Array` (numbers), `int8Array` (strings), `numericArray` (strings),
-`textArray` (strings), and `int8BigIntArray` (bigints). For example, exact decimal values use
-`param(['9007199254740993.25', null], builtin.numericArray)`.
+`textArray` (strings), `uuidArray` (UUID strings), and `int8BigIntArray` (bigints). For example, exact
+decimal values use `param(['9007199254740993.25', null], builtin.numericArray)`.
+
+For a UUID column, bind a UUID array directly:
+
+```ts
+import { builtin, param } from '@kequtech/pgclear';
+
+await pool.queryClassic('SELECT id FROM users WHERE id = ANY($1)', [
+  param(['a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'], builtin.uuidArray),
+]);
+```
+
+This assumes `users.id` is a UUID column. `uuidArray` supplies the `uuid[]` parameter type, so the
+placeholder needs no cast. `textArray` supplies `text[]`; use `$1::uuid[]` when converting that text
+array to UUIDs in SQL. Both accept strings; local text checks reject NUL and ill-formed Unicode,
+while PostgreSQL validates UUID syntax and normalizes accepted spellings. Like the other array
+codecs, `uuidArray` supports empty arrays, null elements, and rectangular nested arrays.
 
 ## Explicit parameters
 
@@ -129,13 +145,13 @@ registry does not change plain-bind rules or the encoder carried by `param`.
 
 The `builtin` object exposes these codecs:
 
-| Group                | Codec names                                                                 |
-| -------------------- | --------------------------------------------------------------------------- |
-| Numbers and booleans | `bool`, `int2`, `int4`, `int8`, `int8BigInt`, `float4`, `float8`, `numeric` |
-| Text and bytes       | `text`, `uuid`, `bytea`                                                     |
-| JSON                 | `json`, `jsonb`, `jsonText`, `jsonbText`                                    |
-| Temporal             | `date`, `timestamp`, `timestamptz`, `timestamptzDate`                       |
-| Arrays               | `int4Array`, `int8Array`, `int8BigIntArray`, `numericArray`, `textArray`    |
+| Group                | Codec names                                                                           |
+| -------------------- | ------------------------------------------------------------------------------------- |
+| Numbers and booleans | `bool`, `int2`, `int4`, `int8`, `int8BigInt`, `float4`, `float8`, `numeric`           |
+| Text and bytes       | `text`, `uuid`, `bytea`                                                               |
+| JSON                 | `json`, `jsonb`, `jsonText`, `jsonbText`                                              |
+| Temporal             | `date`, `timestamp`, `timestamptz`, `timestamptzDate`                                 |
+| Arrays               | `int4Array`, `int8Array`, `int8BigIntArray`, `numericArray`, `textArray`, `uuidArray` |
 
 ## Exact integers
 
@@ -283,6 +299,11 @@ wrappers are conservatively nondefault even if they declare `string` or return u
 explicit text decoder for an otherwise unknown OID is also nondefault. Binary-only registrations
 leave unknown OIDs' raw text unchanged, but replace default scalar/array text decoding with raw text.
 This method validates OIDs like `typescript`; it does not query catalogs or infer enum labels.
+
+`isDefaultDecoder` became a required method on the exported TypeScript `CodecRegistry` interface
+in 0.3.3. Tooling adapters or test doubles typed as that interface must include it. Runtime driver
+registries must still originate from `defaultCodecs` or `.with()`; arbitrary structurally matching
+objects are not accepted. Using the supplied registries requires no migration.
 
 `codecs.typescript(oid)` returns the known non-NULL text-result representation: for example,
 `'string'`, `'PgArray<number>'`, or `'globalThis.Uint8Array'`. JSON has the known type `'unknown'`.

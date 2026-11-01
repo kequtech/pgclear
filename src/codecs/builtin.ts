@@ -169,7 +169,8 @@ const decimal: Codec<string> = Object.freeze({
   oid: 1700,
   text: Object.freeze({ encode: numeric, decode: numeric }),
 });
-const text = textCodec(25);
+const text = textCodec(25),
+  uuid = textCodec(2950);
 export const builtin = Object.freeze({
   bool,
   int2,
@@ -180,7 +181,7 @@ export const builtin = Object.freeze({
   float8: floatCodec(701),
   numeric: decimal,
   text,
-  uuid: textCodec(2950),
+  uuid,
   bytea: Object.freeze({
     oid: 17,
     text: Object.freeze({
@@ -205,5 +206,6 @@ export const builtin = Object.freeze({
   int8BigIntArray: arrayCodec(1016, bigInteger),
   numericArray: arrayCodec(1231, decimal),
   textArray: arrayCodec(1009, text),
+  uuidArray: arrayCodec(2951, uuid),
 });
 export const oidCodec = integerCodec(26, 0, 4294967295);

@@ -1,4 +1,4 @@
-import type { Outcome } from './types.js';
+import type { Oid, Outcome } from './types.js';
 import { sharedWeakMap } from './identity.js';
 
 const driverErrors = sharedWeakMap<object, true>('driver-errors');
@@ -24,6 +24,8 @@ export type DriverErrorCode =
   | 'PGCLEAR_TRANSACTION_STATE';
 
 export class DriverError extends Error {
+  readonly column?: string;
+  readonly dataTypeOid?: Oid;
   static [Symbol.hasInstance](value: unknown): boolean {
     return this === DriverError
       ? driverErrors.has(value as object)
@@ -34,9 +36,14 @@ export class DriverError extends Error {
     readonly code: DriverErrorCode,
     message: string,
     readonly outcome: Outcome = 'not-sent',
-    options?: ErrorOptions,
+    options?: ErrorOptions & {
+      readonly column?: string | undefined;
+      readonly dataTypeOid?: Oid | undefined;
+    },
   ) {
     super(message, options);
+    if (options?.column !== undefined) this.column = options.column;
+    if (options?.dataTypeOid !== undefined) this.dataTypeOid = options.dataTypeOid;
     driverErrors.set(this, true);
   }
 }

@@ -100,6 +100,7 @@ test(
       }[];
       assert.ok(archive!.files.some((file) => file.path === 'dist/index.js'));
       assert.ok(archive!.files.some((file) => file.path === 'dist/index.d.ts'));
+      assert.ok(archive!.files.some((file) => file.path === 'examples/shared-listener.ts'));
       assert.ok(!archive!.files.some((file) => file.path.startsWith('dist/generation/')));
       assert.ok(
         !archive!.files.some((file) => /^(?:src|test|\.env|\.test-dist)(?:\/|$)/.test(file.path)),

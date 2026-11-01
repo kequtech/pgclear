@@ -137,6 +137,11 @@ The package root's exports/declarations and documented behavior form the public 
 shapes, default representations, and error codes/outcomes are part of that contract; diagnostic
 message wording is not a machine-readable interface.
 
+The 0.3.3 registry metadata addition made `CodecRegistry.isDefaultDecoder(oid)` a required
+TypeScript interface method. Update tooling adapters/test doubles that implement that interface;
+use `defaultCodecs`/`.with()` for actual driver configuration. Structural interface conformance does
+not construct a runtime registry. See [codec metadata compatibility](values.md#type-metadata-for-downstream-tools).
+
 During 0.x development, patch releases preserve compatibility within a minor release line.
 Incompatible API or representation changes use a new minor version with migration notes. Published
 versions are not replaced. Same-version package copies in one realm may exchange in-process

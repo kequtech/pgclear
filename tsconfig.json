@@ -10,7 +10,10 @@
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "skipLibCheck": false,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@kequtech/pgclear": ["./src/index.ts"]
+    }
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "examples/**/*.ts"]
 }

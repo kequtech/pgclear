@@ -319,22 +319,35 @@ export class PhysicalConnection {
           op.error = new DriverError('PGCLEAR_CONFIGURATION', 'COPY requires a COPY statement.');
       } else if ('result' in work) {
         work.result.fields = fields;
-        work.result.decode = rowDecoder(fields, work.result.codecs, work.result.arrayMode);
+        try {
+          work.result.decode = rowDecoder(fields, work.result.codecs, work.result.arrayMode);
+        } catch (error) {
+          op.error ??= error as Error;
+        }
         work.phase = 'rows';
         if (work.kind === 'stream') {
           if (message.type === 'fields') work.returnedRows = 0;
           work.metadataBytes = work.result.bytes;
           work.output.metadata(fields);
         }
-        if (
-          !work.result.arrayMode &&
-          new Set(fields.map((field) => field.name)).size !== fields.length
-        )
-          op.error ??= new DriverError(
-            'PGCLEAR_DECODE',
-            'Duplicate column names require array row mode.',
-            'unknown',
-          );
+        if (!work.result.arrayMode) {
+          const names = new Set<string>();
+          for (const field of fields) {
+            if (names.has(field.name)) {
+              op.error ??= new DriverError(
+                'PGCLEAR_DECODE',
+                'Duplicate column names require array row mode.',
+                'unknown',
+                {
+                  column: field.name,
+                  dataTypeOid: field.dataTypeOid,
+                },
+              );
+              break;
+            }
+            names.add(field.name);
+          }
+        }
       } else throw protocolError();
       return;
     }
@@ -353,12 +366,15 @@ export class PhysicalConnection {
         try {
           work.result.rows.push(work.result.decode!(message.values));
         } catch (cause) {
-          op.error = new DriverError(
-            'PGCLEAR_DECODE',
-            'Failed to decode a PostgreSQL result.',
-            'unknown',
-            { cause },
-          );
+          op.error =
+            cause instanceof DriverError && cause.code === 'PGCLEAR_DECODE'
+              ? cause
+              : new DriverError(
+                  'PGCLEAR_DECODE',
+                  'Failed to decode a PostgreSQL result.',
+                  'unknown',
+                  { cause },
+                );
         }
       }
       return;
@@ -475,7 +491,14 @@ export class PhysicalConnection {
     const work = op.work;
     if (op.error instanceof DriverError && op.error.code === 'PGCLEAR_DECODE')
       op.error = new AggregateError(
-        [new DriverError(op.error.code, op.error.message, 'confirmed', { cause: op.error }), error],
+        [
+          new DriverError(op.error.code, op.error.message, 'confirmed', {
+            cause: op.error,
+            column: op.error.column,
+            dataTypeOid: op.error.dataTypeOid,
+          }),
+          error,
+        ],
         'Result decoding and PostgreSQL command failed.',
       );
     else op.error ??= error;
@@ -943,7 +966,11 @@ export class PhysicalConnection {
     if (op.work.kind === 'copy-from') void op.work.input.stop();
     output(op.work)?.discard();
     if (error instanceof DriverError && error.outcome !== outcome)
-      error = new DriverError(error.code, error.message, outcome, { cause: error });
+      error = new DriverError(error.code, error.message, outcome, {
+        cause: error,
+        column: error.column,
+        dataTypeOid: error.dataTypeOid,
+      });
     if (error) op.reject(error);
     else op.resolve(op);
     this.#emit({

@@ -26,6 +26,13 @@ try {
 It also has `severity` and, when supplied by the server, `detail`, `hint`, `position`, `schema`,
 `table`, `column`, `dataType`, `constraint`, and `routine`. It does not have an `outcome` property.
 
+For `PGCLEAR_DECODE`, optional `DriverError.column` and `DriverError.dataTypeOid` identify the
+result column name (including SQL aliases) and PostgreSQL type OID. This also covers positional
+rows and streamed rows. Decoder-selection failures carry the same metadata. Duplicate column-name
+errors identify the repeated column. The driver adds no SQL text, parameters, or row values to
+these fields or its diagnostic message. The original decoder exception remains in the `cause`
+chain; application-authored causes can themselves contain values, so do not log them indiscriminately.
+
 `DriverError.code` is one of the stable `PGCLEAR_*` codes below. Diagnostic message text can change;
 branch on the code instead. Application callbacks and COPY sources may also throw their own errors.
 If work and cleanup both fail, an `AggregateError` preserves both, with the work error first.

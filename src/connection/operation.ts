@@ -3,6 +3,7 @@ import type { Configuration } from '../config/index.js';
 import type { CommandResult, Description, Field, QueryResult } from '../types.js';
 import type { CopyInput } from './copy.js';
 import type { OutputStream, PortalStream } from './stream.js';
+import { DriverError } from '../errors.js';
 
 interface Rows {
   fields: readonly Field[];
@@ -97,17 +98,36 @@ export function bytes(work: Work, count: number): number {
   return 0;
 }
 type RowDecoder = (values: readonly (Buffer | null)[]) => object;
+function decodeError(field: Field, cause: unknown): DriverError {
+  return new DriverError('PGCLEAR_DECODE', 'Failed to decode a PostgreSQL result.', 'unknown', {
+    cause,
+    column: field.name,
+    dataTypeOid: field.dataTypeOid,
+  });
+}
 export function rowDecoder(
   fields: readonly Field[],
   codecs: Configuration['codecs'],
   arrayMode: boolean,
 ): RowDecoder {
   // Identity-compatible older package copies may supply a registry without decoder selection.
-  const decoders = fields.map((field) =>
-    typeof codecs.decoder === 'function'
-      ? codecs.decoder(field)
-      : (value: Buffer | null) => codecs.decode(value, field),
-  );
+  const decoders = fields.map((field) => {
+    try {
+      const decode =
+        typeof codecs.decoder === 'function'
+          ? codecs.decoder(field)
+          : (value: Buffer | null) => codecs.decode(value, field);
+      return (value: Buffer | null) => {
+        try {
+          return decode(value);
+        } catch (cause) {
+          throw decodeError(field, cause);
+        }
+      };
+    } catch (cause) {
+      throw decodeError(field, cause);
+    }
+  });
   if (arrayMode)
     return (values) => {
       const row = new Array<unknown>(fields.length);

@@ -83,6 +83,7 @@ for (const codec of [
   builtin.int8Array,
   builtin.numericArray,
   builtin.textArray,
+  builtin.uuidArray,
 ]) {
   const decode = codec.text!.decode;
   defaultDecoderOids.set(decode, new Set([...(defaultDecoderOids.get(decode) ?? []), codec.oid]));

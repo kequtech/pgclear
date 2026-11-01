@@ -71,8 +71,11 @@ savepoint recovery, and cancellation. They do not promise session persistence or
 ## Making changes
 
 Keep the [API overview](public-api.md) and linked guides aligned with `src/index.ts` and `src/types.ts`.
-Put executable behavior checks in workflow/function tests. Compile-only usage and rejected-call
-examples live in `test/fixtures/api-examples.ts`. Prefer observable barriers over timing guesses in
+Put executable behavior checks in workflow/function tests. The consumer ownership example lives
+in `examples/shared-listener.ts`; keep it typechecked and test its public lifecycle behavior.
+The development TypeScript path mapping checks package imports against `src/index.ts` before a
+build exists; emitted example imports still use the installed package. Compile-only usage and
+rejected-call examples live in `test/fixtures/api-examples.ts`. Prefer observable barriers over timing guesses in
 lifecycle tests. Keep source changes separate from unrelated generated or trial artifacts.
 
 [Architecture](architecture.md) explains module responsibilities and ownership. Use the existing

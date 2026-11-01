@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.3.4
+
+- Add `builtin.uuidArray` for explicit UUID-array parameters, using PostgreSQL's UUID validation.
+- Add safe `column` and `dataTypeOid` context to `PGCLEAR_DECODE` errors while preserving causes,
+  outcomes, and response recovery for queries, scripts, prepared statements, and streams.
+- Add a complete, typechecked consumer listener ownership example with shared readiness, reference
+  counts, ordered removal/replacement, cancellation, and application-owned gap recovery.
+- Clarify shared connection configuration and the required `CodecRegistry.isDefaultDecoder` method
+  introduced in 0.3.3; runtime registries still come from `defaultCodecs`/`.with()`.
+
 ## 0.3.3
 
 - Add awaited listener `subscribe`/`unsubscribe` operations and allow an initially empty channel

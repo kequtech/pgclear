@@ -121,3 +121,72 @@ notice a possible gap and reconcile that state.
 Use direct PostgreSQL or PgBouncer session pooling. Transaction pooling cannot preserve LISTEN
 registration. `listener.close(options?)` permanently stops connections and retries; it is independent
 of `pool.close()` and accepts the same shutdown timeout option.
+
+## Shared consumer ownership
+
+The complete [SharedListener example](../examples/shared-listener.ts) is application code, not a
+new driver API. Copy it into your application as `shared-listener.ts` and compile it with your
+TypeScript project. Its source ships in the package and is typechecked and exercised by the tests.
+
+Keep shared connection settings separate from pool policy:
+
+```ts
+import { createPool, type ConnectionOptions } from '@kequtech/pgclear';
+import { SharedListener } from './shared-listener.js';
+
+const connection: ConnectionOptions = { connectionString: process.env.DATABASE_URL! };
+const pool = createPool({ ...connection, maxConnections: 10, acquireTimeoutMs: 5000 });
+const notifications = new SharedListener(connection);
+```
+
+A dedicated listener accepts `ConnectionOptions`, not `PoolOptions`. If reusing an existing pool
+options object, remove `maxConnections`, `maxWaiting`, `acquireTimeoutMs`, `idleTimeoutMs`, and
+`maxLifetimeMs` before passing it to `listen`. TypeScript's structural typing alone does not remove
+those properties at runtime; unknown connection options reject.
+
+In the example, each channel has one readiness promise and a set of subscribers. The set size is
+its reference count. Repeated subscriptions with the same callbacks still have distinct identities.
+Each returned handle exposes `ready` and idempotent `release()`:
+
+```ts
+const subscriber = {
+  onNotification: ({ payload }: { payload: string }) => console.log(payload),
+  onDisconnect: (error: unknown) => console.error('Reopen and reconcile this subscriber:', error),
+};
+const first = notifications.subscribe('jobs_changed', subscriber);
+const second = notifications.subscribe('jobs_changed', subscriber);
+try {
+  await Promise.all([first.ready, second.ready]); // The same readiness promise.
+  await first.release(); // One subscriber remains; no UNLISTEN.
+  const leaving = second.release(); // Queues final UNLISTEN before returning.
+  const replacement = notifications.subscribe('jobs_changed', subscriber);
+  await Promise.all([leaving, replacement.ready]); // Replacement LISTEN follows that UNLISTEN.
+  await replacement.release();
+} finally {
+  await notifications.stop();
+  await pool.close();
+}
+```
+
+Connection readiness and individual membership operations have five-second deadlines. `stop()`
+invalidates the generation before aborting connecting/registering work, then closes its resources.
+Connection shutdown and startup-error disposal use the driver's separate five-second cleanup
+budget. A later subscription may open a replacement after old resource cleanup. For final application
+shutdown, stop accepting subscriptions before calling `stop()`.
+
+This example deliberately disables automatic reconnect. A disconnect or failed setup/membership
+operation invalidates that application generation once and calls each remaining subscriber's
+`onDisconnect`. In an SSE application, that handler should close its own response. A fresh browser
+subscription must recheck authorization and reconcile authoritative HTTP/database state before
+resuming updates: notifications missed during the gap have no replay. Adapt that policy to your
+application; neither driver reconnect nor the example supplies replay or authorization.
+
+Generation and subscriber-identity guards fence stale notifications and prevent old connection
+callbacks from stopping their replacement. Application callback failures are reported separately
+without interrupting other subscribers. Keep asynchronous callback errors and HTTP recovery under
+application ownership.
+
+If startup needs schema/table discovery, query through the existing application pool or a held
+session before establishing subscriptions. Bound that startup work and guard late results with the
+application's shutdown/generation state. Reusing that pool avoids a second short-lived connection;
+the listener does not need an unrestricted query or initialization hook for application discovery.
