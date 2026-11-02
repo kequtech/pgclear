@@ -59,6 +59,8 @@ extend rejection/disposal beyond the requested application deadline.
 Before dispatch, abort removes queued work. Active cancellation retires the connection so late cancel
 cannot hit its next user. Scope handles expire, but arbitrary JavaScript can keep running; later calls
 through those handles reject. No cancelled/lost scope resumes on a new backend.
+A savepoint does not isolate active cancellation: retiring the physical connection also expires
+its enclosing transaction. Handle cancellation at that transaction boundary.
 
 Encoding failures happen before dispatch. Decoder failures drain responses before safe reuse.
 Malformed protocol and frame/result overflow destroy the connection. Server errors can abort a

@@ -3,6 +3,7 @@
 ## 0.3.6
 
 - Remove redundant casts from query and codec examples; explain when SQL context supplies types.
+- Clarify that active cancellation through a savepoint can expire its enclosing transaction.
 
 ## 0.3.5
 
