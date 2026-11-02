@@ -4,9 +4,7 @@
   "config": {
     "iterations": 10000,
     "samples": 5,
-    "latencies": [
-      0
-    ],
+    "latencies": [0],
     "warmup": 20,
     "poolSize": 4,
     "concurrency": 16,

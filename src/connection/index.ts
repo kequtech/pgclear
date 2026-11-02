@@ -93,7 +93,8 @@ export class PhysicalConnection {
     private readonly notification?: (value: Notification) => void,
   ) {
     this.#config = config;
-    this.#decoder = new FrameDecoder(config.maxMessageBytes);
+    // Socket chunks remain immutable. Protocol bytes stay internal; COPY output is copied on publish.
+    this.#decoder = new FrameDecoder(config.maxMessageBytes, true);
     this.#transport = new Transport(config, {
       ready: (binding) => this.#beginStartup(binding),
       data: this.#data,

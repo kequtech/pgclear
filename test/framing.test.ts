@@ -84,38 +84,78 @@ test('command counts are safe numbers or null, independently of int8 column code
 });
 
 test('backend frames decode identically at every split and when coalesced or byte-fragmented', () => {
-  const decode = (chunks: readonly Buffer[]) => {
-    const decoder = new FrameDecoder(4096),
+  const decode = (chunks: readonly Buffer[], borrow = false) => {
+    const decoder = new FrameDecoder(4096, borrow),
       result: Message[] = [];
     for (const chunk of chunks) decoder.push(chunk, (frame) => result.push(decodeMessage(frame)));
     return result;
   };
   const expected = messages.flatMap((message) => decode([message]));
   const coalesced = Buffer.concat(messages);
-  assert.deepEqual(decode([coalesced]), expected);
-  assert.deepEqual(decode([...coalesced].map((byte) => Buffer.from([byte]))), expected);
-  for (const message of messages) {
-    for (let split = 0; split <= message.length; split++) {
+  for (const borrow of [false, true]) {
+    assert.deepEqual(decode([coalesced], borrow), expected);
+    assert.deepEqual(
+      decode(
+        [...coalesced].map((byte) => Buffer.from([byte])),
+        borrow,
+      ),
+      expected,
+    );
+    for (let split = 0; split <= coalesced.length; split++)
       assert.deepEqual(
-        decode([message.subarray(0, split), message.subarray(split)]),
-        decode([message]),
+        decode([coalesced.subarray(0, split), coalesced.subarray(split)], borrow),
+        expected,
       );
+    for (const message of messages) {
+      for (let split = 0; split <= message.length; split++) {
+        assert.deepEqual(
+          decode([message.subarray(0, split), message.subarray(split)], borrow),
+          decode([message]),
+        );
+      }
     }
   }
 });
 
 test('malformed lengths reject at the header, before reading or allocating their payload', () => {
-  for (const length of [0, 1, 2, 3, 1025, 0xffffffff]) {
-    const bytes = Buffer.alloc(5);
-    bytes[0] = 68;
-    bytes.writeUInt32BE(length, 1);
-    assert.throws(() => new FrameDecoder(1024).push(bytes, () => assert.fail()), {
-      code: 'PGCLEAR_PROTOCOL',
-    });
-  }
+  for (const length of [0, 1, 2, 3, 1025, 0xffffffff])
+    for (const borrow of [false, true]) {
+      const bytes = Buffer.alloc(5);
+      bytes[0] = 68;
+      bytes.writeUInt32BE(length, 1);
+      assert.throws(() => new FrameDecoder(1024, borrow).push(bytes, () => assert.fail()), {
+        code: 'PGCLEAR_PROTOCOL',
+      });
+    }
   const decoder = new FrameDecoder(1024);
   assert.throws(() => decoder.push(Buffer.from('4400000003', 'hex'), () => {}));
   assert.throws(() => decoder.push(ready, () => {}), { code: 'PGCLEAR_PROTOCOL' });
+});
+
+test('borrowed whole frames and assembled fragments remain valid across later chunks', () => {
+  const decoder = new FrameDecoder(4096, true);
+  const input = Buffer.concat([packet('D', Buffer.from('0001000000026162', 'hex')), ready]);
+  const decoded: Message[] = [];
+  for (const chunk of [
+    input.subarray(0, input.length - 2),
+    input.subarray(input.length - 2),
+    ready,
+  ])
+    decoder.push(chunk, (frame) => decoded.push(decodeMessage(frame)));
+  assert.deepEqual(decoded, [
+    { type: 'row', values: [Buffer.from('ab')] },
+    { type: 'ready', status: 'idle' },
+    { type: 'ready', status: 'idle' },
+  ]);
+  const failed = new FrameDecoder(4096, true);
+  assert.throws(
+    () =>
+      failed.push(ready, () => {
+        throw new Error('receiver failed');
+      }),
+    /receiver failed/,
+  );
+  assert.throws(() => failed.push(ready, () => {}), { code: 'PGCLEAR_PROTOCOL' });
 });
 
 test('bounded readers reject truncated counts, invalid UTF8, trailing data and unterminated strings', () => {

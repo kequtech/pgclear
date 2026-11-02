@@ -115,14 +115,28 @@ if (driver === 'pgclear') {
 
 const sql = 'SELECT $1::integer AS value';
 const operations =
-  workload === 'large'
+  workload === 'large' || workload === 'wide'
     ? Math.max(10, Math.ceil(iterations / 20))
     : workload === 'transaction'
       ? Math.max(10, Math.ceil(iterations / 10))
       : iterations;
 const lanes = workload === 'pool' ? concurrency : probe ? batchSize : 1;
 const run = async (value) => {
-  if (workload === 'large') {
+  if (workload === 'wide') {
+    const rows = await query(`SELECT id, 'héllo 😀'::text AS title, true AS enabled,
+      1.5::double precision AS score, '{"ok":true,"items":[1,2]}'::jsonb AS document,
+      ARRAY[1,2,3]::integer[] AS numbers FROM generate_series(1,1000) AS id`);
+    assert.equal(rows.length, 1000);
+    assert.equal(rows.at(-1).id, 1000);
+    assert.deepEqual(rows[0], {
+      id: 1,
+      title: 'héllo 😀',
+      enabled: true,
+      score: 1.5,
+      document: { ok: true, items: [1, 2] },
+      numbers: [1, 2, 3],
+    });
+  } else if (workload === 'large') {
     const rows = await query('SELECT generate_series(1,1000)::integer AS value');
     assert.equal(rows.length, 1000);
     assert.equal(rows[0].value, 1);

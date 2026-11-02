@@ -1,0 +1,603 @@
+{
+  "runtimeRevision": "17fae30540cbc41ce2c776645437c6d265e2de96",
+  "artifactSha256": "8ca1816a8b90e02a90db8895498d0f2e84900d36afabfb44f58522f6ef7b2df3",
+  "node": "v24.4.1",
+  "comparatorVersion": "8.23.1",
+  "workerRevision": "1b5e018",
+  "workerSha256": "7d145ab949bd51f605bd6822d3de147a4294aacaa870917d4d56d78a10d0c72a",
+  "notes": [
+    "V8 sampled profiles include startup, warmup and cleanup; sample shares are diagnostic, not uninstrumented timing results.",
+    "Each profile uses 100000 configured iterations and 100 warmup operations; large means 5000 queries returning 1000 integer rows each.",
+    "Profiles run serially with no other benchmark/test. Full profiles remain in the ignored producing directory."
+  ],
+  "profiles": [
+    {
+      "name": "pg-large",
+      "sha256": "81da62d3eb4ca4b7867ed0367a098fd1baaeccbc32c82053b3abb6a37db78be0",
+      "samples": 3189,
+      "topSelfSamples": [
+        {
+          "url": "",
+          "function": "(idle)",
+          "line": 0,
+          "samples": 867,
+          "share": 0.2718720602069614
+        },
+        {
+          "url": "",
+          "function": "(garbage collector)",
+          "line": 0,
+          "samples": 252,
+          "share": 0.07902163687676388
+        },
+        {
+          "url": "",
+          "function": "utf8Slice",
+          "line": 0,
+          "samples": 218,
+          "share": 0.06835998745688304
+        },
+        {
+          "url": "parser.js",
+          "function": "parseDataRowMessage",
+          "line": 228,
+          "samples": 209,
+          "share": 0.06553778613985575
+        },
+        {
+          "url": "node:buffer",
+          "function": "slice",
+          "line": 637,
+          "samples": 207,
+          "share": 0.06491063029162747
+        },
+        {
+          "url": "parser.js",
+          "function": "parse",
+          "line": 26,
+          "samples": 177,
+          "share": 0.055503292568203196
+        },
+        {
+          "url": "",
+          "function": "writev",
+          "line": 0,
+          "samples": 165,
+          "share": 0.05174035747883349
+        },
+        {
+          "url": "textParsers.js",
+          "function": "parseInteger",
+          "line": 109,
+          "samples": 146,
+          "share": 0.04578237692066479
+        },
+        {
+          "url": "index.js",
+          "function": "(anonymous)",
+          "line": 12,
+          "samples": 120,
+          "share": 0.03762935089369708
+        },
+        {
+          "url": "client.js",
+          "function": "_handleDataRow",
+          "line": 455,
+          "samples": 115,
+          "share": 0.03606146127312637
+        },
+        {
+          "url": "result.js",
+          "function": "parseRow",
+          "line": 63,
+          "samples": 99,
+          "share": 0.031044214487300093
+        },
+        {
+          "url": "node:events",
+          "function": "emit",
+          "line": 454,
+          "samples": 87,
+          "share": 0.027281279397930385
+        },
+        {
+          "url": "parser.js",
+          "function": "handlePacket",
+          "line": 91,
+          "samples": 76,
+          "share": 0.02383192223267482
+        },
+        {
+          "url": "result.js",
+          "function": "addRow",
+          "line": 78,
+          "samples": 67,
+          "share": 0.02100972091564754
+        },
+        {
+          "url": "node:internal/process/task_queues",
+          "function": "nextTick",
+          "line": 113,
+          "samples": 32,
+          "share": 0.010034493571652555
+        },
+        {
+          "url": "result.js",
+          "function": "addFields",
+          "line": 82,
+          "samples": 30,
+          "share": 0.00940733772342427
+        },
+        {
+          "url": "",
+          "function": "(program)",
+          "line": 0,
+          "samples": 26,
+          "share": 0.008153026026967701
+        },
+        {
+          "url": "query.js",
+          "function": "Query",
+          "line": 9,
+          "samples": 24,
+          "share": 0.007525870178739417
+        },
+        {
+          "url": "",
+          "function": "memoryUsage",
+          "line": 0,
+          "samples": 15,
+          "share": 0.004703668861712135
+        },
+        {
+          "url": "benchmarks/worker.mjs",
+          "function": "(anonymous)",
+          "line": 162,
+          "samples": 10,
+          "share": 0.0031357792411414237
+        }
+      ]
+    },
+    {
+      "name": "pg-pool",
+      "sha256": "1ad2ce5b2db9444c24061e12776fc81d709a7ff7920ff2470d935d85c0ee6351",
+      "samples": 7637,
+      "topSelfSamples": [
+        {
+          "url": "",
+          "function": "writev",
+          "line": 0,
+          "samples": 3426,
+          "share": 0.448605473353411
+        },
+        {
+          "url": "",
+          "function": "(idle)",
+          "line": 0,
+          "samples": 790,
+          "share": 0.10344376063899437
+        },
+        {
+          "url": "result.js",
+          "function": "addFields",
+          "line": 82,
+          "samples": 531,
+          "share": 0.0695299201257038
+        },
+        {
+          "url": "",
+          "function": "(program)",
+          "line": 0,
+          "samples": 295,
+          "share": 0.03862773340316878
+        },
+        {
+          "url": "utils.js",
+          "function": "cloneQueryConfig",
+          "line": 171,
+          "samples": 274,
+          "share": 0.03587796255073982
+        },
+        {
+          "url": "",
+          "function": "(garbage collector)",
+          "line": 0,
+          "samples": 120,
+          "share": 0.015712976299594082
+        },
+        {
+          "url": "node:internal/timers",
+          "function": "insert",
+          "line": 388,
+          "samples": 103,
+          "share": 0.013486971323818254
+        },
+        {
+          "url": "",
+          "function": "runMicrotasks",
+          "line": 0,
+          "samples": 94,
+          "share": 0.012308498101348698
+        },
+        {
+          "url": "client.js",
+          "function": "_pulseQueryQueue",
+          "line": 616,
+          "samples": 75,
+          "share": 0.0098206101872463
+        },
+        {
+          "url": "node:internal/stream_base_commons",
+          "function": "createWriteWrap",
+          "line": 108,
+          "samples": 68,
+          "share": 0.008904019903103313
+        },
+        {
+          "url": "",
+          "function": "utf8Slice",
+          "line": 0,
+          "samples": 67,
+          "share": 0.008773078433940028
+        },
+        {
+          "url": "benchmarks/worker.mjs",
+          "function": "(anonymous)",
+          "line": 162,
+          "samples": 63,
+          "share": 0.008249312557286892
+        },
+        {
+          "url": "node:events",
+          "function": "emit",
+          "line": 454,
+          "samples": 57,
+          "share": 0.0074636637423071885
+        },
+        {
+          "url": "node:buffer",
+          "function": "slice",
+          "line": 637,
+          "samples": 56,
+          "share": 0.007332722273143905
+        },
+        {
+          "url": "",
+          "function": "(anonymous)",
+          "line": 0,
+          "samples": 52,
+          "share": 0.006808956396490769
+        },
+        {
+          "url": "node:internal/process/task_queues",
+          "function": "processTicksAndRejections",
+          "line": 72,
+          "samples": 51,
+          "share": 0.006678014927327484
+        },
+        {
+          "url": "benchmarks/node_modules/pg-pool/index.js",
+          "function": "_release",
+          "line": 384,
+          "samples": 50,
+          "share": 0.006547073458164201
+        },
+        {
+          "url": "node:internal/buffer",
+          "function": "FastBuffer",
+          "line": 967,
+          "samples": 47,
+          "share": 0.006154249050674349
+        },
+        {
+          "url": "benchmarks/node_modules/pg-pool/index.js",
+          "function": "_pulseQueue",
+          "line": 127,
+          "samples": 46,
+          "share": 0.0060233075815110644
+        },
+        {
+          "url": "parser.js",
+          "function": "parse",
+          "line": 26,
+          "samples": 46,
+          "share": 0.0060233075815110644
+        }
+      ]
+    },
+    {
+      "name": "pgclear-large",
+      "sha256": "89f1309a8e34b20bde86ed7088253789e82311b1f7925723bdb1bdd1af1c6fd0",
+      "samples": 5027,
+      "topSelfSamples": [
+        {
+          "url": "",
+          "function": "(idle)",
+          "line": 0,
+          "samples": 753,
+          "share": 0.14979112790928983
+        },
+        {
+          "url": "",
+          "function": "(anonymous)",
+          "line": 0,
+          "samples": 457,
+          "share": 0.09090909090909091
+        },
+        {
+          "url": "connection/index.js",
+          "function": "#receive",
+          "line": 177,
+          "samples": 395,
+          "share": 0.07857569126715735
+        },
+        {
+          "url": "protocol/framing.js",
+          "function": "push",
+          "line": 13,
+          "samples": 393,
+          "share": 0.07817783966580466
+        },
+        {
+          "url": "connection/index.js",
+          "function": "#drainMessages",
+          "line": 152,
+          "samples": 365,
+          "share": 0.07260791724686692
+        },
+        {
+          "url": "",
+          "function": "(garbage collector)",
+          "line": 0,
+          "samples": 306,
+          "share": 0.0608712950069624
+        },
+        {
+          "url": "protocol/messages.js",
+          "function": "decodeMessage",
+          "line": 93,
+          "samples": 271,
+          "share": 0.053908891983290234
+        },
+        {
+          "url": "",
+          "function": "decodeUTF8",
+          "line": 0,
+          "samples": 268,
+          "share": 0.05331211458126119
+        },
+        {
+          "url": "codecs/builtin.js",
+          "function": "decode",
+          "line": 31,
+          "samples": 255,
+          "share": 0.05072607917246867
+        },
+        {
+          "url": "node:internal/encoding",
+          "function": "decode",
+          "line": 440,
+          "samples": 244,
+          "share": 0.048537895365028845
+        },
+        {
+          "url": "node:internal/buffer",
+          "function": "FastBuffer",
+          "line": 967,
+          "samples": 243,
+          "share": 0.0483389695643525
+        },
+        {
+          "url": "",
+          "function": "writeBuffer",
+          "line": 0,
+          "samples": 170,
+          "share": 0.033817386114979114
+        },
+        {
+          "url": "node:buffer",
+          "function": "copyImpl",
+          "line": 209,
+          "samples": 130,
+          "share": 0.025860354087925204
+        },
+        {
+          "url": "connection/index.js",
+          "function": "#data",
+          "line": 127,
+          "samples": 81,
+          "share": 0.016112989854784165
+        },
+        {
+          "url": "connection/operation.js",
+          "function": "(anonymous)",
+          "line": 70,
+          "samples": 78,
+          "share": 0.015516212452755123
+        },
+        {
+          "url": "protocol/messages.js",
+          "function": "bytes",
+          "line": 32,
+          "samples": 67,
+          "share": 0.013328028645315298
+        },
+        {
+          "url": "",
+          "function": "(program)",
+          "line": 0,
+          "samples": 59,
+          "share": 0.011736622239904515
+        },
+        {
+          "url": "",
+          "function": "RegExp: ^-?\\d+$",
+          "line": 0,
+          "samples": 53,
+          "share": 0.01054306743584643
+        },
+        {
+          "url": "node:buffer",
+          "function": "subarray",
+          "line": 1178,
+          "samples": 43,
+          "share": 0.008553809429082952
+        },
+        {
+          "url": "",
+          "function": "memoryUsage",
+          "line": 0,
+          "samples": 30,
+          "share": 0.005967774020290432
+        }
+      ]
+    },
+    {
+      "name": "pgclear-pool",
+      "sha256": "21a954c84f55e334b673b5816faab34c05f41068abdd189aa8bd0a10d4a736de",
+      "samples": 9025,
+      "topSelfSamples": [
+        {
+          "url": "",
+          "function": "writeBuffer",
+          "line": 0,
+          "samples": 3253,
+          "share": 0.3604432132963989
+        },
+        {
+          "url": "",
+          "function": "(idle)",
+          "line": 0,
+          "samples": 889,
+          "share": 0.09850415512465374
+        },
+        {
+          "url": "",
+          "function": "(anonymous)",
+          "line": 0,
+          "samples": 363,
+          "share": 0.040221606648199446
+        },
+        {
+          "url": "",
+          "function": "(program)",
+          "line": 0,
+          "samples": 283,
+          "share": 0.03135734072022161
+        },
+        {
+          "url": "",
+          "function": "runMicrotasks",
+          "line": 0,
+          "samples": 237,
+          "share": 0.02626038781163435
+        },
+        {
+          "url": "connection/operation.js",
+          "function": "rowDecoder",
+          "line": 32,
+          "samples": 187,
+          "share": 0.0207202216066482
+        },
+        {
+          "url": "node:internal/buffer",
+          "function": "FastBuffer",
+          "line": 967,
+          "samples": 172,
+          "share": 0.019058171745152355
+        },
+        {
+          "url": "",
+          "function": "(garbage collector)",
+          "line": 0,
+          "samples": 161,
+          "share": 0.017839335180055402
+        },
+        {
+          "url": "connection/query.js",
+          "function": "commandResult",
+          "line": 152,
+          "samples": 141,
+          "share": 0.015623268698060942
+        },
+        {
+          "url": "connection/query.js",
+          "function": "encodeQuery",
+          "line": 9,
+          "samples": 127,
+          "share": 0.01407202216066482
+        },
+        {
+          "url": "protocol/messages.js",
+          "function": "decodeMessage",
+          "line": 93,
+          "samples": 115,
+          "share": 0.012742382271468145
+        },
+        {
+          "url": "",
+          "function": "now",
+          "line": 0,
+          "samples": 107,
+          "share": 0.01185595567867036
+        },
+        {
+          "url": "pool/index.js",
+          "function": "#withLease",
+          "line": 301,
+          "samples": 102,
+          "share": 0.011301939058171746
+        },
+        {
+          "url": "node:buffer",
+          "function": "concat",
+          "line": 579,
+          "samples": 93,
+          "share": 0.010304709141274238
+        },
+        {
+          "url": "connection/index.js",
+          "function": "#receive",
+          "line": 177,
+          "samples": 92,
+          "share": 0.010193905817174515
+        },
+        {
+          "url": "connection/index.js",
+          "function": "#drainMessages",
+          "line": 152,
+          "samples": 91,
+          "share": 0.010083102493074793
+        },
+        {
+          "url": "pool/index.js",
+          "function": "#release",
+          "line": 203,
+          "samples": 78,
+          "share": 0.008642659279778394
+        },
+        {
+          "url": "connection/index.js",
+          "function": "#pump",
+          "line": 750,
+          "samples": 75,
+          "share": 0.008310249307479225
+        },
+        {
+          "url": "benchmarks/worker.mjs",
+          "function": "(anonymous)",
+          "line": 162,
+          "samples": 72,
+          "share": 0.007977839335180056
+        },
+        {
+          "url": "node:internal/stream_base_commons",
+          "function": "createWriteWrap",
+          "line": 108,
+          "samples": 71,
+          "share": 0.007867036011080332
+        }
+      ]
+    }
+  ]
+}

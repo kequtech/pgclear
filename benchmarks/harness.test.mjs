@@ -6,6 +6,18 @@ import { fileURLToPath } from 'node:url';
 import { relay } from './relay.mjs';
 import { summarize } from './stats.mjs';
 
+test('workload selection refuses unknown names before database access', () => {
+  assert.throws(
+    () =>
+      execFileSync(
+        process.execPath,
+        [fileURLToPath(new URL('./run.mjs', import.meta.url)), '--workloads', 'unknown'],
+        { env: {}, stdio: 'pipe' },
+      ),
+    (error) => error.status === 1 && /Unknown benchmark workload/.test(error.stderr.toString()),
+  );
+});
+
 test('direct transport refuses artificial RTT before opening a database or building a package', () => {
   assert.throws(
     () =>

@@ -10,6 +10,16 @@ import { summarize } from './stats.mjs';
 
 const run = promisify(execFile);
 const root = fileURLToPath(new URL('../', import.meta.url));
+const defaultWorkloads = [
+  'small',
+  'prepared',
+  'large',
+  'arrays-json',
+  'transaction',
+  'pool',
+  'pipeline-probe',
+];
+const knownWorkloads = [...defaultWorkloads, 'wide'];
 const config = {
   iterations: 1000,
   samples: 3,
@@ -19,6 +29,7 @@ const config = {
   concurrency: 16,
   batchSize: 32,
   transport: 'relay',
+  workloads: defaultWorkloads,
 };
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i += 2) {
@@ -27,9 +38,19 @@ for (let i = 0; i < args.length; i += 2) {
     '--samples': 'samples',
     '--latencies': 'latencies',
     '--transport': 'transport',
+    '--workloads': 'workloads',
   }[args[i]];
   if (!name || args[i + 1] === undefined)
-    throw Error('Use --iterations N --samples N --latencies 0,10 --transport relay|direct.');
+    throw Error(
+      'Use --iterations N --samples N --latencies 0,10 --transport relay|direct --workloads names.',
+    );
+  if (name === 'workloads') {
+    const names = args[i + 1].split(',');
+    if (names.some((value) => !knownWorkloads.includes(value)))
+      throw Error('Unknown benchmark workload.');
+    config.workloads = [...new Set(names)];
+    continue;
+  }
   if (name === 'transport') {
     if (!['relay', 'direct'].includes(args[i + 1]))
       throw Error('Transport must be relay or direct.');
@@ -150,15 +171,7 @@ const report = {
   summaries: [],
 };
 const drivers = ['pgclear', 'pg', 'postgres'];
-const workloads = [
-  'small',
-  'prepared',
-  'large',
-  'arrays-json',
-  'transaction',
-  'pool',
-  'pipeline-probe',
-];
+const workloads = config.workloads;
 try {
   for (const addedRttMs of config.latencies) {
     const proxy =

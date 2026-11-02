@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.3.7
+
+- Reduce frame allocations and copying for complete incoming messages. Fragmented frames, strict
+  decoding, cancellation and public byte-value ownership retain their existing behavior.
+
 ## 0.3.6
 
 - Remove redundant casts from query and codec examples; explain when SQL context supplies types.

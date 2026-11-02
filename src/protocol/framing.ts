@@ -5,7 +5,7 @@ export interface Frame {
   readonly payload: Buffer;
 }
 
-/** One bounded allocation per frame; fragmented input never repeatedly copies the accumulated frame. */
+/** Fragmented input uses one bounded allocation; immutable transport chunks can lend whole frames. */
 export class FrameDecoder {
   #header = Buffer.alloc(5);
   #headerUsed = 0;
@@ -13,13 +13,28 @@ export class FrameDecoder {
   #payloadUsed = 0;
   #failed = false;
 
-  constructor(private readonly maxMessageBytes: number) {}
+  constructor(
+    private readonly maxMessageBytes: number,
+    private readonly borrowCompleteFrames = false,
+  ) {}
 
   push(chunk: Buffer, receive: (frame: Frame) => void): void {
     if (this.#failed) throw protocolError('The protocol decoder has failed.');
     try {
       let offset = 0;
       while (offset < chunk.length) {
+        if (this.borrowCompleteFrames && this.#headerUsed === 0 && chunk.length - offset >= 5) {
+          const length = chunk.readUInt32BE(offset + 1);
+          if (length < 4 || length > this.maxMessageBytes)
+            throw protocolError('Invalid or oversized protocol frame.');
+          if (length + 1 <= chunk.length - offset) {
+            const type = chunk[offset]!;
+            const payload = chunk.subarray(offset + 5, offset + length + 1);
+            offset += length + 1;
+            receive({ type, payload });
+            continue;
+          }
+        }
         if (this.#headerUsed < 5) {
           const count = Math.min(5 - this.#headerUsed, chunk.length - offset);
           chunk.copy(this.#header, this.#headerUsed, offset, offset + count);

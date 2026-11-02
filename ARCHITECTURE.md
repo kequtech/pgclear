@@ -62,6 +62,10 @@ owned resources. It cannot stop arbitrary application JavaScript or prove remote
 
 ## Protocol operations and recovery
 
+Complete frames may borrow immutable socket chunks while the connection processes messages;
+fragmented frames use an owned bounded buffer. The standalone frame decoder still copies by default.
+Decoded public byte values, including COPY output, own their bytes.
+
 Describe sends Parse/Describe/Sync without execution. Preparation creates a named statement and
 waits for confirmation; scope cleanup disposes it. Scripts use the simple protocol and preserve
 PostgreSQL transaction semantics.

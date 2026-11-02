@@ -1,0 +1,138 @@
+{
+  "scope": "Isolated conversion screening; these are not SQL timings. The ASCII prototype was rejected and removed.",
+  "config": {
+    "iterations": 1000000,
+    "warmup": 100000,
+    "samples": 5
+  },
+  "inputs": {
+    "ascii": ["1234", "owner_id", "field", "1.5"],
+    "mixed": ["héllo 😀", "1234", "日本語", "1.5"]
+  },
+  "methods": {
+    "before": "new TextDecoder(utf8, {fatal:true,ignoreBOM:true}).decode(bytes)",
+    "after": "isAscii(bytes) ? bytes.toString(ascii) : decoder.decode(bytes)"
+  },
+  "measurements": [
+    {
+      "workload": "ascii",
+      "sample": 0,
+      "variant": "before",
+      "elapsedMs": 112.684
+    },
+    {
+      "workload": "ascii",
+      "sample": 0,
+      "variant": "after",
+      "elapsedMs": 138.114
+    },
+    {
+      "workload": "ascii",
+      "sample": 1,
+      "variant": "after",
+      "elapsedMs": 135.978
+    },
+    {
+      "workload": "ascii",
+      "sample": 1,
+      "variant": "before",
+      "elapsedMs": 111.115
+    },
+    {
+      "workload": "ascii",
+      "sample": 2,
+      "variant": "before",
+      "elapsedMs": 117.694
+    },
+    {
+      "workload": "ascii",
+      "sample": 2,
+      "variant": "after",
+      "elapsedMs": 132.112
+    },
+    {
+      "workload": "ascii",
+      "sample": 3,
+      "variant": "after",
+      "elapsedMs": 129.152
+    },
+    {
+      "workload": "ascii",
+      "sample": 3,
+      "variant": "before",
+      "elapsedMs": 111.376
+    },
+    {
+      "workload": "ascii",
+      "sample": 4,
+      "variant": "before",
+      "elapsedMs": 111.707
+    },
+    {
+      "workload": "ascii",
+      "sample": 4,
+      "variant": "after",
+      "elapsedMs": 129.174
+    },
+    {
+      "workload": "mixed",
+      "sample": 0,
+      "variant": "before",
+      "elapsedMs": 138.96
+    },
+    {
+      "workload": "mixed",
+      "sample": 0,
+      "variant": "after",
+      "elapsedMs": 166.065
+    },
+    {
+      "workload": "mixed",
+      "sample": 1,
+      "variant": "after",
+      "elapsedMs": 165.668
+    },
+    {
+      "workload": "mixed",
+      "sample": 1,
+      "variant": "before",
+      "elapsedMs": 136.916
+    },
+    {
+      "workload": "mixed",
+      "sample": 2,
+      "variant": "before",
+      "elapsedMs": 134.187
+    },
+    {
+      "workload": "mixed",
+      "sample": 2,
+      "variant": "after",
+      "elapsedMs": 165.934
+    },
+    {
+      "workload": "mixed",
+      "sample": 3,
+      "variant": "after",
+      "elapsedMs": 166.162
+    },
+    {
+      "workload": "mixed",
+      "sample": 3,
+      "variant": "before",
+      "elapsedMs": 135.862
+    },
+    {
+      "workload": "mixed",
+      "sample": 4,
+      "variant": "before",
+      "elapsedMs": 134.899
+    },
+    {
+      "workload": "mixed",
+      "sample": 4,
+      "variant": "after",
+      "elapsedMs": 166.816
+    }
+  ]
+}

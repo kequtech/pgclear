@@ -1,0 +1,756 @@
+{
+  "createdAt": "2026-11-02T17:15:21.230Z",
+  "config": {
+    "blocks": 20,
+    "smallOperations": 1000,
+    "transactionOperations": 500,
+    "warmup": 1000,
+    "transport": "direct",
+    "connectionCountPerVariant": 1
+  },
+  "notes": [
+    "Both variants run in one Node process with separate connections/pools; this checks steady-state small operations with shorter alternating blocks.",
+    "No profiler, forced GC or concurrent tests. Each block measures completed operations and checks every returned value. Both variants receive the same warmup."
+  ],
+  "measurements": [
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 0,
+      "operations": 1000,
+      "elapsedMs": 199.32529399999999,
+      "operationsPerSecond": 5016.924746138841,
+      "cpuMs": 148.366
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 0,
+      "operations": 1000,
+      "elapsedMs": 199.36094500000002,
+      "operationsPerSecond": 5016.027587549808,
+      "cpuMs": 150.269
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 1,
+      "operations": 1000,
+      "elapsedMs": 199.0672340000001,
+      "operationsPerSecond": 5023.42841615009,
+      "cpuMs": 135.311
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 1,
+      "operations": 1000,
+      "elapsedMs": 184.62632499999995,
+      "operationsPerSecond": 5416.345691764163,
+      "cpuMs": 136.024
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 2,
+      "operations": 1000,
+      "elapsedMs": 179.5149100000001,
+      "operationsPerSecond": 5570.5679266418565,
+      "cpuMs": 123.961
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 2,
+      "operations": 1000,
+      "elapsedMs": 178.074611,
+      "operationsPerSecond": 5615.623666868491,
+      "cpuMs": 121.985
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 3,
+      "operations": 1000,
+      "elapsedMs": 177.58845700000006,
+      "operationsPerSecond": 5630.996613704458,
+      "cpuMs": 130.247
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 3,
+      "operations": 1000,
+      "elapsedMs": 197.47656800000004,
+      "operationsPerSecond": 5063.891934763621,
+      "cpuMs": 138.083
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 4,
+      "operations": 1000,
+      "elapsedMs": 199.93812100000014,
+      "operationsPerSecond": 5001.547453774458,
+      "cpuMs": 153.556
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 4,
+      "operations": 1000,
+      "elapsedMs": 191.18415700000014,
+      "operationsPerSecond": 5230.55893172152,
+      "cpuMs": 130.053
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 5,
+      "operations": 1000,
+      "elapsedMs": 195.83562699999993,
+      "operationsPerSecond": 5106.323171728096,
+      "cpuMs": 154.265
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 5,
+      "operations": 1000,
+      "elapsedMs": 204.17667600000004,
+      "operationsPerSecond": 4897.719071496686,
+      "cpuMs": 147.841
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 6,
+      "operations": 1000,
+      "elapsedMs": 201.53726400000005,
+      "operationsPerSecond": 4961.861544374244,
+      "cpuMs": 128.919
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 6,
+      "operations": 1000,
+      "elapsedMs": 201.17626100000007,
+      "operationsPerSecond": 4970.765412525485,
+      "cpuMs": 129.931
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 7,
+      "operations": 1000,
+      "elapsedMs": 187.2546980000002,
+      "operationsPerSecond": 5340.319952880429,
+      "cpuMs": 131.265
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 7,
+      "operations": 1000,
+      "elapsedMs": 181.7522899999999,
+      "operationsPerSecond": 5501.993950117496,
+      "cpuMs": 124.734
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 8,
+      "operations": 1000,
+      "elapsedMs": 193.87287000000015,
+      "operationsPerSecond": 5158.019273145331,
+      "cpuMs": 126.551
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 8,
+      "operations": 1000,
+      "elapsedMs": 191.70203200000014,
+      "operationsPerSecond": 5216.428796122512,
+      "cpuMs": 124.286
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 9,
+      "operations": 1000,
+      "elapsedMs": 180.85092699999996,
+      "operationsPerSecond": 5529.415948196938,
+      "cpuMs": 154.13
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 9,
+      "operations": 1000,
+      "elapsedMs": 178.1523560000005,
+      "operationsPerSecond": 5613.173030392016,
+      "cpuMs": 152.323
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 10,
+      "operations": 1000,
+      "elapsedMs": 164.76542900000004,
+      "operationsPerSecond": 6069.234341628788,
+      "cpuMs": 108.199
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 10,
+      "operations": 1000,
+      "elapsedMs": 164.94145000000026,
+      "operationsPerSecond": 6062.757420890857,
+      "cpuMs": 104.556
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 11,
+      "operations": 1000,
+      "elapsedMs": 164.619823,
+      "operationsPerSecond": 6074.602570797321,
+      "cpuMs": 103.651
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 11,
+      "operations": 1000,
+      "elapsedMs": 168.4761639999997,
+      "operationsPerSecond": 5935.557744536502,
+      "cpuMs": 106.589
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 12,
+      "operations": 1000,
+      "elapsedMs": 170.73623099999986,
+      "operationsPerSecond": 5856.9876712342375,
+      "cpuMs": 109.352
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 12,
+      "operations": 1000,
+      "elapsedMs": 168.75545499999953,
+      "operationsPerSecond": 5925.734371075606,
+      "cpuMs": 106.527
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 13,
+      "operations": 1000,
+      "elapsedMs": 170.78658799999994,
+      "operationsPerSecond": 5855.260718716392,
+      "cpuMs": 105.061
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 13,
+      "operations": 1000,
+      "elapsedMs": 183.1950999999999,
+      "operationsPerSecond": 5458.661285154464,
+      "cpuMs": 112.837
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 14,
+      "operations": 1000,
+      "elapsedMs": 177.69496399999935,
+      "operationsPerSecond": 5627.621500854711,
+      "cpuMs": 109.801
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 14,
+      "operations": 1000,
+      "elapsedMs": 170.8116170000003,
+      "operationsPerSecond": 5854.402748262715,
+      "cpuMs": 105.587
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 15,
+      "operations": 1000,
+      "elapsedMs": 169.80632499999956,
+      "operationsPerSecond": 5889.062141825415,
+      "cpuMs": 104.874
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 15,
+      "operations": 1000,
+      "elapsedMs": 175.48240799999985,
+      "operationsPerSecond": 5698.576919459646,
+      "cpuMs": 107.604
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 16,
+      "operations": 1000,
+      "elapsedMs": 170.94657899999947,
+      "operationsPerSecond": 5849.780708393136,
+      "cpuMs": 105.707
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 16,
+      "operations": 1000,
+      "elapsedMs": 171.77336100000048,
+      "operationsPerSecond": 5821.624460151288,
+      "cpuMs": 106.582
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 17,
+      "operations": 1000,
+      "elapsedMs": 172.24283599999944,
+      "operationsPerSecond": 5805.756705027797,
+      "cpuMs": 106.181
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 17,
+      "operations": 1000,
+      "elapsedMs": 177.48875599999974,
+      "operationsPerSecond": 5634.159721081157,
+      "cpuMs": 109.993
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 18,
+      "operations": 1000,
+      "elapsedMs": 192.62940200000048,
+      "operationsPerSecond": 5191.315498139777,
+      "cpuMs": 118.186
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 18,
+      "operations": 1000,
+      "elapsedMs": 189.2307149999997,
+      "operationsPerSecond": 5284.554360004408,
+      "cpuMs": 115.801
+    },
+    {
+      "workload": "small",
+      "variant": "after",
+      "block": 19,
+      "operations": 1000,
+      "elapsedMs": 189.68802899999991,
+      "operationsPerSecond": 5271.813963547486,
+      "cpuMs": 134.442
+    },
+    {
+      "workload": "small",
+      "variant": "before",
+      "block": 19,
+      "operations": 1000,
+      "elapsedMs": 204.26100599999972,
+      "operationsPerSecond": 4895.6970279486495,
+      "cpuMs": 137.375
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 0,
+      "operations": 500,
+      "elapsedMs": 346.7797960000007,
+      "operationsPerSecond": 1441.837170929067,
+      "cpuMs": 258.264
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 0,
+      "operations": 500,
+      "elapsedMs": 333.4623819999997,
+      "operationsPerSecond": 1499.4195057360334,
+      "cpuMs": 272.219
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 1,
+      "operations": 500,
+      "elapsedMs": 321.14012100000036,
+      "operationsPerSecond": 1556.9527670446366,
+      "cpuMs": 258.079
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 1,
+      "operations": 500,
+      "elapsedMs": 351.0862280000001,
+      "operationsPerSecond": 1424.1515619917732,
+      "cpuMs": 297.984
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 2,
+      "operations": 500,
+      "elapsedMs": 323.5735629999999,
+      "operationsPerSecond": 1545.2436699842506,
+      "cpuMs": 233.333
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 2,
+      "operations": 500,
+      "elapsedMs": 313.56947500000024,
+      "operationsPerSecond": 1594.5429637243856,
+      "cpuMs": 229.33
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 3,
+      "operations": 500,
+      "elapsedMs": 309.807589,
+      "operationsPerSecond": 1613.9049453691723,
+      "cpuMs": 223.208
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 3,
+      "operations": 500,
+      "elapsedMs": 332.6755950000006,
+      "operationsPerSecond": 1502.9656744132344,
+      "cpuMs": 246.902
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 4,
+      "operations": 500,
+      "elapsedMs": 284.83289700000023,
+      "operationsPerSecond": 1755.4152110456525,
+      "cpuMs": 222.965
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 4,
+      "operations": 500,
+      "elapsedMs": 289.74222200000077,
+      "operationsPerSecond": 1725.6718629016336,
+      "cpuMs": 256.315
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 5,
+      "operations": 500,
+      "elapsedMs": 290.5338930000016,
+      "operationsPerSecond": 1720.9696081826748,
+      "cpuMs": 233.732
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 5,
+      "operations": 500,
+      "elapsedMs": 292.3596440000001,
+      "operationsPerSecond": 1710.222358869748,
+      "cpuMs": 236.755
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 6,
+      "operations": 500,
+      "elapsedMs": 313.2885320000005,
+      "operationsPerSecond": 1595.9728778070921,
+      "cpuMs": 260.197
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 6,
+      "operations": 500,
+      "elapsedMs": 270.3311080000003,
+      "operationsPerSecond": 1849.5836594580871,
+      "cpuMs": 189.685
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 7,
+      "operations": 500,
+      "elapsedMs": 275.4876999999997,
+      "operationsPerSecond": 1814.9630636866932,
+      "cpuMs": 199.268
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 7,
+      "operations": 500,
+      "elapsedMs": 304.729143999999,
+      "operationsPerSecond": 1640.8013799953499,
+      "cpuMs": 231.557
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 8,
+      "operations": 500,
+      "elapsedMs": 273.465275999999,
+      "operationsPerSecond": 1828.3856996893524,
+      "cpuMs": 205.852
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 8,
+      "operations": 500,
+      "elapsedMs": 282.67269099999976,
+      "operationsPerSecond": 1768.8302263341047,
+      "cpuMs": 220.522
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 9,
+      "operations": 500,
+      "elapsedMs": 276.8495979999989,
+      "operationsPerSecond": 1806.0347698247408,
+      "cpuMs": 211.498
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 9,
+      "operations": 500,
+      "elapsedMs": 281.10200799999984,
+      "operationsPerSecond": 1778.713725872781,
+      "cpuMs": 201.627
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 10,
+      "operations": 500,
+      "elapsedMs": 276.8044460000001,
+      "operationsPerSecond": 1806.3293679899919,
+      "cpuMs": 205.126
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 10,
+      "operations": 500,
+      "elapsedMs": 290.2255519999999,
+      "operationsPerSecond": 1722.7979981583435,
+      "cpuMs": 214.087
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 11,
+      "operations": 500,
+      "elapsedMs": 274.32661299999927,
+      "operationsPerSecond": 1822.6448922766428,
+      "cpuMs": 201.064
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 11,
+      "operations": 500,
+      "elapsedMs": 275.98420499999884,
+      "operationsPerSecond": 1811.697883217636,
+      "cpuMs": 214.385
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 12,
+      "operations": 500,
+      "elapsedMs": 274.21364299999914,
+      "operationsPerSecond": 1823.3957819524012,
+      "cpuMs": 197.734
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 12,
+      "operations": 500,
+      "elapsedMs": 280.74867200000153,
+      "operationsPerSecond": 1780.9523245046632,
+      "cpuMs": 202.098
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 13,
+      "operations": 500,
+      "elapsedMs": 277.17593399999896,
+      "operationsPerSecond": 1803.908415800637,
+      "cpuMs": 196.024
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 13,
+      "operations": 500,
+      "elapsedMs": 273.2718249999998,
+      "operationsPerSecond": 1829.6800264718117,
+      "cpuMs": 200.927
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 14,
+      "operations": 500,
+      "elapsedMs": 312.3521550000005,
+      "operationsPerSecond": 1600.7573246933391,
+      "cpuMs": 256.35
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 14,
+      "operations": 500,
+      "elapsedMs": 279.7305090000009,
+      "operationsPerSecond": 1787.4346340963416,
+      "cpuMs": 192.65
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 15,
+      "operations": 500,
+      "elapsedMs": 274.19571500000166,
+      "operationsPerSecond": 1823.5150027782051,
+      "cpuMs": 195.899
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 15,
+      "operations": 500,
+      "elapsedMs": 279.22861099999864,
+      "operationsPerSecond": 1790.6474490896724,
+      "cpuMs": 205.657
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 16,
+      "operations": 500,
+      "elapsedMs": 281.06127299999935,
+      "operationsPerSecond": 1778.9715198507663,
+      "cpuMs": 193.31
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 16,
+      "operations": 500,
+      "elapsedMs": 277.6454369999992,
+      "operationsPerSecond": 1800.8579770032431,
+      "cpuMs": 202.085
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 17,
+      "operations": 500,
+      "elapsedMs": 272.0372819999975,
+      "operationsPerSecond": 1837.9833687648907,
+      "cpuMs": 195.944
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 17,
+      "operations": 500,
+      "elapsedMs": 269.7626879999989,
+      "operationsPerSecond": 1853.480938030993,
+      "cpuMs": 184.448
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 18,
+      "operations": 500,
+      "elapsedMs": 276.27288000000044,
+      "operationsPerSecond": 1809.80485670544,
+      "cpuMs": 199.993
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 18,
+      "operations": 500,
+      "elapsedMs": 274.3221679999988,
+      "operationsPerSecond": 1822.6744256410304,
+      "cpuMs": 195.873
+    },
+    {
+      "workload": "transaction",
+      "variant": "after",
+      "block": 19,
+      "operations": 500,
+      "elapsedMs": 286.39398500000243,
+      "operationsPerSecond": 1745.8467223045755,
+      "cpuMs": 236.38
+    },
+    {
+      "workload": "transaction",
+      "variant": "before",
+      "block": 19,
+      "operations": 500,
+      "elapsedMs": 269.60368299999755,
+      "operationsPerSecond": 1854.574071230342,
+      "cpuMs": 216.824
+    }
+  ],
+  "status": "passed",
+  "artifacts": {
+    "before": {
+      "runtimeRevision": "17fae30540cbc41ce2c776645437c6d265e2de96",
+      "packageVersion": "0.3.6",
+      "sha256": "8ca1816a8b90e02a90db8895498d0f2e84900d36afabfb44f58522f6ef7b2df3"
+    },
+    "after": {
+      "parentRevision": "1b5e0189aee60c36c281f26359287de131f50b95",
+      "packageVersion": "0.3.6",
+      "workingTreeDirty": true,
+      "sha256": "653f892467b6ef6bf771774b9ea3ce7d58f097b3d3d16edcce0253308e651d9b",
+      "sourceSha256": {
+        "framing": "804f59826f706a6458fc1ebb1d0696a2ca6085be2990bd37d7581e22960cea2d",
+        "connection": "0ba761450bba1d0c93d3dfcee527d1f70d10a8a6f65086a70cbb2acef5f6b40a"
+      }
+    }
+  },
+  "sourceReportSha256": "366d7c81bd2623ba3c3df7702d50d76d84277ca6c0300c561fc8a0ba7322fc30"
+}

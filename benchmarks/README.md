@@ -32,6 +32,9 @@ then measures that archive. It does not download pgclear from npm.
 | `--latencies 0,10` | `0,10`  | Added round-trip delay in milliseconds                   |
 | `--transport MODE` | `relay` | `direct` bypasses the relay and requires `--latencies 0` |
 
+`--workloads large,wide,pool` selects a subset; defaults retain the original seven workloads.
+The optional wide case returns six mixed-type columns.
+
 Large-result workers use `max(10, ceil(N / 20))` queries; transaction workers use
 `max(10, ceil(N / 10))`. At the default iteration count these are 50 and 100. Other workloads use
 N operations. Driver order rotates across samples. Each worker has a 180-second limit. Build,
@@ -44,15 +47,16 @@ credentials are passed through the worker environment and omitted from results.
 
 ## What is measured
 
-| Name             | Operation                                            |
-| ---------------- | ---------------------------------------------------- |
-| `small`          | Sequential unnamed parameterized integer SELECT      |
-| `prepared`       | The same SELECT with a warmed prepared statement     |
-| `large`          | 1,000 integer object rows per query                  |
-| `arrays-json`    | Native int4-array and JSON round trip                |
-| `transaction`    | Transaction callback with one SELECT; pool size four |
-| `pool`           | Sixteen callers sharing four connections             |
-| `pipeline-probe` | Thirty-two callers on one warmed prepared connection |
+| Name             | Operation                                                                   |
+| ---------------- | --------------------------------------------------------------------------- |
+| `small`          | Sequential unnamed parameterized integer SELECT                             |
+| `prepared`       | The same SELECT with a warmed prepared statement                            |
+| `large`          | 1,000 integer object rows per query                                         |
+| `wide` (opt-in)  | 1,000 rows of integer, Unicode text, boolean, float, JSON and array columns |
+| `arrays-json`    | Native int4-array and JSON round trip                                       |
+| `transaction`    | Transaction callback with one SELECT; pool size four                        |
+| `pool`           | Sixteen callers sharing four connections                                    |
+| `pipeline-probe` | Thirty-two callers on one warmed prepared connection                        |
 
 The six baseline workloads use object rows, matching native values and one active operation per
 connection. Each operation checks its returned values. pgclear uses `queryClassic` and its native
@@ -136,6 +140,50 @@ Reproduce the delayed diagnostic with
 for the zero-delay relay, use `--iterations 10000 --samples 5 --latencies 0`.
 The files retain archive/source-report hashes, environment, actual operation counts, per-repetition
 latencies, client CPU and sampled RSS. Absolute rates are local observations, not capacity guarantees.
+
+### Frame receive optimization for 0.3.7
+
+Profiling pgclear and pg identified frame allocation/copying as a large-result cost. The change lets
+complete messages borrow immutable socket chunks; partial frames still use owned buffers. Protocol
+limits, UTF8/codec validation and public byte ownership are preserved. The measured candidate was a
+local 0.3.6 build; its JavaScript is byte-identical to the 0.3.7 build, with unchanged public declarations.
+
+Five alternating before/after repetitions, 30,000 configured iterations each, direct TCP, with pg
+8.23.1 measured in the same sequence. Large/wide repetitions each return 1.5 million rows.
+Medians across repetitions:
+
+| Workload              | Before ops/s | After ops/s | Change | Before client CPU ms | After client CPU ms |
+| --------------------- | -----------: | ----------: | -----: | -------------------: | ------------------: |
+| 1,000 integer rows    |          965 |       1,161 | +20.4% |                1,492 |               1,209 |
+| 1,000 mixed-type rows |          238 |         248 |  +4.1% |                6,186 |               5,914 |
+| Small                 |        5,650 |       5,178 |  -8.4% |                3,541 |               3,825 |
+| Pool                  |        9,264 |       9,416 |  +1.6% |                3,671 |               3,624 |
+| Transaction           |        1,587 |       1,532 |  -3.5% |                1,580 |               1,619 |
+
+The integer-row improvement appeared in every pair (+16–22%) with about 19% less client CPU.
+Mixed rows improved in four of five pairs, with about 4% less CPU. pg still led the large/mixed cases
+at 1,383/353 ops/s; this closes part of the gap. Sampled RSS was similar before/after.
+
+The small/transaction medians above looked worse, but paired differences varied in sign. A follow-up
+ran 20 shorter alternating blocks in one warm process: median rates changed +1.7% for small queries
+and +0.3% for transactions, with overlapping ranges. Treat these as neutral, and do not claim a pooled
+speedup from +1.6%. Separate-process startup/JIT/host variation matters for small differences.
+
+An ASCII conversion shortcut was also screened and rejected: it was slower than the existing strict
+TextDecoder in isolated tests. No text-decoding change was retained.
+
+Evidence: [paired settings/summaries](results/framing-paired-2026-11-02.json),
+[per-repetition measurements](results/framing-paired-2026-11-02.csv),
+[warm interleaved blocks](results/framing-focused-2026-11-02.json),
+[profile summaries/hashes](results/framing-profiles-2026-11-02.json), and
+[rejected UTF8 screening](results/utf8-screening-2026-11-02.json).
+
+To compare frozen archives without rebuilding either during measurement:
+
+```sh
+node --env-file-if-exists=.env benchmarks/compare.mjs --before /path/before.tgz --after /path/after.tgz
+# Filter or shorten a diagnostic with --workloads large,wide --iterations 10000 --samples 3.
+```
 
 ### Earlier checkpoints
 
