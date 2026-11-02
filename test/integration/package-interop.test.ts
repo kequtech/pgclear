@@ -59,6 +59,10 @@ test(
         const child = new ChildError('PGCLEAR_ABORTED', 'fixture');
         assert.ok(child instanceof owner.DriverError);
         assert.ok(child instanceof other.DriverError);
+        assert.deepEqual(other.findDriverErrors(new AggregateError([base, child, base], 'work')), [
+          base,
+          child,
+        ]);
         assert.ok(child instanceof ChildError);
         assert.equal(base instanceof ChildError, false);
         for (const value of [null, undefined, 1, {}, new Error('fixture')]) {

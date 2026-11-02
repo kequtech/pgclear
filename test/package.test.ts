@@ -158,7 +158,9 @@ test(
         `
       import assert from 'node:assert/strict';
       import * as driver from '@kequtech/pgclear';
-      assert.deepEqual(Object.keys(driver).sort(), ['DatabaseError', 'DriverError', 'builtin', 'connect', 'createPool', 'createTemporalCodecs', 'defaultCodecs', 'json', 'listen', 'param', 'sql']);
+      const failure = new driver.DriverError('PGCLEAR_COMMIT_UNKNOWN', 'fixture', 'unknown');
+      assert.equal(driver.findDriverErrors(new AggregateError([failure, failure], 'work'))[0], failure);
+      assert.deepEqual(Object.keys(driver).sort(), ['DatabaseError', 'DriverError', 'builtin', 'connect', 'createPool', 'createTemporalCodecs', 'defaultCodecs', 'findDriverErrors', 'json', 'listen', 'param', 'sql']);
       assert.deepEqual(driver.sql\`SELECT \${42}::integer AS value\`, ['SELECT $1::integer AS value', [42]]);
       const client = await driver.connect({host: '127.0.0.1', port: ${server.port}});
       assert.equal(client.info.backendPid, 123);

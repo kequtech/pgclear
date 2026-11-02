@@ -8,18 +8,19 @@ examples, options, and lifecycle details.
 
 ## Runtime exports
 
-| Export                                         | Purpose                                                    |
-| ---------------------------------------------- | ---------------------------------------------------------- |
-| `createPool(options)`                          | Create a lazy connection pool                              |
-| `connect(options, operationOptions?)`          | Open one standalone connection                             |
-| `sql`                                          | Build a query by binding each template interpolation       |
-| `param(value, codec, format?)`                 | Bind a value with an explicit PostgreSQL type and encoder  |
-| `json(value, type?)`                           | Bind JSON; defaults to jsonb                               |
-| `defaultCodecs`                                | Immutable default result codec registry                    |
-| `builtin`                                      | Built-in scalar, array, and optional representation codecs |
-| `createTemporalCodecs(constructors, options?)` | Create opt-in Temporal output codecs                       |
-| `listen(connectionOptions, listenerOptions)`   | Start a dedicated notification listener                    |
-| `DatabaseError`, `DriverError`                 | Server diagnostics and driver failures                     |
+| Export                                         | Purpose                                                     |
+| ---------------------------------------------- | ----------------------------------------------------------- |
+| `createPool(options)`                          | Create a lazy connection pool                               |
+| `connect(options, operationOptions?)`          | Open one standalone connection                              |
+| `sql`                                          | Build a query by binding each template interpolation        |
+| `param(value, codec, format?)`                 | Bind a value with an explicit PostgreSQL type and encoder   |
+| `json(value, type?)`                           | Bind JSON; defaults to jsonb                                |
+| `defaultCodecs`                                | Immutable default result codec registry                     |
+| `builtin`                                      | Built-in scalar, array, and optional representation codecs  |
+| `createTemporalCodecs(constructors, options?)` | Create opt-in Temporal output codecs                        |
+| `listen(connectionOptions, listenerOptions)`   | Start a dedicated notification listener                     |
+| `DatabaseError`, `DriverError`                 | Server diagnostics and driver failures                      |
+| `findDriverErrors(error)`                      | Original driver errors through causes and aggregate members |
 
 ## Connections, pools, and ownership
 

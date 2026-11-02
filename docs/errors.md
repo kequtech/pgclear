@@ -37,6 +37,21 @@ chain; application-authored causes can themselves contain values, so do not log 
 branch on the code instead. Application callbacks and COPY sources may also throw their own errors.
 If work and cleanup both fail, an `AggregateError` preserves both, with the work error first.
 
+Use `findDriverErrors(error)` to inspect that tree without replacing the original exception:
+
+```ts
+import { findDriverErrors } from '@kequtech/pgclear';
+
+const uncertainCommit = findDriverErrors(error).some(
+  (failure) => failure.code === 'PGCLEAR_COMMIT_UNKNOWN',
+);
+```
+
+It returns original DriverErrors in root, cause, then aggregate-member order, once each. It follows
+own data properties, skips getters, and handles shared/cyclic causes and non-Error values. An empty
+result proves neither rollback nor commit. Each error's `outcome` concerns its individual operation;
+even `confirmed` does not establish that a surrounding transaction committed.
+
 | Driver code                 | Meaning                                                                          |
 | --------------------------- | -------------------------------------------------------------------------------- |
 | `PGCLEAR_CONFIGURATION`     | Invalid options, URI, codec, or registry                                         |

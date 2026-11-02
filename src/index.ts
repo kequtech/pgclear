@@ -1,7 +1,7 @@
 export { listen } from './listener/index.js';
 export { createPool } from './pool/index.js';
 export { connect } from './connection/index.js';
-export { DriverError, DatabaseError } from './errors.js';
+export { DriverError, DatabaseError, findDriverErrors } from './errors.js';
 export { defaultCodecs, builtin } from './codecs/index.js';
 export { param, json } from './codecs/parameters.js';
 export { createTemporalCodecs } from './codecs/temporal.js';

@@ -48,6 +48,36 @@ export class DriverError extends Error {
   }
 }
 
+/** Original driver errors, in root/cause/aggregate order, without invoking application getters. */
+export function findDriverErrors(error: unknown): readonly DriverError[] {
+  const found: DriverError[] = [];
+  const seen = new Set<object>();
+  const pending: unknown[] = [error];
+  while (pending.length) {
+    const current = pending.pop();
+    if ((typeof current !== 'object' || current === null) && typeof current !== 'function')
+      continue;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    if (current instanceof DriverError) found.push(current);
+    // Error.cause and AggregateError.errors are data properties. Accessors are not evidence.
+    const cause = Object.getOwnPropertyDescriptor(current, 'cause');
+    const errors = Object.getOwnPropertyDescriptor(current, 'errors');
+    if (
+      current instanceof AggregateError &&
+      errors &&
+      'value' in errors &&
+      Array.isArray(errors.value)
+    )
+      for (let index = errors.value.length - 1; index >= 0; index--) {
+        const member = Object.getOwnPropertyDescriptor(errors.value, String(index));
+        if (member && 'value' in member) pending.push(member.value);
+      }
+    if (cause && 'value' in cause) pending.push(cause.value);
+  }
+  return found;
+}
+
 export class DatabaseError extends Error {
   static [Symbol.hasInstance](value: unknown): boolean {
     return this === DatabaseError

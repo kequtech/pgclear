@@ -1,5 +1,10 @@
 # Release notes
 
+## 0.3.5
+
+- Add `findDriverErrors(error)` to inspect original driver errors through causes and aggregates,
+  preserving each operation's code/outcome evidence and handling cycles without wrapping errors.
+
 ## 0.3.4
 
 - Add `builtin.uuidArray` for explicit UUID-array parameters, using PostgreSQL's UUID validation.
