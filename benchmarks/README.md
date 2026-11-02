@@ -1,6 +1,6 @@
 # Benchmarks
 
-[Documentation](../docs/README.md) · [Development](../docs/development.md)
+[Documentation](../README.md) · [Development](../CONTRIBUTING.md)
 
 The runner compares packed pgclear with pinned pg 8.23.1 and Postgres.js 3.4.9. Comparator
 dependencies stay outside the driver. Results are local exploratory measurements, not production
@@ -120,7 +120,7 @@ pipeline diagnostic, latencies, CPU and RSS.
 
 The measured optimization selects column decoders once and fills rows directly, reducing repeated
 codec lookup and temporary allocations. It preserves validation, custom codecs, and special column
-names. Pool scheduling and pipelining are unchanged. See [architecture](../docs/architecture.md)
+names. Pool scheduling and pipelining are unchanged. See [architecture](../ARCHITECTURE.md)
 for the current decoding path.
 
 An [alternating before/after comparison](results/decoding-paired-2026-10-29.json) used the clean parent

@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, posix, resolve } from 'node:path';
 import { fakeServer, startupReady, packet, ready, z } from './helpers/server.js';
 
 const run = promisify(execFile);
@@ -108,18 +108,22 @@ test(
       assert.deepEqual(
         archive!.files.filter((file) => file.path.startsWith('docs/')).map((file) => file.path),
         [
-          'docs/configuration.md',
+          'docs/connections.md',
           'docs/errors.md',
           'docs/notifications.md',
-          'docs/public-api.md',
           'docs/queries.md',
-          'docs/README.md',
-          'docs/sessions.md',
-          'docs/streaming.md',
+          'docs/reference.md',
           'docs/values.md',
         ],
       );
       assert.ok(!archive!.files.some((file) => file.path.endsWith('.d.ts.map')));
+      assert.ok(
+        !archive!.files.some(
+          (file) =>
+            ['ARCHITECTURE.md', 'CONTRIBUTING.md'].includes(file.path) ||
+            file.path.startsWith('notes/'),
+        ),
+      );
       await mkdir(packagePath, { recursive: true });
       await run('tar', [
         '-xzf',
@@ -128,6 +132,35 @@ test(
         packagePath,
         '--strip-components=1',
       ]);
+      // Verify the actual installed guides, including their section targets.
+      for (const file of archive!.files.filter((file) => file.path.endsWith('.md'))) {
+        const body = await readFile(join(packagePath, file.path), 'utf8');
+        for (const link of body.matchAll(/\[[^\]]*\]\(([^\s)]+)\)/g)) {
+          const target = link[1]!;
+          if (/^[a-z][a-z0-9+.-]*:/i.test(target)) continue;
+          const [name, fragment] = target.split('#');
+          const path = name
+            ? posix.normalize(posix.join(posix.dirname(file.path), decodeURIComponent(name)))
+            : file.path;
+          assert.ok(
+            archive!.files.some((entry) => entry.path === path),
+            `${file.path}: missing ${target}`,
+          );
+          if (fragment) {
+            const content = await readFile(join(packagePath, path), 'utf8');
+            const headings = [...content.matchAll(/^#{1,6}\s+(.+)$/gm)].map((match) =>
+              match[1]!
+                .toLowerCase()
+                .replace(/[^\p{L}\p{N}_\s-]/gu, '')
+                .replace(/\s/g, '-'),
+            );
+            assert.ok(
+              headings.includes(decodeURIComponent(fragment)),
+              `${file.path}: missing heading ${target}`,
+            );
+          }
+        }
+      }
       const manifest = JSON.parse(await readFile(join(packagePath, 'package.json'), 'utf8')) as {
         dependencies?: Record<string, string>;
         private?: boolean;

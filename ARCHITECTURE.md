@@ -1,6 +1,6 @@
 # Architecture
 
-[Documentation](README.md) · [Development](development.md) · [Public API](public-api.md)
+[Documentation](README.md) · [Development](CONTRIBUTING.md) · [Public API](docs/reference.md)
 
 pgclear is one TypeScript package built on Node networking, TLS, crypto, and streams, with no runtime
 dependencies. `src/index.ts` defines exports and `src/types.ts` defines the public capabilities.
@@ -123,5 +123,4 @@ and unfinished connection attempts.
 
 Tests cover framed bytes, scripted server failures, real PostgreSQL workflows, packed consumers,
 compile-only examples, and disposal through natural subprocess exit. Test ownership, outcomes, and
-cleanup through observable behavior and barriers. See [development](development.md) for commands
-and [historical validation](development.md#historical-validation) for recorded artifacts.
+cleanup through observable behavior and barriers. See [contributing](CONTRIBUTING.md) for commands and validation policy.

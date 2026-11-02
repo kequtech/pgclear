@@ -2,6 +2,10 @@
 
 ## 0.3.5
 
+- Rewrite standalone documentation into six focused guides. Connection/transaction, value, query,
+  notification and outcome details live here; maintainer architecture/contributor instructions are
+  repository-only. Check packed guide links and anchors as part of consumer validation.
+
 - Add `findDriverErrors(error)` to inspect original driver errors through causes and aggregates,
   preserving each operation's code/outcome evidence and handling cycles without wrapping errors.
 

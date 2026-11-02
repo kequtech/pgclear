@@ -1,6 +1,6 @@
 # Development and testing
 
-[Documentation](README.md) · [Architecture](architecture.md) · [Benchmarks](../benchmarks/README.md)
+[Overview](README.md) · [Architecture](ARCHITECTURE.md) · [Benchmarks](benchmarks/README.md)
 
 Use Node.js 24+, npm, `psql`, and `tar`. Start with the existing package and lockfile:
 
@@ -60,7 +60,7 @@ PGCLEAR_PGBOUNCER=/tmp/pgclear-pgbouncer/pgbouncer-1.26.1/pgbouncer npm run test
 `PGCLEAR_POSTGRES_BIN` selects an installed PostgreSQL binary directory; otherwise the fixture uses
 `pg_config --bindir`. Run as an ordinary user. The fixture creates and removes its own temporary
 cluster, loopback ports, Unix sockets, and proxy processes. It does not reconfigure your existing
-server. [Test fixture documentation](../test/fixtures/README.md) describes the public test certificates.
+server. [Test fixture documentation](test/fixtures/README.md) describes the public test certificates.
 
 The fixture covers verified TLS/SCRAM-PLUS, SCRAM on Unix sockets, and PgBouncer 1.26.1 session and
 transaction pooling. Proxy settings are in `test/compatibility/server.ts`: verified backend TLS,
@@ -70,7 +70,7 @@ savepoint recovery, and cancellation. They do not promise session persistence or
 
 ## Making changes
 
-Keep the [API overview](public-api.md) and linked guides aligned with `src/index.ts` and `src/types.ts`.
+Keep the [API reference](docs/reference.md) and linked guides aligned with `src/index.ts` and `src/types.ts`.
 Put executable behavior checks in workflow/function tests. The consumer ownership example lives
 in `examples/shared-listener.ts`; keep it typechecked and test its public lifecycle behavior.
 The development TypeScript path mapping checks package imports against `src/index.ts` before a
@@ -79,9 +79,9 @@ rejected-call examples live in `test/fixtures/api-examples.ts`. The test compile
 source/test/example file list; the library build includes only `src/`. Prefer observable barriers over timing guesses in
 lifecycle tests. Keep source changes separate from unrelated generated or trial artifacts.
 
-[Architecture](architecture.md) explains module responsibilities and ownership. Use the existing
+[Architecture](ARCHITECTURE.md) explains module responsibilities and ownership. Use the existing
 TypeScript, npm, and Node test runner; add abstractions or dependencies only for demonstrated needs.
-The [benchmark guide](../benchmarks/README.md) covers reproduction, workloads, and measurement limits.
+The [benchmark guide](benchmarks/README.md) covers reproduction, workloads, and measurement limits.
 Benchmark timing is opt-in and is not a CI performance gate.
 
 ## Package and release
@@ -100,7 +100,7 @@ For a release:
 4. Check relative documentation links in the repository and the packed guide set.
 5. Publish the verified revision through the existing release process when authorized.
 
-Documentation-only releases use a new patch version. Follow the [compatibility policy](public-api.md#compatibility)
+Documentation-only releases use a new patch version. Follow the [compatibility policy](docs/reference.md#compatibility)
 for API or representation changes. Publishing is separate from preparing a package.
 
 CI is configured for Node 24/26 and PostgreSQL 16/18. Native Temporal tests skip when Temporal is
@@ -111,17 +111,8 @@ PostgreSQL password-preparation table attribution is in LICENSE. To regenerate t
 `node scripts/generate-saslprep.mjs /path/to/saslprep.c`. The offline generator verifies a pinned
 source checksum and does not run during installation or application execution.
 
-## Historical validation
+## Validation records
 
-These records identify particular local checks and artifacts, not the validation status of every
-later commit or remote CI run:
-
-- [0.3.0 checkpoint](release-0.3.0-validation.json): packed artifact hash, codec/input checks on
-  Node 24/26 and PostgreSQL 16/18, native fixtures, and TypeScript 6/7 packed consumers. Schema
-  generation moved to Tenon, whose integration validation is owned there.
-- [0.1.0 checkpoint](release-0.1.0-validation.json): revision, artifact hash, PostgreSQL 16.15/18.0,
-  and results from the retired consumer-adoption fixture.
-- [Earlier implementation checkpoint](validation-2026-10-29.json): retained historical provenance.
-
-Raw reports, generated packages, and logs live in ignored `.trial-dist` and `.benchmark-dist`
-directories. Keep credentials and `.env` files out of Git.
+Keep command results and artifact hashes with the release under review. Old candidate matrices and
+scratch paths are not current validation evidence; Git history retains earlier investigations.
+Benchmark data remains in benchmarks/results because it supports measured comparisons.

@@ -1,71 +1,31 @@
-# Queries and results
+# Queries and data transfer
 
-[Documentation](README.md) · [Values and codecs](values.md) · [Sessions and transactions](sessions.md)
+[Overview](../README.md) · [Connections](connections.md) · [Values](values.md) · [Reference](reference.md)
 
-Use `query` for tagged SQL or `queryClassic` for SQL text with numbered placeholders. Both methods
-are available on pools, connections, leases, sessions, transactions, and savepoints.
-
-## Tagged SQL
+## Execute a query
 
 ```ts
 import { sql } from '@kequtech/pgclear';
 
-const id = 42;
-const result = await pool.query(sql<{ id: number }>`SELECT ${id}::integer AS id`);
-console.log(result.rows[0]?.id); // 42
+const tagged = await pool.query(sql<{ value: number }>`SELECT ${42}::integer AS value`);
+const classic = await pool.queryClassic<{ value: number }>('SELECT $1::integer AS value', [42]);
 ```
 
-`sql` produces a frozen `[text, values]` tuple. The example becomes `SELECT $1::integer AS id` with
-`[42]` as its values. The tag builds a query; `pool.query(...)` executes it.
+`sql` produces a frozen tagged [text, values] tuple; each interpolation is one bound value. Keep
+interpolations outside quotes/comments. It does not insert identifiers, fragments or lists. For
+lists, bind a typed array and use ANY. `query` accepts only this tag's results; strings, handwritten
+tuples and statement objects reject before pool acquisition. `queryClassic` accepts text and values,
+defaulting to an empty array. Use undefined for values when supplying only the third options argument.
 
-`::integer` is a PostgreSQL cast that requests an integer result here, not pgclear syntax.
-Casts are optional when PostgreSQL can infer the desired type, for example from a table column.
+Both execute one statement through the extended protocol without a preliminary Describe or catalog
+query. Strings/SQL require valid Unicode without NUL. The parameter limit is 65,535. Keep bound
+mutable values unchanged until settlement. Operations start when called; Promise.all on one backend
+queues sequential work. No execution method retries automatically.
 
-Every interpolation is one bound value. Put it outside SQL quotes and comments. Interpolations
-cannot insert identifiers, fragments, nested tagged queries, or lists. For a list of integers,
-bind a [typed array](values.md#postgresql-arrays) and use `= ANY($1::integer[])`. Choose dynamic SQL
-structure in application code from trusted choices.
-
-`query` accepts only a query produced by this tag. Plain strings, manually constructed tuples, and
-statement objects reject with `PGCLEAR_ENCODE`, including in JavaScript. Pool tag validation happens
-before connection acquisition.
-
-## SQL text and placeholders
-
-```ts
-const result = await pool.queryClassic<{ id: number }>('SELECT $1::integer AS id', [42]);
-const unbound = await pool.queryClassic('SELECT current_database()');
-const bounded = await pool.queryClassic('SELECT 1', undefined, { timeoutMs: 1000 });
-```
-
-`queryClassic(text, values?, options?)` defaults to an empty values array. `$1` refers to the first
-value, `$2` to the second, and so on. Send input as values instead of concatenating it into SQL.
-Use an SQL cast or [`param`](values.md#explicit-parameters) if PostgreSQL cannot infer a type.
-
-Both query methods execute one statement using PostgreSQL's extended protocol. Ordinary queries do
-not run a separate preliminary Describe or catalog query. SQL and text parameters must be valid
-Unicode without NUL. At most 65,535 parameters are accepted. Keep mutable bound values unchanged
-until the operation settles.
-
-Operations start when called. On a single connection, concurrent calls queue and execute in order;
-`Promise.all` does not make that backend execute queries in parallel. Independent pool calls can
-use different connections. Queries and scripts are never retried automatically.
-
-## Results and row types
-
-| Property     | Meaning                                                                  |
-| ------------ | ------------------------------------------------------------------------ |
-| `rows`       | Readonly array of decoded rows; empty for commands without returned rows |
-| `fields`     | Ordered column metadata                                                  |
-| `command`    | Command name, such as `SELECT` or `INSERT`                               |
-| `commandTag` | Full server tag, such as `INSERT 0 1`                                    |
-| `rowCount`   | Command count as `number                                                 | null`; not necessarily the number of returned rows |
-
-Rows are objects keyed by column name. Without a row annotation, each field value has TypeScript
-type `unknown`. `queryClassic<Row>` and `sql<Row>` assert the row type; they do not inspect the SQL,
-validate rows, or change decoding. Include SQL NULL in your annotation where appropriate.
-
-Use aliases for duplicate column names, or request positional rows:
+Results contain readonly rows, ordered fields, command, raw commandTag and rowCount:number|null.
+RowCount is command metadata, not always rows.length. `count(*)` is an int8 column and reads as a
+string by default. Overflowing command counts reject instead of rounding and retain confirmation.
+Object rows require unique names; alias duplicate columns or use positional rows:
 
 ```ts
 const result = await pool.queryClassic<readonly [number, number]>(
@@ -73,66 +33,102 @@ const result = await pool.queryClassic<readonly [number, number]>(
   undefined,
   { rowMode: 'array' },
 );
-console.log(result.rows[0]); // [1, 2]
-console.log(result.fields.map((field) => field.name)); // ['value', 'value']
 ```
 
-Duplicate names in object mode reject during decoding. Array mode preserves every column in order.
-For tagged queries, use `sql<readonly [number, number]>` and `{ rowMode: 'array' }`.
+Row annotations assert a type; they validate neither SQL nor data. Fields expose name, dataTypeOid,
+tableOid, columnAttribute, dataTypeSize, typeModifier and format. OIDs select decoding, not nullability.
+Query options are signal, timeoutMs, rowMode and operation-local codecs. Encoders stay independent.
 
-Each `Field` contains `name`, `dataTypeOid`, `tableOid`, `columnAttribute`, `dataTypeSize`,
-`typeModifier`, and `format`. A computed column may have no table origin. Type OIDs select
-[result decoders](values.md); they do not describe SQL nullability.
-
-`count(*)` returns an int8 column, which is a string by default. This is separate from `rowCount`:
+## Describe and scripts
 
 ```ts
-const result = await pool.queryClassic<{ total: string }>(
-  'SELECT count(*) AS total FROM generate_series(1, 3)',
-);
-console.log(result.rows[0]?.total); // '3'
-console.log(result.rowCount); // 1
-```
-
-Command counts above `Number.MAX_SAFE_INTEGER` reject with `PGCLEAR_RESULT_LIMIT` and retire the
-connection instead of rounding. The error preserves confirmation of the command.
-
-## Query options
-
-Both query methods accept `signal`, `timeoutMs`, `rowMode`, and `codecs`. `rowMode` defaults to
-`'object'`. A `codecs` registry changes result decoding for that operation; input encoders stay
-independent. See [per-query codecs](values.md#per-query-codecs) and [deadlines](errors.md#deadlines).
-
-## Describe without executing
-
-```ts
-const description = await pool.describe({
-  text: 'SELECT $1::integer AS value',
-  parameterTypes: [23],
+const metadata = await pool.describe({ text: 'SELECT $1::integer AS value', parameterTypes: [23] });
+await pool.withSession(async (session) => {
+  const results = await session.script('SELECT 1; SELECT 2;');
 });
-console.log(description.parameterTypes); // [23], the int4 OID
-console.log(description.fields[0]?.name); // value
 ```
 
-`describe(textOrStatement, options?)` returns `{ parameterTypes, fields }`. It parses and analyzes
-one statement without executing it, so PostgreSQL can still take analysis locks and report errors.
-Type hints are optional OIDs; zero requests server inference. Describe accepts no bound values and
-does not infer nullability or application types. Options are `signal` and `timeoutMs`.
+Describe parses/analyzes one statement without values or execution. It returns parameterTypes and
+fields; optional OID hints use zero for inference. PostgreSQL analysis can acquire locks. Application
+types, catalog interpretation and schema generation belong to downstream tools.
 
-## Multi-statement scripts
+Scripts use simple protocol, no values, object rows and session-default codecs. They return ordered
+result sets or reject without a partial result list. Scripts add no atomic wrapper: explicit commits
+can persist effects before a later failure. Use managed transactions for atomic application work.
+Scripts exist on held sessions/leases/connections, not pool or transaction callback handles.
+
+## Prepare a statement
 
 ```ts
 await pool.withSession(async (session) => {
-  const results = await session.script('SELECT 1 AS first; SELECT 2 AS second;');
-  console.log(results.map((result) => result.rows));
+  const statement = await session.prepare('SELECT $1::integer AS value');
+  try {
+    const result = await statement.query<{ value: number }>([42]);
+  } finally {
+    await statement.close();
+  }
 });
 ```
 
-`script(text, options?)` is available on connections, leases, and session callbacks. It uses the
-simple protocol, takes no bound values, and returns ordered result sets using the session's default
-codecs and object rows. Options are `signal` and `timeoutMs`.
+Prepare accepts text or {text,parameterTypes}, plus operation options, and creates a named statement.
+The handle exposes description, query(values?,options?) and idempotent close(). Parameter counts
+must match. It belongs to its exact session/transaction/savepoint and expires with it; a parent handle
+cannot execute while a child owns the session. Scope cleanup disposes statements before reuse.
+There is no automatic cache or plan-error replay. Use direct/session pooling.
 
-Scripts follow PostgreSQL's transaction rules. pgclear adds no atomic wrapper. Explicit transaction
-boundaries in a script can commit effects before a later statement fails. On failure the promise
-rejects rather than returning a partial result list. Use managed [transactions](sessions.md#transactions)
-for application work that must commit together.
+## Stream rows
+
+```ts
+await pool.withSession(async (session) => {
+  const stream = session.stream<{ id: number }>('SELECT generate_series(1, 1000) AS id', {
+    batchSize: 100,
+  });
+  for await (const row of stream) console.log(row.id);
+  console.log(await stream.completion);
+});
+```
+
+Stream accepts tagged SQL, text, [text,values], or {text,values,parameterTypes}; OID hints must match
+value count. It returns immediately with one async consumer, a fields promise, completion and close().
+The stream owns the session until consumed/closed. Options add batchSize to normal query options.
+maxResultBytes bounds each batch plus metadata; a wide single row can still overflow. Deadlines
+include consumer waits.
+
+Completion resolves to {status:'complete',result} or {status:'closed'}. Complete row streams count
+all returned rows, while commandTag preserves the server's raw final tag. Early close invents no
+final count. Iteration/completion reject on failure, as does metadata if still pending. Waiting only
+on completion does not consume rows.
+
+A for-await break awaits portal cleanup and allows later session work. Manual iteration needs
+finally/close. Unfinished streams at callback exit cause failure and transactional rollback.
+
+## COPY bytes
+
+```ts
+import { createReadStream, createWriteStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
+
+await pool.withSession(async (session) => {
+  await session.copyFrom(
+    'COPY imported_events FROM STDIN WITH (FORMAT csv)',
+    createReadStream('events.csv'),
+  );
+  const output = session.copyTo('COPY imported_events TO STDOUT WITH (FORMAT csv)');
+  try {
+    await pipeline(output, createWriteStream('export.csv'));
+    console.log(await output.completion);
+  } finally {
+    await output.close();
+  }
+});
+```
+
+This assumes the table and input file exist. COPY accepts text without bound values, and signal/
+timeoutMs options. Input is an AsyncIterable of Uint8Array, including a byte-mode Node Readable;
+the caller encodes COPY records. Source failures preserve cause as PGCLEAR_COPY_SOURCE; invalid
+chunks reject as PGCLEAR_ENCODE. Pulling and writes respect backpressure with bounded cleanup.
+
+Output is a single-consumer byte stream with the same complete/closed distinction. Chunks are not
+record boundaries. COPY owns the execution slot; frame/handoff limits do not bound the whole transfer.
+Early output close cancels and retires the connection. Use a transaction when COPY must commit
+with other statements.
