@@ -1,8 +1,29 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createServer, connect } from 'node:net';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { relay } from './relay.mjs';
 import { summarize } from './stats.mjs';
+
+test('direct transport refuses artificial RTT before opening a database or building a package', () => {
+  assert.throws(
+    () =>
+      execFileSync(
+        process.execPath,
+        [
+          fileURLToPath(new URL('./run.mjs', import.meta.url)),
+          '--transport',
+          'direct',
+          '--latencies',
+          '10',
+        ],
+        { env: {}, stdio: 'pipe' },
+      ),
+    (error) =>
+      error.status === 1 && /Direct transport requires --latencies 0/.test(error.stderr.toString()),
+  );
+});
 
 test('benchmark percentiles use numeric order without changing raw measurements', () => {
   const samples = [100, 2, 10, 1];

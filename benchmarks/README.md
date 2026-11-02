@@ -16,6 +16,8 @@ The runner creates no tables or persistent database objects. Run without concurr
 npm ci
 npm ci --prefix benchmarks --ignore-scripts --no-audit --no-fund
 npm run benchmark
+# Direct local baseline (no relay):
+npm run benchmark -- --iterations 10000 --samples 5 --latencies 0 --transport direct
 # Short correctness/adapter check:
 npm run benchmark -- --iterations 30 --samples 1 --latencies 0,10
 ```
@@ -23,11 +25,12 @@ npm run benchmark -- --iterations 30 --samples 1 --latencies 0,10
 Run these commands from the repository root. The runner builds and packs the current working tree,
 then measures that archive. It does not download pgclear from npm.
 
-| Option             | Default | Meaning                                                 |
-| ------------------ | ------- | ------------------------------------------------------- |
-| `--iterations N`   | `1000`  | Base operation count per worker                         |
-| `--samples N`      | `3`     | Repetitions of each driver/workload/latency combination |
-| `--latencies 0,10` | `0,10`  | Added round-trip delay in milliseconds                  |
+| Option             | Default | Meaning                                                  |
+| ------------------ | ------- | -------------------------------------------------------- |
+| `--iterations N`   | `1000`  | Base operation count per worker                          |
+| `--samples N`      | `3`     | Repetitions of each driver/workload/latency combination  |
+| `--latencies 0,10` | `0,10`  | Added round-trip delay in milliseconds                   |
+| `--transport MODE` | `relay` | `direct` bypasses the relay and requires `--latencies 0` |
 
 Large-result workers use `max(10, ceil(N / 20))` queries; transaction workers use
 `max(10, ceil(N / 10))`. At the default iteration count these are 50 and 100. Other workloads use
@@ -65,9 +68,10 @@ backend execute queries simultaneously. pgclear does not implement it.
 
 ## Reading metrics
 
-A common bounded TCP relay adds half the requested RTT in each direction and applies backpressure.
-Even 0 ms includes relay overhead. It does not emulate bandwidth limits, packet loss, TLS or a real
-remote server. Timer scheduling adds noise.
+Direct mode measures the database connection without a proxy. Relay mode adds half the requested
+RTT in each direction with bounded buffering/backpressure. Even its 0 ms profile includes relay
+costs; it is not a direct connection. The relay does not emulate bandwidth, loss, TLS or a remote
+server. Timer scheduling and host load add noise.
 
 Throughput counts completed operations: a large operation returns 1,000 rows, and a transaction
 includes BEGIN/SELECT/COMMIT. Latencies include client queueing and correctness assertions. Per-run
@@ -79,81 +83,69 @@ runtime baseline and is sampled every 10 ms, so peaks can be missed. It is not a
 Use longer repetitions and representative application workloads before drawing performance claims.
 Harness checks run with the unit tests; benchmarks themselves are opt-in and outside CI timing gates.
 
-## Recorded results
+## Recorded results — November 2, 2026
 
-The decoder-optimization run used Node 24.4.1 and PostgreSQL 16.15, with 1,000 configured iterations,
-three samples and both 0/10 ms added-RTT profiles. Its parent revision is b7ecc2a with local decoder
-changes (`workingTreeDirty: true`); the recorded archive hash identifies the measured package:
+Measured pgclear 0.3.6 (runtime revision 17fae30), pg 8.23.1 and Postgres.js 3.4.9, on Node 24.4.1,
+PostgreSQL 16.15 and a Ryzen Threadripper 3970X under WSL2. Runs were sequential, without concurrent
+tests. All three profiles measured identical packed driver bytes. The direct/delayed runs mark the
+tree dirty because of benchmark-tool changes; their archive hash matches the clean-tree relay run.
 
-```sh
-npm run benchmark -- --iterations 1000 --samples 3 --latencies 0,10
-```
+Direct TCP, median operations/second across five repetitions of 10,000 configured iterations:
 
-Median operations/second at 0 ms added RTT:
+| Workload         | pgclear |    pg | Postgres.js |
+| ---------------- | ------: | ----: | ----------: |
+| Small            |   4,569 | 4,973 |       2,713 |
+| Prepared         |   5,832 | 5,162 |       5,794 |
+| 1,000-row result |     953 | 1,290 |       1,301 |
+| Arrays/JSON      |   3,744 | 4,287 |       2,636 |
+| Transaction      |   1,317 | 1,718 |       1,333 |
+| Pool             |   7,739 | 9,647 |       6,551 |
 
-| Baseline workload | pgclear |    pg | Postgres.js |
-| ----------------- | ------: | ----: | ----------: |
-| Small             |   2,855 | 2,858 |       1,653 |
-| Prepared          |   2,994 | 3,132 |       3,135 |
-| 1,000-row result  |     736 |   869 |         902 |
-| Arrays/JSON       |   2,562 | 2,613 |       1,615 |
-| Transaction       |     829 | 1,009 |         787 |
-| Pool              |   6,756 | 9,253 |       4,935 |
+Each large-result repetition runs 500 queries; each transaction repetition runs 1,000. Small-query
+ranges overlap substantially, so these medians do not establish a stable winner. pgclear trails both
+comparators on large results and pg on pooled queries in this run; inspect CPU and latency ranges
+before extrapolating to an application.
 
-Median operations/second at 10 ms added RTT:
+With 10 ms added RTT, the most useful distinction is round trips and scheduling. The following
+short diagnostic uses three repetitions of 300 configured iterations:
 
-| Baseline workload | pgclear |  pg | Postgres.js |
-| ----------------- | ------: | --: | ----------: |
-| Small             |      90 |  90 |          45 |
-| Prepared          |      91 |  91 |          91 |
-| 1,000-row result  |      85 |  86 |          86 |
-| Arrays/JSON       |      89 |  90 |          46 |
-| Transaction       |      30 |  30 |          23 |
-| Pool              |     336 | 338 |         175 |
+| Workload                                  | pgclear |    pg | Postgres.js |
+| ----------------------------------------- | ------: | ----: | ----------: |
+| Prepared, one caller                      |      86 |    87 |          87 |
+| Transaction                               |      29 |    29 |          22 |
+| Pool, 16 callers / 4 connections          |     331 |   340 |         170 |
+| Pipeline probe, 32 callers / 1 connection |      89 | 2,437 |       1,950 |
 
-Round-trip waits dominate the 10 ms profile, bringing pgclear and pg much closer. API-specific
-round trips remain part of the measurement, including the comparator reservation/transaction APIs.
+Single-caller prepared rates converge around the round-trip limit. The pipeline probe enables
+comparator pipelining while pgclear remains sequential: its gap matters for independent requests
+queued ahead, but is not a baseline driver ranking. This short profile has only 15 large queries
+and 30 transactions per repetition; it does not establish precise latency tails.
 
-[Full measurements](results/decoding-2026-10-29.csv) and
-[configuration/summaries](results/decoding-2026-10-29.json) include both latency profiles, the separate
-pipeline diagnostic, latencies, CPU and RSS.
+The zero-delay relay run is retained separately. For example, pgclear's small-query median was
+3,108 ops/s through the relay versus 4,569 directly. Its pool rates also differed. Separate runs,
+transport and scheduling effects make these different measurement conditions, not a regression test.
 
-The measured optimization selects column decoders once and fills rows directly, reducing repeated
-codec lookup and temporary allocations. It preserves validation, custom codecs, and special column
-names. Pool scheduling and pipelining are unchanged. See [architecture](../ARCHITECTURE.md)
-for the current decoding path.
+| Evidence         | Settings                         | Files                                                                                                                |
+| ---------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Direct local     | 10,000 iterations, 5 repetitions | [Summary/config](results/current-direct-2026-11-02.json), [samples](results/current-direct-2026-11-02.csv)           |
+| 10 ms relay      | 300 iterations, 3 repetitions    | [Summary/config](results/current-delayed-2026-11-02.json), [samples](results/current-delayed-2026-11-02.csv)         |
+| Zero-delay relay | 10,000 iterations, 5 repetitions | [Summary/config](results/current-relay-local-2026-11-02.json), [samples](results/current-relay-local-2026-11-02.csv) |
 
-An [alternating before/after comparison](results/decoding-paired-2026-10-29.json) used the clean parent
-package and the same optimized archive as the matrix, with five samples, 10,000 configured
-iterations, 100 warmup operations and 0 ms added RTT. Driver settings and correctness checks matched
-the matrix. Before/after order reversed on alternate samples; no other tests or benchmarks ran
-concurrently. Each large-result sample ran 500 queries, returning 500,000 rows.
-
-| Workload         | Before ops/s | After ops/s | Change | Before client CPU ms | After client CPU ms |
-| ---------------- | -----------: | ----------: | -----: | -------------------: | ------------------: |
-| Small            |        2,913 |       3,104 |  +6.6% |                1,507 |               1,442 |
-| 1,000-row result |          721 |         835 | +15.8% |                  635 |                 547 |
-| Pool             |       10,633 |      10,439 |  -1.8% |                1,136 |               1,168 |
-
-Values are medians of five samples; client CPU includes both user and system time for the measured
-operations. The large-result improvement accompanies 13.9% less client CPU. The pooled ranges overlap,
-so the small pooled decrease does not establish a regression or benefit. These local runs support a
-decoding improvement, not a universal throughput claim. The longer comparison and short matrix have
-different operation/warmup counts; compare before/after within the comparison rather than mixing
-their absolute rates. [Per-sample measurements](results/decoding-paired-2026-10-29.csv) retain latency,
-CPU and RSS evidence, and the JSON records both archive hashes.
+Reproduce the delayed diagnostic with
+`npm run benchmark -- --iterations 300 --samples 3 --latencies 10`;
+for the zero-delay relay, use `--iterations 10000 --samples 5 --latencies 0`.
+The files retain archive/source-report hashes, environment, actual operation counts, per-repetition
+latencies, client CPU and sampled RSS. Absolute rates are local observations, not capacity guarantees.
 
 ### Earlier checkpoints
 
-Earlier evidence remains available for reproduction and comparison:
+Historical experiments remain available; their revisions and settings differ from the current run:
 
-- [Pre-optimization adoption matrix](results/adoption-2026-10-29.json) and
-  [measurements](results/adoption-2026-10-29.csv).
-- [Initial matrix](results/local-2026-10-28.json) and [measurements](results/local-2026-10-28.csv).
-- [Profiled matrix](results/profiled-2026-10-28.json) and [measurements](results/profiled-2026-10-28.csv).
-- [Alternating old/new comparison](results/paired-2026-10-28.json) and [measurements](results/paired-2026-10-28.csv).
-- [CPU profile summaries and hashes](results/profiles-2026-10-28.json).
+- [October 29 decoder matrix](results/decoding-2026-10-29.json) and [samples](results/decoding-2026-10-29.csv).
+- [Alternating decoder comparison](results/decoding-paired-2026-10-29.json) and [samples](results/decoding-paired-2026-10-29.csv).
+- [Pre-optimization adoption matrix](results/adoption-2026-10-29.json) and [samples](results/adoption-2026-10-29.csv).
+- [October 28 initial matrix](results/local-2026-10-28.json), [profiled matrix](results/profiled-2026-10-28.json),
+  [alternating comparison](results/paired-2026-10-28.json) and [CPU profiles](results/profiles-2026-10-28.json).
 
-These checkpoints use different revisions/configurations. Compare their recorded settings rather
-than treating the sequence as a continuous performance trend. Full raw artifacts remain in ignored
-benchmark directories in the producing checkout.
+Do not treat these checkpoints as a continuous performance trend. Raw per-operation traces remain
+in the ignored benchmark directories of the producing checkout.

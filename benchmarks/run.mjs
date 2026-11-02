@@ -18,14 +18,24 @@ const config = {
   poolSize: 4,
   concurrency: 16,
   batchSize: 32,
+  transport: 'relay',
 };
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i += 2) {
-  const name = { '--iterations': 'iterations', '--samples': 'samples', '--latencies': 'latencies' }[
-    args[i]
-  ];
+  const name = {
+    '--iterations': 'iterations',
+    '--samples': 'samples',
+    '--latencies': 'latencies',
+    '--transport': 'transport',
+  }[args[i]];
   if (!name || args[i + 1] === undefined)
-    throw Error('Use --iterations N --samples N --latencies 0,10.');
+    throw Error('Use --iterations N --samples N --latencies 0,10 --transport relay|direct.');
+  if (name === 'transport') {
+    if (!['relay', 'direct'].includes(args[i + 1]))
+      throw Error('Transport must be relay or direct.');
+    config.transport = args[i + 1];
+    continue;
+  }
   const values = args[i + 1].split(',').map(Number);
   if (
     values.some(
@@ -39,6 +49,8 @@ for (let i = 0; i < args.length; i += 2) {
   if (name !== 'latencies' && values.length !== 1) throw Error('Expected one numeric limit.');
   config[name] = name === 'latencies' ? [...new Set(values)] : values[0];
 }
+if (config.transport === 'direct' && config.latencies.some((latency) => latency !== 0))
+  throw Error('Direct transport requires --latencies 0; added delay needs the relay.');
 const database = process.env.PGCLEAR_TEST_DATABASE_URL;
 if (!database) throw Error('PGCLEAR_TEST_DATABASE_URL is required.');
 let target;
@@ -105,6 +117,17 @@ const report = {
     .update(await readFile(new URL('./package-lock.json', import.meta.url)))
     .digest('hex'),
   versions: fixture.dependencies,
+  pgclearVersion: JSON.parse(await readFile(join(root, 'package.json'))).version,
+  harnessSha256: Object.fromEntries(
+    await Promise.all(
+      ['run', 'worker', 'relay', 'stats'].map(async (name) => [
+        name,
+        createHash('sha256')
+          .update(await readFile(new URL(`./${name}.mjs`, import.meta.url)))
+          .digest('hex'),
+      ]),
+    ),
+  ),
   serverVersion,
   node: process.version,
   machine: {
@@ -115,7 +138,9 @@ const report = {
   },
   notes: [
     'Measured client CPU/RSS exclude the relay and PostgreSQL processes.',
-    'All profiles use the same bounded TCP relay; configured RTT is added delay, not measured total RTT.',
+    config.transport === 'relay'
+      ? 'The bounded TCP relay adds the configured RTT; this is not measured total RTT, and even zero delay includes relay overhead.'
+      : 'Direct TCP connections bypass the relay; no artificial delay is added.',
     'Prepared setup, connection/type discovery, warmup and cleanup are excluded from timing.',
     'Common value assertions are included. Results use object rows with matching int4/array/JSON mappings; native typed array/JSON bind helpers are used where required.',
     'Baseline pipelining is disabled. pipeline-probe enables comparator pipelines with bounded concurrency; pgclear stays sequential.',
@@ -136,10 +161,15 @@ const workloads = [
 ];
 try {
   for (const addedRttMs of config.latencies) {
-    const proxy = await relay(target.hostname, Number(target.port || 5432), addedRttMs);
+    const proxy =
+      config.transport === 'relay'
+        ? await relay(target.hostname, Number(target.port || 5432), addedRttMs)
+        : undefined;
     const proxied = new URL(target);
-    proxied.hostname = '127.0.0.1';
-    proxied.port = String(proxy.port);
+    if (proxy) {
+      proxied.hostname = '127.0.0.1';
+      proxied.port = String(proxy.port);
+    }
     try {
       for (const workload of workloads)
         for (let sample = 0; sample < config.samples; sample++) {
@@ -180,7 +210,7 @@ try {
           }
         }
     } finally {
-      await proxy.close();
+      await proxy?.close();
     }
   }
   for (const addedRttMs of config.latencies)
