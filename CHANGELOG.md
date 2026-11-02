@@ -1,5 +1,9 @@
 # Release notes
 
+## 0.3.6
+
+- Remove redundant casts from query and codec examples; explain when SQL context supplies types.
+
 ## 0.3.5
 
 - Rewrite standalone documentation into six focused guides. Connection/transaction, value, query,

@@ -18,7 +18,8 @@ Encoding parameters and decoding results are independent. Type annotations chang
 | supported Temporal value | ISO date/time/interval text         |
 
 Undefined, plain objects and arrays reject; use explicit JSON/array encoders. PostgreSQL validates
-ranges and textual formats. Add a cast or explicit parameter when server inference lacks context.
+ranges and textual formats. Table columns and SQL expressions usually supply parameter type context.
+Use a cast or explicit parameter only when that context is missing or a conversion is intended.
 Keep values and codec state unchanged until settlement.
 
 | PostgreSQL output                         | Default value                               |
@@ -46,7 +47,7 @@ precision; use BigInt for exact integer arithmetic when needed.
 ```ts
 import { builtin, json, param } from '@kequtech/pgclear';
 
-await pool.queryClassic('SELECT $1::jsonb AS data, $2 AS ids', [
+await pool.queryClassic('SELECT $1 AS data, $2 AS ids', [
   json({ enabled: true }),
   param([1, null, 3], builtin.int4Array),
 ]);
@@ -79,7 +80,7 @@ are supported; ordinary results use text format.
 import { builtin, defaultCodecs, param } from '@kequtech/pgclear';
 
 const codecs = defaultCodecs.with(builtin.int8BigInt).with(builtin.timestamptzDate);
-const result = await pool.queryClassic('SELECT $1::bigint AS id', [param('42', builtin.int8)], {
+const result = await pool.queryClassic('SELECT $1 AS id', [param('42', builtin.int8)], {
   codecs,
 });
 ```

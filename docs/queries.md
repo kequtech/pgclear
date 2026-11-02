@@ -7,8 +7,8 @@
 ```ts
 import { sql } from '@kequtech/pgclear';
 
-const tagged = await pool.query(sql<{ value: number }>`SELECT ${42}::integer AS value`);
-const classic = await pool.queryClassic<{ value: number }>('SELECT $1::integer AS value', [42]);
+const tagged = await pool.query(sql<{ message: string }>`SELECT ${'Hello'} AS message`);
+const classic = await pool.queryClassic<{ message: string }>('SELECT $1 AS message', ['Hello']);
 ```
 
 `sql` produces a frozen tagged [text, values] tuple; each interpolation is one bound value. Keep
@@ -42,7 +42,7 @@ Query options are signal, timeoutMs, rowMode and operation-local codecs. Encoder
 ## Describe and scripts
 
 ```ts
-const metadata = await pool.describe({ text: 'SELECT $1::integer AS value', parameterTypes: [23] });
+const metadata = await pool.describe({ text: 'SELECT $1 AS value', parameterTypes: [23] });
 await pool.withSession(async (session) => {
   const results = await session.script('SELECT 1; SELECT 2;');
 });
@@ -61,9 +61,9 @@ Scripts exist on held sessions/leases/connections, not pool or transaction callb
 
 ```ts
 await pool.withSession(async (session) => {
-  const statement = await session.prepare('SELECT $1::integer AS value');
+  const statement = await session.prepare('SELECT $1 AS message');
   try {
-    const result = await statement.query<{ value: number }>([42]);
+    const result = await statement.query<{ message: string }>(['Hello']);
   } finally {
     await statement.close();
   }

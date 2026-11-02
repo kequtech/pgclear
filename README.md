@@ -12,8 +12,8 @@ import { createPool, sql } from '@kequtech/pgclear';
 
 const pool = createPool({ connectionString: process.env.DATABASE_URL! });
 try {
-  const result = await pool.query(sql<{ value: number }>`SELECT ${42}::integer AS value`);
-  console.log(result.rows[0]?.value);
+  const result = await pool.query(sql<{ message: string }>`SELECT ${'Hello, pgclear!'} AS message`);
+  console.log(result.rows[0]?.message);
 } finally {
   await pool.close();
 }
